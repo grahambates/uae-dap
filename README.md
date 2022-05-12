@@ -16,6 +16,7 @@ Tested with [nvim-dap](https://github.com/mfussenegger/nvim-dap). Here's an exam
 dap.adapters.asm68k = {
   type = 'executable',
   command = os.getenv('HOME') .. '/uae-dap/cli.js',
+  options = { initialize_timeout_sec = 10 },
 }
 
 local cwd = vim.fn.getcwd()
@@ -28,18 +29,18 @@ dap.configurations.asm68k = {
     program = cwd .. '/uae/dh0/main',
     cwd = cwd,
     stopOnEntry = false,
-    serverName = "localhost",
+    serverName = 'localhost',
     serverPort = 6860,
     trace = false,
-    cstool = home .. "/amiga/bin/cstool",
+    cstool = home .. '/amiga/bin/cstool',
     startEmulator = true,
-    emulator = home .. "/amiga/bin/fs-uae",
-    emulatorWorkingDir = home .."/amiga/bin",
-    options = {
-      "--hard_drive_0=" .. cwd .. "/uae/dh0",
-      "--remote_debugger=200",
-      "--use_remote_debugger=true",
-      "--automatic_input_grab=0"
+    emulator = home .. '/amiga/bin/fs-uae',
+    emulatorWorkingDir = home ..'/amiga/bin',
+    emulatorOptions = {
+      '--hard_drive_0=' .. cwd .. '/uae/dh0',
+      '--remote_debugger=200',
+      '--use_remote_debugger=true',
+      '--automatic_input_grab=0'
     },
   }
 }

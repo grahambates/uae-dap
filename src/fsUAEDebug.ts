@@ -65,7 +65,7 @@ export interface LaunchRequestArguments
   /** emulator working directory */
   emulatorWorkingDir?: string;
   /** Emulator options */
-  options: Array<string>;
+  emulatorOptions: Array<string>;
   /** cstool program */
   cstool?: string;
   /** path replacements for source files */
@@ -554,7 +554,7 @@ export class FsUAEDebugSession
           const emulatorWorkingDir = args.emulatorWorkingDir || null;
           this.executor
             .runTool(
-              args.options,
+              args.emulatorOptions,
               emulatorWorkingDir,
               "warning",
               true,
