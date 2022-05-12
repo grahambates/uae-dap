@@ -27,6 +27,7 @@
   "dependencies": {
     "@vscode/debugadapter": "^1.55.1",
     "@vscode/debugprotocol": "^1.55.1",
+    "expression-eval": "^5.0.0",
     "glob": "^8.0.1",
     "vscode-uri": "^3.0.3",
     "winston": "^3.7.2"
