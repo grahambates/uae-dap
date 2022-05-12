@@ -1,6 +1,6 @@
 import winston = require("winston");
-import { FileProxy } from "./fsProxy";
 import { URI as Uri } from "vscode-uri";
+import { readFile } from "fs/promises";
 
 const DEBUG_LINE = 0x4c494e45;
 
@@ -432,8 +432,7 @@ export class HunkParser {
 
   public async readFile(fileUri: Uri): Promise<Array<Hunk>> {
     winston.info(`Parsing file "${fileUri.fsPath}"`);
-    const fileProxy = new FileProxy(fileUri);
-    const buffer = await fileProxy.readFile();
+    const buffer = await readFile(fileUri.fsPath);
     return this.parse_file(buffer);
   }
 }

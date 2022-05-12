@@ -7,8 +7,9 @@ import {
   Symbol,
 } from "./amigaHunkParser";
 import * as path from "path";
-import { FileProxy } from "./fsProxy";
 import { URI as Uri } from "vscode-uri";
+import * as fs from "fs";
+import { readFile, access } from "fs/promises";
 
 export class DebugInfo {
   public hunks = new Array<Hunk>();
@@ -61,7 +62,7 @@ export class DebugInfo {
     const symbols = Array<[Symbol, number | undefined]>();
     let normFilename = filename;
     if (normFilename) {
-      normFilename = FileProxy.normalize(normFilename);
+      normFilename = normalize(normFilename);
     }
     for (const hunk of this.hunks) {
       if (hunk.symbols) {
@@ -126,8 +127,7 @@ export class DebugInfo {
       this.sourceFilesCacheMap.get(resolvedFileName);
     if (!contents) {
       // Load source file
-      const fileProxy = new FileProxy(Uri.file(resolvedFileName));
-      const fileContentsString = await fileProxy.readFileText();
+      const fileContentsString = await readFile(resolvedFileName, "utf8");
       contents = fileContentsString.split(/\r\n|\r|\n/g);
       this.sourceFilesCacheMap.set(resolvedFileName, contents);
     }
@@ -173,9 +173,9 @@ export class DebugInfo {
     if (!resolvedFileName) {
       resolvedFileName = filename;
       if (this.pathReplacements) {
-        const normalizedFilename = FileProxy.normalize(resolvedFileName);
+        const normalizedFilename = normalize(resolvedFileName);
         for (const key of Array.from(this.pathReplacements.keys())) {
-          const normalizedKey = FileProxy.normalize(key);
+          const normalizedKey = normalize(key);
           if (normalizedFilename.indexOf(normalizedKey) >= 0) {
             const value = this.pathReplacements.get(key);
             if (value) {
@@ -188,19 +188,18 @@ export class DebugInfo {
           }
         }
       }
+
       // search the file in the workspace
-      const fProxy = new FileProxy(Uri.file(resolvedFileName));
-      if (this.sourcesRootPaths && !(await fProxy.exists())) {
+      if (this.sourcesRootPaths && !(await exists(resolvedFileName))) {
         for (const rootPath of this.sourcesRootPaths) {
           const checkedPath = path.join(rootPath, resolvedFileName);
-          const checkedProxy = new FileProxy(Uri.file(checkedPath));
-          if (await checkedProxy.exists()) {
+          if (await exists(checkedPath)) {
             resolvedFileName = checkedPath;
             break;
           }
         }
       }
-      resolvedFileName = FileProxy.normalize(resolvedFileName);
+      resolvedFileName = normalize(resolvedFileName);
       this.resolvedSourceFilesNames.set(filename, resolvedFileName);
     }
     return resolvedFileName;
@@ -232,7 +231,7 @@ export class DebugInfo {
     fileLine: number
   ): Promise<[number, number] | null> {
     await this.load();
-    const normFilename = FileProxy.normalize(filename);
+    const normFilename = normalize(filename);
     for (let i = 0; i < this.hunks.length; i++) {
       const hunk = this.hunks[i];
       const sourceFiles = hunk.lineDebugInfo;
@@ -256,7 +255,7 @@ export class DebugInfo {
   public async getAllSegmentIds(filename: string): Promise<number[]> {
     await this.load();
     const segIds: number[] = [];
-    const normFilename = FileProxy.normalize(filename);
+    const normFilename = normalize(filename);
     for (let i = 0; i < this.hunks.length; i++) {
       const hunk = this.hunks[i];
       const sourceFiles = hunk.lineDebugInfo;
@@ -273,3 +272,23 @@ export class DebugInfo {
     return segIds;
   }
 }
+
+/**
+ * Normalizes a path
+ * @param inputPath Path to normalize
+ * @return Normalized path
+ */
+function normalize(inputPath: string): string {
+  let newDName = inputPath.replace(/\\+/g, "/");
+  // Testing Windows derive letter -> to uppercase
+  if (newDName.length > 0 && newDName.charAt(1) === ":") {
+    const fChar = newDName.charAt(0).toUpperCase();
+    newDName = fChar + ":" + newDName.substring(2);
+  }
+  return newDName;
+}
+
+const exists = (file: string) =>
+  access(file, fs.constants.R_OK)
+    .then(() => true)
+    .catch(() => false);
