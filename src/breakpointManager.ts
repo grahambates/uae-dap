@@ -12,14 +12,8 @@ import winston = require("winston");
  * Class to contact the fs-UAE GDB server.
  */
 export class BreakpointManager {
-  /** Storage prefix for keys*/
-  static readonly STORAGE_PREFIX = "amiga.assembly";
-  /** Storage prefix for keys*/
-  static readonly STORAGE_DATA_LIST = `${BreakpointManager.STORAGE_PREFIX}.dataBreakpointsList`;
   /** Size map */
   private static sizes = new Map<string, number>();
-  /** List of stored breakpoints */
-  private static storedDataBreakpointsList?: Array<string>;
   /** Default selection mask for exception : each bit is a exception code */
   static readonly DEFAULT_EXCEPTION_MASK = 0b111100;
   /** exception mask */
@@ -446,113 +440,24 @@ export class BreakpointManager {
     }
   }
 
-  public static loadStoredDataBreakpoints() {
-    if (!BreakpointManager.storedDataBreakpointsList) {
-      // TODO: create adapter
-      if (!BreakpointManager.storedDataBreakpointsList) {
-        BreakpointManager.storedDataBreakpointsList = new Array<string>();
-      }
-      winston.info("[BreakpointManager] Loading data breakpoints keys");
-      for (const k of BreakpointManager.storedDataBreakpointsList) {
-        winston.info(`[BreakpointManager] index breakpoint : ${k}`);
-      }
-    }
-  }
-
-  private static saveStoredDataBreakpoints(list: Array<string>) {
-    // TODO: create adapter
-    winston.info("[BreakpointManager] Saving data breakpoints keys");
-    for (const k of list) {
-      winston.info(`[BreakpointManager] index breakpoint : ${k}`);
-    }
-  }
-
-  public static addStoredDataBreakpoints(id: string) {
-    if (!BreakpointManager.storedDataBreakpointsList) {
-      BreakpointManager.storedDataBreakpointsList = new Array<string>();
-    }
-    if (!BreakpointManager.storedDataBreakpointsList.includes(id)) {
-      BreakpointManager.storedDataBreakpointsList.push(id);
-    }
-    BreakpointManager.saveStoredDataBreakpoints(
-      BreakpointManager.storedDataBreakpointsList
-    );
-  }
-
-  public static removeStoredDataBreakpoints(id: string) {
-    if (BreakpointManager.storedDataBreakpointsList) {
-      BreakpointManager.storedDataBreakpointsList =
-        BreakpointManager.storedDataBreakpointsList?.filter((k) => k !== id);
-      BreakpointManager.saveStoredDataBreakpoints(
-        BreakpointManager.storedDataBreakpointsList
-      );
-    }
-  }
-
-  public static removeStoredDataBreakpointsList() {
-    BreakpointManager.loadStoredDataBreakpoints();
-    if (BreakpointManager.storedDataBreakpointsList) {
-      for (const id of BreakpointManager.storedDataBreakpointsList) {
-        BreakpointManager.removeSizeForDataBreakpoint(id, true);
-      }
-
-      BreakpointManager.sizes = new Map();
-      // ExtensionState.getCurrent()
-      //   .getExtensionContext()
-      //   ?.workspaceState.update(BreakpointManager.STORAGE_DATA_LIST, undefined);
-      BreakpointManager.storedDataBreakpointsList = new Array<string>();
-    }
-  }
-
-  public static getSizeForDataBreakpoint(bpId: string): number | undefined {
-    const id = BreakpointManager.getDataBreakpointStorageId(bpId);
+  public static getSizeForDataBreakpoint(id: string): number | undefined {
     const size = BreakpointManager.sizes.get(id);
-    // const size = ExtensionState.getCurrent()
-    //   .getExtensionContext()
-    //   ?.workspaceState.get<number>(id);
     winston.info(
       `[BreakpointManager] GET size of DataBreakpoint id: ${id}=${size}`
     );
     return size;
   }
-  public static getDataBreakpointStorageId(id: string): string {
-    if (id.startsWith(BreakpointManager.STORAGE_PREFIX)) {
-      return id;
-    }
-    return `${BreakpointManager.STORAGE_PREFIX}.${id}`;
-  }
 
-  public static setSizeForDataBreakpoint(bpId: string, size: number) {
-    const id = BreakpointManager.getDataBreakpointStorageId(bpId);
+  public static setSizeForDataBreakpoint(id: string, size: number) {
     winston.info(
       `[BreakpointManager] SET size of DataBreakpoint id: ${id}=${size}`
     );
     BreakpointManager.sizes.set(id, size);
-    // ExtensionState.getCurrent()
-    //   .getExtensionContext()
-    //   ?.workspaceState.update(id, size);
-    BreakpointManager.addStoredDataBreakpoints(id);
   }
 
-  public static removeSizeForDataBreakpoint(
-    bpId: string,
-    skipStoringList?: boolean
-  ) {
-    const id = BreakpointManager.getDataBreakpointStorageId(bpId);
+  public static removeSizeForDataBreakpoint(id: string) {
     winston.info(`[BreakpointManager] Removing DataBreakpoint id: ${id}`);
-
     BreakpointManager.sizes.delete(id);
-    // ExtensionState.getCurrent()
-    //   .getExtensionContext()
-    //   ?.workspaceState.update(id, undefined);
-
-    if (!skipStoringList) {
-      BreakpointManager.removeStoredDataBreakpoints(id);
-    }
-  }
-
-  public static getStoredDataBreakpointsList(): Array<string> | undefined {
-    return BreakpointManager.storedDataBreakpointsList;
   }
 }
 

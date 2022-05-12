@@ -1,5 +1,3 @@
-import { StringUtils } from "./stringUtils";
-
 /**
  * Display Format
  */
@@ -55,9 +53,9 @@ export class VariableFormatter {
    */
   public format(value: number): string {
     if (this.displayFormat === VariableDisplayFormat.HEXADECIMAL) {
-      return `0x${StringUtils.padStart(value.toString(16), 8, "0")}`;
+      return `0x${value.toString(16).padStart(8, "0")}`;
     } else if (this.displayFormat === VariableDisplayFormat.BINARY) {
-      return `0b${StringUtils.padStart(value.toString(2), 32, "0")}`;
+      return `0b${value.toString(2).padStart(32, "0")}`;
     } else if (this.displayFormat === VariableDisplayFormat.ADDRESS) {
       return `$${value.toString(16)}`;
     } else {

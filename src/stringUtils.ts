@@ -1,63 +1,5 @@
 export class StringUtils {
   /**
-   * Padding on start of string
-   * @param stringToPad String to pad
-   * @param targetLength Length targeted
-   * @param padString Char as string to fill default to space
-   * @return Padding string
-   */
-  public static padStart(
-    stringToPad: string,
-    targetLength: number,
-    padString = " "
-  ): string {
-    return (
-      StringUtils.createPad(stringToPad, targetLength, padString) + stringToPad
-    );
-  }
-
-  /**
-   * Create pad of the good size for string
-   * @param stringToPad String to pad
-   * @param targetLength Length targeted
-   * @param padString Char as string to fill default to space
-   * @return Padding string
-   */
-  public static createPad(
-    stringToPad: string,
-    targetLength: number,
-    padString = " "
-  ): string {
-    targetLength = targetLength >> 0; //truncate if number or convert non-number to 0;
-    if (stringToPad.length > targetLength) {
-      return "";
-    } else {
-      targetLength = targetLength - stringToPad.length;
-      if (targetLength > padString.length) {
-        padString += padString.repeat(targetLength / padString.length); //append to original to ensure we are longer than needed
-      }
-      return padString.slice(0, targetLength);
-    }
-  }
-
-  /**
-   * Getting a padded string
-   * @param stringToPad String to pad
-   * @param targetLength Length targeted
-   * @param padString Char as string to fill default to space
-   * @return Padded string
-   */
-  public static padEnd(
-    stringToPad: string,
-    targetLength: number,
-    padString = " "
-  ): string {
-    return (
-      stringToPad + StringUtils.createPad(stringToPad, targetLength, padString)
-    );
-  }
-
-  /**
    * Chunks a string
    * @param str String to chunk
    * @param n Array of check elements
@@ -229,25 +171,6 @@ export class StringUtils {
     } else {
       return 0;
     }
-  }
-
-  /**
-   * Parse string which may be quoted with single or double quotes.
-   * @param quotedString
-   * @returns value of string
-   */
-  public static parseQuoted(quotedString: string): string {
-    let start = 0;
-    let end = quotedString.length;
-    const first = quotedString[start];
-    const last = quotedString[quotedString.length - 1];
-    if (first === '"' || first === "'") {
-      start++;
-      if (last === first) {
-        end--;
-      }
-    }
-    return quotedString.substring(start, end);
   }
 
   /**

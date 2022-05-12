@@ -17,7 +17,6 @@ import { URI as Uri } from "vscode-uri";
 import { basename } from "path";
 import { GdbProxy } from "./gdbProxy";
 import { Segment, GdbHaltStatus } from "./gdbProxyCore";
-import { ExecutorHelper } from "./execHelper";
 import { DebugInfo } from "./debugInfo";
 import { Capstone } from "./capstone";
 import { DebugVariableResolver } from "./debugVariableResolver";
@@ -33,12 +32,13 @@ import { StringUtils } from "./stringUtils";
 import { MemoryLabelsRegistry } from "./customMemoryAddresses";
 import { BreakpointManager, GdbBreakpoint } from "./breakpointManager";
 import { CopperDisassembler } from "./copperDisassembler";
-import { FileProxy } from "./fsProxy";
 import {
   VariableDisplayFormat,
   VariableDisplayFormatRequest,
   VariableFormatter,
 } from "./variableFormatter";
+import * as cp from "child_process";
+import * as fs from "fs";
 
 /**
  * This interface describes the mock-debug specific launch attributes
@@ -117,11 +117,9 @@ export class FsUAEDebugSession
   /** Test mode activated */
   protected testMode = false;
 
-  /** Executor to run fs-uae */
-  protected executor: ExecutorHelper;
-
   /** Token to cancel the emulator */
   // protected cancellationTokenSource?: CancellationTokenSource;
+  protected emulatorProcess?: cp.ChildProcess;
 
   /** Debug information for the loaded program */
   protected debugInfo?: DebugInfo;
@@ -162,7 +160,6 @@ export class FsUAEDebugSession
     this.gdbProxy = this.createGdbProxy();
     this.gdbProxy.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
     this.initProxy();
-    this.executor = new ExecutorHelper();
     this.debugDisassembledManager = new DebugDisassembledManager(
       this.gdbProxy,
       undefined,
@@ -190,15 +187,9 @@ export class FsUAEDebugSession
   /**
    * Setting the context to run the tests.
    * @param gdbProxy mocked proxy
-   * @param executor mocked executor
    * @param capstone mocked capstone
    */
-  public setTestContext(
-    gdbProxy: GdbProxy,
-    executor: ExecutorHelper,
-    capstone: Capstone
-  ): void {
-    this.executor = executor;
+  public setTestContext(gdbProxy: GdbProxy, capstone: Capstone): void {
     this.gdbProxy = gdbProxy;
     this.gdbProxy.setMutexTimeout(1000);
     this.initProxy();
@@ -537,55 +528,36 @@ export class FsUAEDebugSession
     });
   }
 
-  public checkEmulator(emulatorPath: string): Promise<boolean> {
-    // Function useful for testing - mocking
-    const fileProxy = new FileProxy(Uri.file(emulatorPath));
-    return fileProxy.exists();
-  }
-
   public async startEmulator(args: LaunchRequestArguments): Promise<void> {
-    if (args.startEmulator) {
-      this.sendEvent(new OutputEvent(`Starting emulator: ${args.emulator}`));
-      if (args.emulator) {
-        const emulatorExe = args.emulator;
-        // Is the emulator exe present in the filesystem ?
-        if (await this.checkEmulator(emulatorExe)) {
-          // this.cancellationTokenSource = new CancellationTokenSource();
-          const emulatorWorkingDir = args.emulatorWorkingDir || null;
-          this.executor
-            .runTool(
-              args.emulatorOptions,
-              emulatorWorkingDir,
-              "warning",
-              true,
-              emulatorExe,
-              null,
-              true,
-              null
-              // this.cancellationTokenSource.token
-            )
-            .then(() => {
-              this.sendEvent(new TerminatedEvent());
-            })
-            .catch((err) => {
-              this.sendEvent(new TerminatedEvent());
-              throw new Error(
-                `Error raised by the emulator run: ${(err as Error).message}`
-              );
-            });
-        } else {
-          throw new Error(
-            `The emulator executable '${emulatorExe}' cannot be found`
-          );
-        }
-      } else {
-        throw new Error(
-          "The emulator executable file path must be defined in the launch settings"
-        );
-      }
-    } else {
+    if (!args.startEmulator) {
       this.sendEvent(new OutputEvent("Emulator starting skipped by settings"));
+      return;
     }
+
+    this.sendEvent(new OutputEvent(`Starting emulator: ${args.emulator}`));
+    if (!args.emulator) {
+      throw new Error(
+        "The emulator executable file path must be defined in the launch settings"
+      );
+    }
+    try {
+      fs.accessSync(args.emulator, fs.constants.X_OK);
+    } catch (err) {
+      throw new Error(
+        `The emulator executable '${args.emulator}' is not executable`
+      );
+    }
+    // Is the emulator exe present in the filesystem ?
+    this.emulatorProcess = cp.spawn(args.emulator, args.emulatorOptions, {
+      cwd: args.emulatorWorkingDir,
+    });
+    this.emulatorProcess.on("exit", () => {
+      this.sendEvent(new TerminatedEvent());
+    });
+    this.emulatorProcess.on("error", (err) => {
+      this.sendEvent(new TerminatedEvent());
+      throw new Error(`Error raised by the emulator run: ${err.message}`);
+    });
   }
 
   protected customRequest(
@@ -761,12 +733,6 @@ export class FsUAEDebugSession
     };
     response.success = true;
     this.sendResponse(response);
-  }
-
-  protected terminateEmulator(): void {
-    // if (this.cancellationTokenSource) {
-    //   this.cancellationTokenSource.cancel();
-    // }
   }
 
   protected async setBreakPointsRequest(
@@ -1140,7 +1106,9 @@ export class FsUAEDebugSession
 
   public terminate(): void {
     this.gdbProxy.destroy();
-    this.terminateEmulator();
+    if (this.emulatorProcess) {
+      this.emulatorProcess.kill();
+    }
   }
 
   public shutdown(): void {

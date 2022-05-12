@@ -1,4 +1,3 @@
-import { StringUtils } from "./stringUtils";
 import { MemoryLabelsRegistry } from "./customMemoryAddresses";
 
 /** Type of copper instruction */
@@ -58,7 +57,7 @@ export class CopperInstruction {
     return inst + pad;
   }
   protected format(value: number): string {
-    return StringUtils.padStart(value.toString(16), 4, "0");
+    return value.toString(16).padStart(4, "0");
   }
 }
 

@@ -1,59 +1,39 @@
-import { ExecutorHelper } from "./execHelper";
 import { DebugInfo } from "./debugInfo";
 import { URI as Uri } from "vscode-uri";
+import * as cp from "child_process";
 
 /**
  * Class to disassemble the m68k binaries
  */
 export class Capstone {
-  /** Path to the capstone executable */
-  private cstoolPath: string;
-  /** Executor to run cstools */
-  private executor: ExecutorHelper;
-
   /**
    * Constructor
    * @param cstoolPath Path to Cstool
    */
-  public constructor(cstoolPath: string) {
-    this.cstoolPath = cstoolPath;
-    this.executor = new ExecutorHelper();
-  }
+  public constructor(private cstoolPath: string) {}
 
   /**
    * Disassemble a buffer
    * @param buffer Buffer to disassemble
-   * @param cancellationToken Token to cancel the process
    */
-  public async disassemble(
-    buffer: string /*, cancellationToken?: CancellationToken*/
-  ): Promise<string> {
+  public async disassemble(buffer: string): Promise<string> {
     const args = ["m68k", buffer];
-    const workspaceRootDir = this.getWorkspaceRootDir();
-    let rootPath: string | null = null;
-    if (workspaceRootDir) {
-      rootPath = workspaceRootDir.fsPath;
-    }
-    const code = await this.executor.runToolRetrieveStdout(
-      args,
-      rootPath,
-      this.cstoolPath,
-      null
-    );
-    if (code.indexOf("ERROR") >= 0) {
-      throw new Error(code);
-    }
-    return code;
+    return new Promise((resolve, reject) => {
+      cp.execFile(this.cstoolPath, args, (err, code) => {
+        if (err) reject(err);
+        if (code.includes("ERROR")) {
+          reject(code);
+        }
+        resolve(code);
+      });
+    });
   }
 
   /**
    * Disassemble a amiga hunk file
    * @param filename File to disassemble
-   * @param cancellationToken Token to cancel the process
    */
-  public async disassembleFile(
-    filename: Uri /*, cancellationToken?: CancellationToken*/
-  ): Promise<string> {
+  public async disassembleFile(filename: Uri): Promise<string> {
     const di = new DebugInfo(filename);
     if (await di.load()) {
       const codeDataArray = di.getCodeData();
@@ -70,24 +50,6 @@ export class Capstone {
     } else {
       throw new Error(`File '${filename}' could not be parsed`);
     }
-  }
-
-  /**
-   * Setting the context to run the tests.
-   * @param executor mocked executor
-   */
-  public setTestContext(executor: ExecutorHelper): void {
-    this.executor = executor;
-  }
-
-  /**
-   * Reads the workspace folder dir
-   */
-  private getWorkspaceRootDir(): Uri | null {
-    // if (workspace.workspaceFolders && workspace.workspaceFolders.length > 0) {
-    //   return workspace.workspaceFolders[0].uri;
-    // }
-    return null;
   }
 
   private padStartWith0(stringToPad: string, targetLength: number): string {

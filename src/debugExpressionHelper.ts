@@ -85,7 +85,7 @@ export class DebugExpressionHelper {
         }
         variables.push({
           value: row,
-          name: StringUtils.padStart(lineAddress.toString(16), 8, "0"),
+          name: lineAddress.toString(16).padStart(8, "0"),
           variablesReference: 0,
         });
         if (firstRow.length <= 0) {
@@ -117,7 +117,7 @@ export class DebugExpressionHelper {
         ib = "";
       }
       variables.push({
-        value: ib + StringUtils.createPad(ib, 26) + instruction.instruction,
+        value: ib.padEnd(26) + instruction.instruction,
         name: instruction.address,
         variablesReference: 0,
       });
@@ -141,10 +141,7 @@ export class DebugExpressionHelper {
           const instructionElms = elms[2].split("\t");
           let instruction = elms[2];
           if (instructionElms.length > 1) {
-            instruction =
-              instructionElms[0] +
-              StringUtils.createPad(instructionElms[0], 10) +
-              instructionElms[1];
+            instruction = instructionElms[0].padEnd(10) + instructionElms[1];
           }
           const offset = parseInt(elms[0], 16);
           const addOffset = startAddress + offset;
@@ -213,6 +210,6 @@ export class DisassembledInstructionAdapter
     }
   }
   public static getAddressString(address: number): string {
-    return "0x" + StringUtils.padStart(address.toString(16), 8, "0");
+    return "0x" + address.toString(16).padStart(8, "0");
   }
 }
