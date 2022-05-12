@@ -1107,7 +1107,7 @@ export class FsUAEDebugSession
   public terminate(): void {
     this.gdbProxy.destroy();
     if (this.emulatorProcess) {
-      this.emulatorProcess.kill();
+      this.emulatorProcess.kill("SIGINT");
     }
   }
 
