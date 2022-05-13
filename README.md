@@ -9,6 +9,14 @@ to create stand-alone adapter for use with other editors that support Debug Adap
 Needs @prb28's patched FS-UAE and [Capstone](https://www.capstone-engine.org/) cstool executables.
 You can download these as [prebuilt binaries](https://github.com/prb28/vscode-amiga-assembly-binaries).
 
+## Installation
+
+```
+npm i -g uae-dap
+```
+
+## Usage
+
 Tested with [nvim-dap](https://github.com/mfussenegger/nvim-dap) and FS-UAE.
 Here's an example configuration:
 
@@ -17,7 +25,7 @@ local home = os.getenv('HOME')
 
 dap.adapters.asm68k = {
   type = 'executable',
-  command = home .. '/uae-dap/cli.js',
+  command = 'uae-dap',
   options = { initialize_timeout_sec = 10 },
 }
 
