@@ -1,12 +1,12 @@
 import { Mutex } from "./mutex";
 import { DebugProtocol } from "@vscode/debugprotocol";
+import { Logger } from "@vscode/debugadapter";
 import {
   DebugDisassembledFile,
   DebugDisassembledManager,
 } from "./debugDisassembled";
 import { DebugInfo } from "./debugInfo";
 import { GdbProxy } from "./gdbProxy";
-import winston = require("winston");
 
 /**
  * Class to contact the fs-UAE GDB server.
@@ -442,21 +442,21 @@ export class BreakpointManager {
 
   public static getSizeForDataBreakpoint(id: string): number | undefined {
     const size = BreakpointManager.sizes.get(id);
-    winston.info(
+    Logger.logger.log(
       `[BreakpointManager] GET size of DataBreakpoint id: ${id}=${size}`
     );
     return size;
   }
 
   public static setSizeForDataBreakpoint(id: string, size: number) {
-    winston.info(
+    Logger.logger.log(
       `[BreakpointManager] SET size of DataBreakpoint id: ${id}=${size}`
     );
     BreakpointManager.sizes.set(id, size);
   }
 
   public static removeSizeForDataBreakpoint(id: string) {
-    winston.info(`[BreakpointManager] Removing DataBreakpoint id: ${id}`);
+    Logger.logger.log(`[BreakpointManager] Removing DataBreakpoint id: ${id}`);
     BreakpointManager.sizes.delete(id);
   }
 }

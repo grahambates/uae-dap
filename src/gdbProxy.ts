@@ -243,10 +243,10 @@ export class GdbProxy extends EventEmitter {
 
   /**
    * Method to precess the generics messages
-   * @param proxy A GdbProxy instance
+   * @param _ A GdbProxy instance
    * @param data Data to parse
    */
-  protected onData(proxy: GdbProxy, data: any): void {
+  protected onData(_: GdbProxy, data: any): void {
     const packets = GdbPacket.parseData(data);
     for (const packet of packets) {
       // plus packet are acknowledge - to be ignored
@@ -259,7 +259,7 @@ export class GdbProxy extends EventEmitter {
             // don't display profiler output, handled by profiler
             if (msg.startsWith("DBG: ")) {
               // user output (KPrintF, etc.)
-              msg = msg.substr(5); // remove "DBG: " prefix added by uaelib.cpp
+              msg = msg.substring(5); // remove "DBG: " prefix added by uaelib.cpp
             }
             this.sendEvent(
               "output",
@@ -288,9 +288,8 @@ export class GdbProxy extends EventEmitter {
 
   /**
    * Message to initialize the program
-   * @param stopOnEntry If true we will stop on entry
    */
-  public async initProgram(stopOnEntry: boolean | undefined): Promise<void> {
+  public async initProgram(_: boolean | undefined): Promise<void> {
     // nothing
   }
 
@@ -603,7 +602,7 @@ export class GdbProxy extends EventEmitter {
   /**
    * Retrieves the thread display name
    *
-   * @param threadId Thread identifier
+   * @param thread Thread identifier
    * @return name
    */
   public getThreadDisplayName(thread: GdbThread): string {
@@ -613,7 +612,7 @@ export class GdbProxy extends EventEmitter {
   /**
    * Retrieves the stack position for a frame
    *
-   * @param threadId Thread identifier
+   * @param thread Thread identifier
    * @param frameIndex Index of the frame selected
    */
   protected async getStackPosition(
@@ -783,7 +782,7 @@ export class GdbProxy extends EventEmitter {
    */
   public async registers(
     frameId: number | null,
-    thread: GdbThread | null
+    _: GdbThread | null
   ): Promise<Array<GdbRegister>> {
     const unlock = await this.mutex.capture("selectFrame");
     try {
@@ -877,7 +876,7 @@ export class GdbProxy extends EventEmitter {
 
   /**
    * Reads a register value
-   * @param register Name of the register a1, a2, etc..
+   * @param name Name of the register a1, a2, etc..
    */
   public async getRegister(
     name: string,
@@ -918,7 +917,7 @@ export class GdbProxy extends EventEmitter {
 
   /**
    * Reads a register value
-   * @param register Name of the register a1, a2, etc..
+   * @param name Name of the register a1, a2, etc..
    */
   public async getRegisterNumerical(
     name: string,
@@ -980,7 +979,7 @@ export class GdbProxy extends EventEmitter {
    * @param args Arguments
    */
   public sendEvent(event: string, ...args: any[]): void {
-    setImmediate((_) => {
+    setImmediate(() => {
       this.emit(event, ...args);
     });
   }

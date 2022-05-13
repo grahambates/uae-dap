@@ -140,7 +140,7 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
     // set and verify breakpoint locations
     if (args.breakpoints) {
       for (const reqBp of args.breakpoints) {
-        const [variableName, displayValue, value] =
+        const [_, displayValue, value] =
           this.breakpointManager.parseDataIdAddress(reqBp.dataId);
         let size = BreakpointManager.getSizeForDataBreakpoint(reqBp.dataId);
         if (!size) {

@@ -1,6 +1,6 @@
-import winston = require("winston");
 import { URI as Uri } from "vscode-uri";
 import { readFile } from "fs/promises";
+import { Logger } from "@vscode/debugadapter";
 
 const DEBUG_LINE = 0x4c494e45;
 
@@ -67,6 +67,8 @@ export interface SizesTypes {
 }
 
 export class HunkParser {
+  constructor(private logger: Logger.ILogger = Logger.logger) {}
+
   private skip_hunk(fileData: DataView, fileOffset: number): number {
     const [size] = this.get_size_type(fileData.getUint32(fileOffset, false));
     return fileOffset + size + 4;
@@ -291,38 +293,38 @@ export class HunkParser {
     while (hunkType !== HunkType.END) {
       switch (hunkType) {
         case HunkType.DEBUG:
-          winston.info(`Block DEBUG offset $${pos.toString(16)}`);
+          this.logger.log(`Block DEBUG offset $${pos.toString(16)}`);
           pos = this.parse_debug(hunk, fileData, pos);
           break;
         case HunkType.CODE:
-          winston.info(`Block CODE offset $${pos.toString(16)}`);
+          this.logger.log(`Block CODE offset $${pos.toString(16)}`);
           pos = this.parse_code_or_data(HunkType.CODE, hunk, fileData, pos);
           break;
         case HunkType.DATA:
-          winston.info(`Block DATA offset $${pos.toString(16)}`);
+          this.logger.log(`Block DATA offset $${pos.toString(16)}`);
           pos = this.parse_code_or_data(HunkType.DATA, hunk, fileData, pos);
           break;
         case HunkType.BSS:
-          winston.info(`Block BSS offset $${pos.toString(16)}`);
+          this.logger.log(`Block BSS offset $${pos.toString(16)}`);
           pos = this.parse_bss(hunk, fileData, pos);
           break;
         case HunkType.RELOC32:
-          winston.info(`Block RELOC32 offset $${pos.toString(16)}`);
+          this.logger.log(`Block RELOC32 offset $${pos.toString(16)}`);
           pos = this.parse_reloc32(hunk, fileData, pos);
           break;
         case HunkType.SYMBOL:
-          winston.info(`Block SYMBOL offset $${pos.toString(16)}`);
+          this.logger.log(`Block SYMBOL offset $${pos.toString(16)}`);
           pos = this.parse_symbols(hunk, fileData, pos);
           break;
         case HunkType.UNIT:
-          winston.info(`Block UNIT offset $${pos.toString(16)}`);
+          this.logger.log(`Block UNIT offset $${pos.toString(16)}`);
           pos = this.skip_hunk(fileData, pos);
           break;
         case HunkType.NAME:
-          winston.info(`Block NAME offset $${pos.toString(16)}`);
+          this.logger.log(`Block NAME offset $${pos.toString(16)}`);
           break;
         case HunkType.END:
-          winston.info(`Block END offset $${pos.toString(16)}`);
+          this.logger.log(`Block END offset $${pos.toString(16)}`);
           break;
         default:
           // thrown error : unknown "Unknown hunk type {:x}", hunkType
@@ -339,14 +341,16 @@ export class HunkParser {
   }
 
   public logHunk(hunk: Hunk): void {
-    winston.info(`Hunk #${hunk.index} offset $${hunk.fileOffset.toString(16)}`);
-    winston.info(`    > hunkType   : ${HunkType[hunk.hunkType]}`);
-    winston.info(`    > memType    : ${MemoryType[hunk.memType]}`);
-    winston.info(`    > dataSize   : ${hunk.dataSize}`);
+    this.logger.log(
+      `Hunk #${hunk.index} offset $${hunk.fileOffset.toString(16)}`
+    );
+    this.logger.log(`    > hunkType   : ${HunkType[hunk.hunkType]}`);
+    this.logger.log(`    > memType    : ${MemoryType[hunk.memType]}`);
+    this.logger.log(`    > dataSize   : ${hunk.dataSize}`);
     if (hunk.dataOffset) {
-      winston.info(`    > dataOffset : $${hunk.dataOffset.toString(16)}`);
+      this.logger.log(`    > dataOffset : $${hunk.dataOffset.toString(16)}`);
     }
-    winston.info(`    > allocSize  : ${hunk.allocSize}`);
+    this.logger.log(`    > allocSize  : ${hunk.allocSize}`);
     if (hunk.reloc32) {
       for (const reloc of hunk.reloc32) {
         const offsets = Array<string>();
@@ -354,19 +358,19 @@ export class HunkParser {
           offsets.push(`$${relocOffset.toString(16)}`);
         }
         const s = offsets.join(",");
-        winston.info(`    > reloc[${reloc.target}] : ${s}`);
+        this.logger.log(`    > reloc[${reloc.target}] : ${s}`);
       }
     }
     if (hunk.symbols) {
       for (const symbol of hunk.symbols) {
-        winston.info(
+        this.logger.log(
           `    > symbol[${symbol.name}] : $${symbol.offset.toString(16)}`
         );
       }
     }
     if (hunk.lineDebugInfo) {
       for (const sourceFile of hunk.lineDebugInfo) {
-        winston.info(`    > lineDebugInfo : ${sourceFile.name}`);
+        this.logger.log(`    > lineDebugInfo : ${sourceFile.name}`);
       }
     }
   }
@@ -404,7 +408,7 @@ export class HunkParser {
         const [size, memType] = this.get_size_type(
           fileData.getUint32(fileOffset, false)
         );
-        winston.info(`Hunk found [${MemoryType[memType]}] size = ${size}`);
+        this.logger.log(`Hunk found [${MemoryType[memType]}] size = ${size}`);
         fileOffset += 4;
         hunk_table.push(<SizesTypes>{
           memType: memType,
@@ -421,7 +425,7 @@ export class HunkParser {
           memType: hunk_table[i].memType,
           allocSize: hunk_table[i].size,
         };
-        winston.info(`____ Parsing Hunk index #${i}`);
+        this.logger.log(`____ Parsing Hunk index #${i}`);
         fileOffset = this.fill_hunk(hunk, fileData, fileOffset);
         this.logHunk(hunk);
         hunks.push(hunk);
@@ -431,7 +435,7 @@ export class HunkParser {
   }
 
   public async readFile(fileUri: Uri): Promise<Array<Hunk>> {
-    winston.info(`Parsing file "${fileUri.fsPath}"`);
+    this.logger.log(`Parsing file "${fileUri.fsPath}"`);
     const buffer = await readFile(fileUri.fsPath);
     return this.parse_file(buffer);
   }

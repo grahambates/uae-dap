@@ -33,7 +33,9 @@
     "lint": "eslint . --ext .ts",
     "lint-fix": "eslint . --ext .ts --fix",
     "tsc": "tsc -p . --noEmit",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "test-coverage": "jest --coverage",
+    "prepare": "husky install"
   },
   "license": "GNU General Public License v3.0",
   "dependencies": {
@@ -41,11 +43,12 @@
     "@vscode/debugprotocol": "^1.55.1",
     "expression-eval": "^5.0.0",
     "glob": "^8.0.1",
-    "vscode-uri": "^3.0.3",
-    "winston": "^3.7.2"
+    "vscode-uri": "^3.0.3"
   },
   "devDependencies": {
+    "@johanblumenberg/ts-mockito": "^1.0.32",
     "@types/glob": "^7.2.0",
+    "@types/jest": "^27.5.1",
     "@types/node": "^17.0.31",
     "@typescript-eslint/eslint-plugin": "^5.22.0",
     "@typescript-eslint/parser": "^5.22.0",
@@ -53,7 +56,10 @@
     "eslint": "^8.14.0",
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-prettier": "^4.0.0",
+    "husky": "^8.0.1",
+    "jest": "^28.1.0",
     "prettier": "^2.6.2",
+    "ts-jest": "^28.0.2",
     "typescript": "^4.6.4"
   }
 }

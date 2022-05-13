@@ -19,9 +19,8 @@ import { GdbProxy } from "./gdbProxy";
 export class GdbProxyWinUAE extends GdbProxy {
   /**
    * Message to initialize the program
-   * @param stopOnEntry If true we will stop on entry
    */
-  public async initProgram(stopOnEntry: boolean | undefined): Promise<void> {
+  public async initProgram(): Promise<void> {
     this.setConnected();
     await this.getQOffsets();
     // Call for thread dump
@@ -57,7 +56,7 @@ export class GdbProxyWinUAE extends GdbProxy {
               "vRun;" + encodedProgramName + ";",
               GdbPacketType.STOP
             );
-            await this.initProgram(stopOnEntry);
+            await this.initProgram();
             await this.parseStop(message);
             resolve();
           } catch (err) {
@@ -255,7 +254,7 @@ export class GdbProxyWinUAE extends GdbProxy {
   /**
    * Retrieves the thread display name
    *
-   * @param threadId Thread identifier
+   * @param thread Thread identifier
    * @return name
    */
   public getThreadDisplayName(thread: GdbThread): string {
@@ -264,7 +263,7 @@ export class GdbProxyWinUAE extends GdbProxy {
 
   /**
    * Ask the frames count
-   * @param threadId Thread identifier
+   * @param thread Thread identifier
    */
   public async getFramesCount(thread: GdbThread): Promise<number> {
     if (thread.getThreadId() === GdbAmigaSysThreadIdWinUAE.CPU) {
@@ -286,7 +285,7 @@ export class GdbProxyWinUAE extends GdbProxy {
   /**
    * Retrieves the stack position for a frame
    *
-   * @param threadId Thread identifier
+   * @param thread Thread identifier
    * @param frameIndex Index of the frame selected
    */
   protected async getStackPosition(
