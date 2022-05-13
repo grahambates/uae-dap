@@ -66,8 +66,6 @@ export interface LaunchRequestArguments
   emulatorWorkingDir?: string;
   /** Emulator options */
   emulatorOptions: Array<string>;
-  /** cstool program */
-  cstool?: string;
   /** path replacements for source files */
   // eslint-disable-next-line @typescript-eslint/ban-types
   sourceFileMap?: Object;
@@ -125,7 +123,7 @@ export class FsUAEDebugSession
   protected debugInfo?: DebugInfo;
 
   /** Tool to disassemble */
-  protected capstone?: Capstone;
+  protected capstone: Capstone;
 
   /** Cache for disassembled code */
   protected disassembledCache = new Map<number, string>();
@@ -157,31 +155,29 @@ export class FsUAEDebugSession
     // this debugger uses zero-based lines and columns
     this.setDebuggerLinesStartAt1(false);
     this.setDebuggerColumnsStartAt1(false);
-    this.gdbProxy = this.createGdbProxy();
+
+    this.gdbProxy = new GdbProxy(undefined);
     this.gdbProxy.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
     this.initProxy();
+
+    this.capstone = new Capstone();
+
     this.debugDisassembledManager = new DebugDisassembledManager(
       this.gdbProxy,
-      undefined,
+      this.capstone,
       this
     );
+
     this.breakpointManager = new BreakpointManager(
       this.gdbProxy,
       this.debugDisassembledManager
     );
     this.breakpointManager.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
+
     // event handler to clean data breakpoints
     if (!FsUAEDebugSession.BREAKPOINT_EVENT_SET) {
-      // vscode.debug.onDidChangeBreakpoints(BreakpointManager.onDidChangeBreakpoints);
       FsUAEDebugSession.BREAKPOINT_EVENT_SET = true;
     }
-  }
-
-  /**
-   * Create a proxy
-   */
-  protected createGdbProxy(): GdbProxy {
-    return new GdbProxy(undefined);
   }
 
   /**
@@ -467,12 +463,6 @@ export class FsUAEDebugSession
             "      ${symbol} gives the address of symbol," +
             "      #{symbol} gives the pointed value from the symbol\n";
           this.sendEvent(new OutputEvent(text));
-        }
-
-        // Configure capstone
-        if (!this.capstone && args.cstool && args.cstool.length > 5) {
-          this.capstone = new Capstone(args.cstool);
-          this.debugDisassembledManager.setCapstone(this.capstone);
         }
 
         // Launch the emulator
@@ -850,28 +840,26 @@ export class FsUAEDebugSession
                 } else {
                   // Get the disassembled line
                   line += ": ";
-                  if (this.capstone) {
-                    try {
-                      const memory = await this.gdbProxy.getMemory(f.pc, 10);
-                      const disassembled = await this.capstone.disassemble(
-                        memory
-                      );
-                      const lines = disassembled.split(/\r\n|\r|\n/g);
-                      let selectedLine = lines[0];
-                      for (const l of lines) {
-                        if (l.trim().length > 0) {
-                          selectedLine = l;
-                          break;
-                        }
+                  try {
+                    const memory = await this.gdbProxy.getMemory(f.pc, 10);
+                    const disassembled = await this.capstone.disassemble(
+                      memory
+                    );
+                    const lines = disassembled.split(/\r\n|\r|\n/g);
+                    let selectedLine = lines[0];
+                    for (const l of lines) {
+                      if (l.trim().length > 0) {
+                        selectedLine = l;
+                        break;
                       }
-                      const elms = selectedLine.split("  ");
-                      if (elms.length > 2) {
-                        selectedLine = elms[2];
-                      }
-                      line += selectedLine.trim().replace(/\s\s+/g, " ");
-                    } catch (err) {
-                      console.error("Error ignored: " + (err as Error).message);
                     }
+                    const elms = selectedLine.split("  ");
+                    if (elms.length > 2) {
+                      selectedLine = elms[2];
+                    }
+                    line += selectedLine.trim().replace(/\s\s+/g, " ");
+                  } catch (err) {
+                    console.error("Error ignored: " + (err as Error).message);
                   }
                   this.disassembledCache.set(f.pc, line);
                 }
@@ -1412,29 +1400,22 @@ export class FsUAEDebugSession
             };
             this.sendResponse(response);
           } else {
-            if (this.capstone) {
-              const constKey = key;
-              // disassemble the code
-              const code = await this.capstone.disassemble(memory);
-              const [firstRow, variables] =
-                this.debugExpressionHelper.processVariablesFromDisassembler(
-                  code,
-                  startAddress
-                );
-              this.variableRefMap.set(constKey, variables);
-              this.variableExpressionMap.set(args.expression, constKey);
-              response.body = {
-                result: firstRow,
-                type: "array",
-                variablesReference: constKey,
-              };
-              this.sendResponse(response);
-            } else {
-              this.sendStringErrorResponse(
-                response,
-                "Capstone cstool must be configured in the settings"
+            const constKey = key;
+            // disassemble the code
+            const code = await this.capstone.disassemble(memory);
+            const [firstRow, variables] =
+              this.debugExpressionHelper.processVariablesFromDisassembler(
+                code,
+                startAddress
               );
-            }
+            this.variableRefMap.set(constKey, variables);
+            this.variableExpressionMap.set(args.expression, constKey);
+            response.body = {
+              result: firstRow,
+              type: "array",
+              variablesReference: constKey,
+            };
+            this.sendResponse(response);
           }
         } catch (err) {
           this.sendStringErrorResponse(response, (err as Error).message);

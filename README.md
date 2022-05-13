@@ -6,8 +6,7 @@
 Adapted from @prb28's [vscode-amiga-assembly](https://github.com/prb28/vscode-amiga-assembly) extension,
 to create stand-alone adapter for use with other editors that support Debug Adapter Protocol.
 
-Needs @prb28's patched FS-UAE and [Capstone](https://www.capstone-engine.org/) cstool executables.
-You can download these as [prebuilt binaries](https://github.com/prb28/vscode-amiga-assembly-binaries).
+Needs @prb28's patched FS-UAE. You can download this as a [prebuilt binary](https://github.com/prb28/vscode-amiga-assembly-binaries).
 
 ## Installation
 
@@ -40,7 +39,6 @@ dap.configurations.asm68k = {
     serverName = "localhost",
     serverPort = 6860,
     trace = false,
-    cstool = home .. "/amiga/bin/cstool",
     startEmulator = true,
     emulator = home .. "/amiga/bin/fs-uae",
     emulatorWorkingDir = home .."/amiga/bin",

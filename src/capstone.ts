@@ -1,31 +1,32 @@
 import { DebugInfo } from "./debugInfo";
 import { URI as Uri } from "vscode-uri";
 import * as cp from "child_process";
+import * as path from "path";
+
+const wasmPath = path.join(__dirname, "..", "wasm", "cstool");
 
 /**
  * Class to disassemble the m68k binaries
  */
 export class Capstone {
   /**
-   * Constructor
-   * @param cstoolPath Path to Cstool
-   */
-  public constructor(private cstoolPath: string) {}
-
-  /**
    * Disassemble a buffer
    * @param buffer Buffer to disassemble
    */
   public async disassemble(buffer: string): Promise<string> {
     const args = ["m68k", buffer];
+
+    const process = cp.fork(wasmPath, args, { stdio: "pipe" });
+
+    let code = "";
+    process.stdout?.on("data", (data) => (code += data));
+    process.stderr?.on("data", (data) => (code += data));
+
     return new Promise((resolve, reject) => {
-      cp.execFile(this.cstoolPath, args, (err, code) => {
-        if (err) reject(err);
-        if (code.includes("ERROR")) {
-          reject(code);
-        }
-        resolve(code);
-      });
+      process.on("exit", () =>
+        code.includes("ERROR") ? reject(code) : resolve(code)
+      );
+      process.on("error", () => reject(code));
     });
   }
 
