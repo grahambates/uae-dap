@@ -7,48 +7,43 @@ export class DebugExpressionHelper {
   public async getAddressFromExpression(
     expression: string,
     frameIndex: number | undefined,
-    variableResolver: DebugVariableResolver
+    resolver: DebugVariableResolver
   ): Promise<number> {
     if (!expression) {
       throw new Error("Invalid address");
     }
-    if (expression.match(/^0x[0-9a-f]+$/i)) {
-      return parseInt(expression);
-    }
 
-    let newExpression = expression;
+    // Convert all numbers to decimal:
+    let exp = expression
+      // Hex
+      .replace(/(\$|0x)([0-9a-f]+)/gi, (_, _2, d) => parseInt(d, 16).toString())
+      // Octal
+      .replace(/(@|0o)([0-7]+)/gi, (_, _2, d) => parseInt(d, 8).toString())
+      // Binary
+      .replace(/(%|0b)([0-1]+)/gi, (_, _2, d) => parseInt(d, 2).toString());
+
+    // Return value if numeric
+    if (exp.match(/^[0-9]+$/i)) {
+      return parseInt(exp, 10);
+    }
 
     // Replace all variables
-    const variableRegexp = /([$#])\{(\.?[a-z0-9_]*)\}/gi;
-    const matches = expression.matchAll(variableRegexp);
-    for (const match of matches) {
-      const prefix = match[1];
-      const variableName = match[2];
-      let value: string | void;
-      if (prefix === "$") {
-        value = await variableResolver.getVariableValue(
-          variableName,
-          frameIndex
-        );
-      } else {
-        value = await variableResolver.getVariablePointedMemory(
-          variableName,
-          frameIndex
-        );
-      }
+    const matches = expression.matchAll(/([$#])\{([^}]+)\}/gi);
+    for (const [fullStr, prefix, variableName] of matches) {
+      const value = await (prefix === "$"
+        ? resolver.getVariableValue(variableName, frameIndex)
+        : resolver.getVariablePointedMemory(variableName, frameIndex));
       if (value) {
-        newExpression = newExpression.replace(
-          match[0],
-          parseInt(value).toString()
-        );
+        exp = exp.replace(fullStr, parseInt(value).toString());
       }
     }
 
-    const result = expEval(parse(newExpression), {});
+    // Evaluate expression
+    const result = expEval(parse(exp), {});
     if (isNaN(result)) {
-      throw new Error("Unable to evaluate expression: " + newExpression);
+      throw new Error("Unable to evaluate expression: " + exp);
     }
-    return result;
+    return Math.round(result);
   }
 
   public processOutputFromMemoryDump(

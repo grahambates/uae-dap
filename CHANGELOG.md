@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Use wasm build of `cstool` to remove dependency on binary
 
+### Fixed
+
+- Expression parsing handles numeric literals
+
 ## [0.0.0] - 2022-05-13
 
 ### Added
