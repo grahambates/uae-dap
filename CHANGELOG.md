@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Expression parsing handles numeric literals
+- NeoVim 'thread already stopped' issue on step events
 
 ## [0.0.0] - 2022-05-13
 

@@ -146,6 +146,9 @@ export class FsUAEDebugSession
   /** trace the communication protocol */
   protected trace = false;
 
+  /** Track which threads are stopped to avoid invalid events */
+  protected stoppedThreads: boolean[] = [false, false];
+
   /**
    * Creates a new debug adapter that is used for one debug session.
    * We configure the default implementation of a debug adapter here.
@@ -214,12 +217,13 @@ export class FsUAEDebugSession
   /**
    * Creates a stop event
    */
-  protected crateStoppedEvent(
+  protected sendStoppedEvent(
     threadId: number,
     reason: string,
     preserveFocusHint?: boolean
-  ): DebugProtocol.StoppedEvent {
-    return <DebugProtocol.StoppedEvent>{
+  ) {
+    this.stoppedThreads[threadId] = true;
+    this.sendEvent(<DebugProtocol.StoppedEvent>{
       event: "stopped",
       body: {
         reason: reason,
@@ -227,7 +231,7 @@ export class FsUAEDebugSession
         preserveFocusHint: preserveFocusHint,
         allThreadsStopped: true,
       },
-    };
+    });
   }
 
   /**
@@ -236,31 +240,39 @@ export class FsUAEDebugSession
   public initProxy(): void {
     // setup event handlers
     this.gdbProxy.on("stopOnEntry", (threadId: number) => {
-      this.sendEvent(this.crateStoppedEvent(threadId, "entry", false));
+      this.sendStoppedEvent(threadId, "entry", false);
     });
     this.gdbProxy.on(
       "stopOnStep",
       (threadId: number, preserveFocusHint?: boolean) => {
-        this.sendEvent(
-          this.crateStoppedEvent(threadId, "step", preserveFocusHint)
-        );
+        // Only send step events for stopped threads
+        if (this.stoppedThreads[threadId]) {
+          this.sendStoppedEvent(threadId, "step", preserveFocusHint);
+        }
       }
     );
     this.gdbProxy.on("stopOnPause", (threadId: number) => {
-      this.sendEvent(this.crateStoppedEvent(threadId, "pause", false));
+      // Only send pause evens for running threads
+      if (!this.stoppedThreads[threadId]) {
+        this.sendStoppedEvent(threadId, "pause", false);
+      }
     });
     this.gdbProxy.on("stopOnBreakpoint", (threadId: number) => {
-      this.sendEvent(this.crateStoppedEvent(threadId, "breakpoint", false));
+      // Only send breakpoint evens for running threads
+      if (!this.stoppedThreads[threadId]) {
+        this.sendStoppedEvent(threadId, "breakpoint", false);
+      }
     });
     this.gdbProxy.on(
       "stopOnException",
       (_: GdbHaltStatus, threadId: number) => {
-        this.sendEvent(this.crateStoppedEvent(threadId, "exception", false));
+        this.sendStoppedEvent(threadId, "exception", false);
       }
     );
     this.gdbProxy.on(
       "continueThread",
       (threadId: number, allThreadsContinued?: boolean) => {
+        this.stoppedThreads[threadId] = false;
         this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
       }
     );
