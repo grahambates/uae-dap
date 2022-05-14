@@ -1,7 +1,3 @@
-//
-// Tests of the Amiga Hunk file Parser
-//
-
 import { HunkParser, HunkType } from "../src/amigaHunkParser";
 import * as Path from "path";
 import { URI as Uri } from "vscode-uri";
