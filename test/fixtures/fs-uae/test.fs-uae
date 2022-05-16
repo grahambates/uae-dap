@@ -1,6 +1,6 @@
 [fs-uae]
 chip_memory = 1024
-hard_drive_0 = /Users/papa/developpements/vscode/vscode-amiga-assembly/test_files/debug/fs-uae/hd0
+hard_drive_0 = test/fixtures/fs-uae/hd0
 joystick_port_1 = none
 remote_debugger = 200
 #console_debugger = 1

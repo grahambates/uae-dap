@@ -1,12 +1,14 @@
 import { Mutex } from "./mutex";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { Logger } from "@vscode/debugadapter";
+import { DisassembledFile, DisassemblyManager } from "./disassembly";
+import { FileParser } from "./parsing/fileParser";
 import {
-  DebugDisassembledFile,
-  DebugDisassembledManager,
-} from "./debugDisassembled";
-import { DebugInfo } from "./debugInfo";
-import { GdbProxy } from "./gdbProxy";
+  GdbProxy,
+  GdbBreakpoint,
+  GdbBreakpointType,
+  GdbBreakpointAccessType,
+} from "./gdb";
 
 /**
  * Class to contact the fs-UAE GDB server.
@@ -18,42 +20,34 @@ export class BreakpointManager {
   static readonly DEFAULT_EXCEPTION_MASK = 0b111100;
   /** exception mask */
   private exceptionMask = BreakpointManager.DEFAULT_EXCEPTION_MASK;
-  /** Proxy to Gdb */
-  private gdbProxy: GdbProxy;
   /** Breakpoints selected */
-  private breakpoints = new Array<GdbBreakpoint>();
+  private breakpoints: GdbBreakpoint[] = [];
   /** Pending breakpoint no yet sent to debugger */
-  private pendingBreakpoints = new Array<GdbBreakpoint>();
+  private pendingBreakpoints: GdbBreakpoint[] = [];
   /** Debug information for the loaded program */
-  private debugInfo?: DebugInfo;
-  /** Manager of disassembled code */
-  private debugDisassembledManager: DebugDisassembledManager;
+  private fileParser?: FileParser;
   /** Next breakpoint id */
   private nextBreakpointId = 0;
   /** Temporary breakpoints arrays */
-  private temporaryBreakpointArrays = new Array<GdbTemporaryBreakpointArray>();
+  private temporaryBreakpointArrays: GdbBreakpoint[][] = [];
   /** Mutex to just have one call to gdb */
   protected mutex = new Mutex(100, 180000);
   /** Lock for breakpoint management function */
   protected breakpointLock?: () => void;
 
   public constructor(
-    gdbProxy: GdbProxy,
-    debugDisassembledManager: DebugDisassembledManager
+    private gdbProxy: GdbProxy,
+    private disassemblyManager: DisassemblyManager
   ) {
-    this.gdbProxy = gdbProxy;
-    this.debugDisassembledManager = debugDisassembledManager;
-    this.gdbProxy.setSendPendingBreakpointsCallback(
-      this.sendAllPendingBreakpoint
-    );
+    gdbProxy.onSendAllPendingBreakpoints(this.sendAllPendingBreakpoints);
   }
 
   public setExceptionMask(exceptionMask: number): void {
     this.exceptionMask = exceptionMask;
   }
 
-  public setDebugInfo(debugInfo: DebugInfo): void {
-    this.debugInfo = debugInfo;
+  public setFileParser(fileParser: FileParser): void {
+    this.fileParser = fileParser;
   }
 
   /**
@@ -77,8 +71,8 @@ export class BreakpointManager {
     path: string,
     line: number
   ): Promise<boolean> {
-    if (this.debugInfo) {
-      const values = await this.debugInfo.getAddressSeg(path, line);
+    if (this.fileParser) {
+      const values = await this.fileParser.getAddressSeg(path, line);
       if (values) {
         debugBp.segmentId = values[0];
         debugBp.offset = values[1];
@@ -89,99 +83,86 @@ export class BreakpointManager {
   }
 
   public async checkPendingBreakpointsAddresses(): Promise<void> {
-    if (this.debugInfo) {
-      for (const debugBp of this.pendingBreakpoints) {
-        if (debugBp.source && debugBp.line) {
-          const path = <string>debugBp.source.path;
-          if (!DebugDisassembledFile.isDebugAsmFile(path)) {
-            await this.fillBreakpointWithSegAddress(
-              debugBp,
-              path,
-              debugBp.line
-            );
+    if (this.fileParser) {
+      for (const bp of this.pendingBreakpoints) {
+        if (bp.source && bp.line) {
+          const path = <string>bp.source.path;
+          if (!DisassembledFile.isDebugAsmFile(path)) {
+            await this.fillBreakpointWithSegAddress(bp, path, bp.line);
           }
         }
       }
     }
   }
 
-  public async setBreakpoint(debugBp: GdbBreakpoint): Promise<GdbBreakpoint> {
-    try {
-      if (this.gdbProxy.isConnected()) {
-        if (debugBp.source && debugBp.line && debugBp.id !== undefined) {
-          debugBp.verified = false;
-          const path = <string>debugBp.source.path;
+  public async setBreakpoint(bp: GdbBreakpoint): Promise<GdbBreakpoint> {
+    if (!this.gdbProxy.isConnected()) {
+      this.addPendingBreakpoint(bp);
+      return bp;
+    }
+    const isData = bp.breakpointType === GdbBreakpointType.DATA;
+    const isInstruction = bp.breakpointType === GdbBreakpointType.INSTRUCTION;
+    const hasMask = bp.exceptionMask !== undefined;
 
-          if (!DebugDisassembledFile.isDebugAsmFile(path)) {
-            if (this.debugInfo) {
-              if (
-                await this.fillBreakpointWithSegAddress(
-                  debugBp,
-                  path,
-                  debugBp.line
-                )
-              ) {
-                await this.gdbProxy.setBreakpoint(debugBp);
-                this.breakpoints.push(debugBp);
-              } else {
-                throw new Error("Segment offset not resolved");
-              }
+    try {
+      if (bp.source && bp.line !== undefined && bp.id !== undefined) {
+        bp.verified = false;
+        const path = bp.source.path ?? "";
+
+        if (!DisassembledFile.isDebugAsmFile(path)) {
+          if (this.fileParser) {
+            if (await this.fillBreakpointWithSegAddress(bp, path, bp.line)) {
+              await this.gdbProxy.setBreakpoint(bp);
+              this.breakpoints.push(bp);
             } else {
-              throw new Error("Debug information not retrieved");
+              throw new Error("Segment offset not resolved");
             }
           } else {
-            const name = <string>debugBp.source.name;
-            const address =
-              await this.debugDisassembledManager.getAddressForFileEditorLine(
-                name,
-                debugBp.line
-              );
-            debugBp.segmentId = undefined;
-            debugBp.offset = address;
-            await this.gdbProxy.setBreakpoint(debugBp);
-            this.breakpoints.push(debugBp);
-          }
-        } else if (
-          debugBp.exceptionMask !== undefined ||
-          ((debugBp.breakpointType === GdbBreakpointType.DATA ||
-            debugBp.breakpointType === GdbBreakpointType.INSTRUCTION) &&
-            this.gdbProxy.isConnected())
-        ) {
-          await this.gdbProxy.setBreakpoint(debugBp);
-          if (debugBp.exceptionMask === undefined) {
-            this.breakpoints.push(debugBp);
+            throw new Error("Debug information not retrieved");
           }
         } else {
-          throw new Error("Breakpoint info incomplete");
+          const name = <string>bp.source.name;
+          const address =
+            await this.disassemblyManager.getAddressForFileEditorLine(
+              name,
+              bp.line
+            );
+          bp.segmentId = undefined;
+          bp.offset = address;
+          await this.gdbProxy.setBreakpoint(bp);
+          this.breakpoints.push(bp);
+        }
+      } else if (hasMask || isData || isInstruction) {
+        await this.gdbProxy.setBreakpoint(bp);
+        if (!hasMask) {
+          this.breakpoints.push(bp);
         }
       } else {
-        this.addPendingBreakpoint(debugBp);
+        throw new Error("Breakpoint info incomplete");
       }
     } catch (error) {
-      this.addPendingBreakpoint(
-        debugBp,
-        error instanceof Error ? error : undefined
-      );
+      this.addPendingBreakpoint(bp, error instanceof Error ? error : undefined);
       throw error;
     }
-    return debugBp;
+    return bp;
   }
 
   public createBreakpoint(
     source: DebugProtocol.Source,
     line: number
   ): GdbBreakpoint {
-    return <GdbBreakpoint>{
+    return {
       breakpointType: GdbBreakpointType.SOURCE,
       id: this.nextBreakpointId++,
       line: line,
       source: source,
       verified: false,
+      offset: 0,
     };
   }
 
   public createTemporaryBreakpoint(address: number): GdbBreakpoint {
-    return <GdbBreakpoint>{
+    return {
       breakpointType: GdbBreakpointType.TEMPORARY,
       id: this.nextBreakpointId++,
       segmentId: undefined,
@@ -192,7 +173,7 @@ export class BreakpointManager {
   }
 
   public createInstructionBreakpoint(address: number): GdbBreakpoint {
-    return <GdbBreakpoint>{
+    return {
       breakpointType: GdbBreakpointType.INSTRUCTION,
       id: this.nextBreakpointId++,
       segmentId: undefined,
@@ -223,7 +204,7 @@ export class BreakpointManager {
         gdbAccessType = GdbBreakpointAccessType.READWRITE;
         break;
     }
-    return <GdbBreakpoint>{
+    return {
       breakpointType: GdbBreakpointType.DATA,
       id: this.nextBreakpointId++,
       segmentId: undefined,
@@ -237,20 +218,20 @@ export class BreakpointManager {
   }
 
   public async addTemporaryBreakpointArray(
-    temporaryBreakpointArray: GdbTemporaryBreakpointArray
+    temporaryBreakpointArray: GdbBreakpoint[]
   ): Promise<void> {
     this.temporaryBreakpointArrays.push(temporaryBreakpointArray);
-    for (const debugBp of temporaryBreakpointArray.breakpoints) {
+    for (const debugBp of temporaryBreakpointArray) {
       await this.gdbProxy.setBreakpoint(debugBp);
     }
   }
 
   public async removeTemporaryBreakpointArray(
-    temporaryBreakpointArray: GdbTemporaryBreakpointArray
+    temporaryBreakpointArray: GdbBreakpoint[]
   ): Promise<void> {
     try {
       this.breakpointLock = await this.mutex.capture("breakpointLock");
-      for (const debugBp of temporaryBreakpointArray.breakpoints) {
+      for (const debugBp of temporaryBreakpointArray) {
         await this.gdbProxy.removeBreakpoint(debugBp);
       }
       this.temporaryBreakpointArrays = this.temporaryBreakpointArrays.filter(
@@ -266,19 +247,19 @@ export class BreakpointManager {
 
   public createTemporaryBreakpointArray(
     offsets: Array<number>
-  ): GdbTemporaryBreakpointArray {
-    const tempArray = new GdbTemporaryBreakpointArray();
+  ): GdbBreakpoint[] {
+    const tempArray: GdbBreakpoint[] = [];
     for (const addr of offsets) {
       const debugBp = this.createTemporaryBreakpoint(addr);
-      tempArray.addBreakpoint(debugBp);
+      tempArray.push(debugBp);
     }
     return tempArray;
   }
 
   public async checkTemporaryBreakpoints(pc: number): Promise<void> {
-    const arraysToRemove = new Array<GdbTemporaryBreakpointArray>();
+    const arraysToRemove: GdbBreakpoint[][] = [];
     for (const tempArray of this.temporaryBreakpointArrays) {
-      for (const bp of tempArray.breakpoints) {
+      for (const bp of tempArray) {
         if (bp.offset === pc) {
           arraysToRemove.push(tempArray);
         }
@@ -290,19 +271,20 @@ export class BreakpointManager {
   }
 
   public createExceptionBreakpoint(): GdbBreakpoint {
-    return <GdbBreakpoint>{
+    return {
       breakpointType: GdbBreakpointType.EXCEPTION,
       id: this.nextBreakpointId++,
       exceptionMask: this.exceptionMask,
       verified: false,
+      offset: 0,
     };
   }
 
-  public sendAllPendingBreakpoint = async (): Promise<void> => {
+  public sendAllPendingBreakpoints = async (): Promise<void> => {
     this.breakpointLock = await this.mutex.capture("breakpointLock");
     if (this.pendingBreakpoints && this.pendingBreakpoints.length > 0) {
       const pending = this.pendingBreakpoints;
-      this.pendingBreakpoints = new Array<GdbBreakpoint>();
+      this.pendingBreakpoints = [];
       for (const bp of pending) {
         try {
           await this.setBreakpoint(bp);
@@ -349,8 +331,7 @@ export class BreakpointManager {
     if (path) {
       return (
         source.path === other.path ||
-        (DebugDisassembledFile.isDebugAsmFile(path) &&
-          source.name === other.name)
+        (DisassembledFile.isDebugAsmFile(path) && source.name === other.name)
       );
     }
     return source.path === other.path;
@@ -362,7 +343,7 @@ export class BreakpointManager {
     clearInstructionBreakpoints: boolean
   ): Promise<void> {
     let hasError = false;
-    const remainingBreakpoints = new Array<GdbBreakpoint>();
+    const remainingBreakpoints = [];
     this.breakpointLock = await this.mutex.capture("breakpointLock");
     for (const bp of this.breakpoints) {
       if (
@@ -407,7 +388,7 @@ export class BreakpointManager {
     return this.clearBreakpointsInner(null, false, true);
   }
 
-  public getPendingBreakpoints(): Array<GdbBreakpoint> {
+  public getPendingBreakpoints(): GdbBreakpoint[] {
     return this.pendingBreakpoints;
   }
 
@@ -458,60 +439,5 @@ export class BreakpointManager {
   public static removeSizeForDataBreakpoint(id: string) {
     Logger.logger.log(`[BreakpointManager] Removing DataBreakpoint id: ${id}`);
     BreakpointManager.sizes.delete(id);
-  }
-}
-
-/** Interface for a breakpoint */
-export interface GdbBreakpoint extends DebugProtocol.Breakpoint {
-  /**Type of breakpoint */
-  breakpointType: GdbBreakpointType;
-  /** Id for the segment if undefined it is an absolute offset*/
-  segmentId?: number;
-  /** Offset relative to the segment*/
-  offset: number;
-  /** exception mask : if present it is an exception breakpoint */
-  exceptionMask?: number;
-  /** if true it a temporary breakpoint */
-  temporary?: boolean;
-  /** Size of the memory watched */
-  size?: number;
-  /** The access type of the data. */
-  accessType?: GdbBreakpointAccessType;
-  /** default message for the breakpoint */
-  defaultMessage: string | undefined;
-}
-
-/**
- * Types of breakpoints
- */
-export enum GdbBreakpointType {
-  SOURCE,
-  DATA,
-  INSTRUCTION,
-  EXCEPTION,
-  TEMPORARY,
-}
-
-/**
- * Values to the access type of data breakpoint
- */
-export enum GdbBreakpointAccessType {
-  READ = "read",
-  WRITE = "write",
-  READWRITE = "readWrite",
-}
-
-/**
- * Class to store connected temporary breakpoints
- */
-export class GdbTemporaryBreakpointArray {
-  public breakpoints = new Array<GdbBreakpoint>();
-
-  /**
-   * Adds a breakpoint to the array
-   * @param breakpoint Breakpoint to add
-   */
-  public addBreakpoint(breakpoint: GdbBreakpoint): void {
-    this.breakpoints.push(breakpoint);
   }
 }

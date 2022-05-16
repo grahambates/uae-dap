@@ -1,4 +1,8 @@
 /* eslint-disable @typescript-eslint/ban-types */
+import * as path from "path";
+import { URI as Uri } from "vscode-uri";
+import * as fs from "fs";
+import { readFile, access } from "fs/promises";
 import {
   Hunk,
   HunkParser,
@@ -6,31 +10,20 @@ import {
   HunkType,
   Symbol,
 } from "./amigaHunkParser";
-import * as path from "path";
-import { URI as Uri } from "vscode-uri";
-import * as fs from "fs";
-import { readFile, access } from "fs/promises";
 
-export class DebugInfo {
+export class FileParser {
   public hunks = new Array<Hunk>();
-  private pathReplacements?: Map<string, string>;
-  private sourcesRootPaths?: Array<string>;
   private resolvedSourceFilesNames = new Map<string, string>();
   private sourceFilesCacheMap = new Map<string, Array<string>>();
-  private uri: Uri;
   private loaded = false;
 
   constructor(
-    fileUri: Uri,
-    pathReplacements?: Map<string, string>,
-    sourcesRootPaths?: Array<string>
-  ) {
-    this.uri = fileUri;
-    this.pathReplacements = pathReplacements;
-    this.sourcesRootPaths = sourcesRootPaths;
-  }
+    private uri: Uri,
+    private pathReplacements?: Record<string, string>,
+    private sourcesRootPaths?: Array<string>
+  ) {}
 
-  public async load(): Promise<boolean> {
+  public async parse(): Promise<boolean> {
     if (this.loaded) {
       return true;
     } else {
@@ -58,7 +51,7 @@ export class DebugInfo {
   public async getSymbols(
     filename: string | undefined
   ): Promise<Array<[Symbol, number | undefined]>> {
-    await this.load();
+    await this.parse();
     const symbols = Array<[Symbol, number | undefined]>();
     let normFilename = filename;
     if (normFilename) {
@@ -141,7 +134,7 @@ export class DebugInfo {
     segId: number,
     offset: number
   ): Promise<[string, number, string | null] | null> {
-    await this.load();
+    await this.parse();
     if (segId >= this.hunks.length) {
       return null;
     }
@@ -174,10 +167,10 @@ export class DebugInfo {
       resolvedFileName = filename;
       if (this.pathReplacements) {
         const normalizedFilename = normalize(resolvedFileName);
-        for (const key of Array.from(this.pathReplacements.keys())) {
+        for (const key in this.pathReplacements) {
           const normalizedKey = normalize(key);
           if (normalizedFilename.indexOf(normalizedKey) >= 0) {
-            const value = this.pathReplacements.get(key);
+            const value = this.pathReplacements[key];
             if (value) {
               resolvedFileName = normalizedFilename.replace(
                 normalizedKey,
@@ -230,7 +223,7 @@ export class DebugInfo {
     filename: string,
     fileLine: number
   ): Promise<[number, number] | null> {
-    await this.load();
+    await this.parse();
     const normFilename = normalize(filename);
     for (let i = 0; i < this.hunks.length; i++) {
       const hunk = this.hunks[i];
@@ -253,7 +246,7 @@ export class DebugInfo {
   }
 
   public async getAllSegmentIds(filename: string): Promise<number[]> {
-    await this.load();
+    await this.parse();
     const segIds: number[] = [];
     const normFilename = normalize(filename);
     for (let i = 0; i < this.hunks.length; i++) {

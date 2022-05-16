@@ -1,4 +1,4 @@
-import { HunkParser, HunkType } from "../src/amigaHunkParser";
+import { HunkParser, HunkType } from "../src/parsing/amigaHunkParser";
 import * as Path from "path";
 import { URI as Uri } from "vscode-uri";
 

@@ -1,15 +1,15 @@
-import { Capstone } from "./capstone";
-import { GdbProxy } from "./gdbProxy";
-import { DebugExpressionHelper } from "./debugExpressionHelper";
 import { StackFrame, Source } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
-import { CopperDisassembler } from "./copperDisassembler";
-import { DebugVariableResolver } from "./debugVariableResolver";
-import { MemoryLabelsRegistry } from "./customMemoryAddresses";
 import { URI as Uri } from "vscode-uri";
-import { StringUtils } from "./stringUtils";
 
-export class DebugDisassembledFile {
+import { disassemble } from "./cpuDisassembler";
+import { GdbProxy } from "../gdb";
+import { evaluateExpression, VariableResolver } from "../expressions";
+import { disassembleCopper } from "./copperDisassembler";
+import { formatHexadecimal } from "../strings";
+import { getCopperAddress } from "../memory";
+
+export class DisassembledFile {
   public static readonly DGBFILE_SCHEME = "disassembly";
   public static readonly DGBFILE_SEG_SEPARATOR = "seg_";
   public static readonly DGBFILE_COPPER_SEPARATOR = "copper_";
@@ -22,7 +22,7 @@ export class DebugDisassembledFile {
   private copper = false;
   private path = "";
 
-  public setSegmentId(segmentId: number): DebugDisassembledFile {
+  public setSegmentId(segmentId: number): DisassembledFile {
     this.segmentId = segmentId;
     return this;
   }
@@ -31,7 +31,7 @@ export class DebugDisassembledFile {
     return this.segmentId;
   }
 
-  public setStackFrameIndex(stackFrameIndex: number): DebugDisassembledFile {
+  public setStackFrameIndex(stackFrameIndex: number): DisassembledFile {
     this.stackFrameIndex = stackFrameIndex;
     return this;
   }
@@ -40,9 +40,7 @@ export class DebugDisassembledFile {
     return this.stackFrameIndex;
   }
 
-  public setAddressExpression(
-    addressExpression: string
-  ): DebugDisassembledFile {
+  public setAddressExpression(addressExpression: string): DisassembledFile {
     this.addressExpression = addressExpression;
     return this;
   }
@@ -51,7 +49,7 @@ export class DebugDisassembledFile {
     return this.addressExpression;
   }
 
-  public setLength(length: number): DebugDisassembledFile {
+  public setLength(length: number): DisassembledFile {
     this.length = length;
     return this;
   }
@@ -64,7 +62,7 @@ export class DebugDisassembledFile {
     return this.segmentId !== undefined;
   }
 
-  public setCopper(isCopper: boolean): DebugDisassembledFile {
+  public setCopper(isCopper: boolean): DisassembledFile {
     this.copper = isCopper;
     return this;
   }
@@ -75,40 +73,40 @@ export class DebugDisassembledFile {
 
   public toString(): string {
     if (this.isSegment()) {
-      return `${this.path}${DebugDisassembledFile.DGBFILE_SEG_SEPARATOR}${this.segmentId}.${DebugDisassembledFile.DGBFILE_EXTENSION}`;
+      return `${this.path}${DisassembledFile.DGBFILE_SEG_SEPARATOR}${this.segmentId}.${DisassembledFile.DGBFILE_EXTENSION}`;
     } else if (this.isCopper()) {
-      return `${this.path}${DebugDisassembledFile.DGBFILE_COPPER_SEPARATOR}${this.addressExpression}__${this.length}.${DebugDisassembledFile.DGBFILE_EXTENSION}`;
+      return `${this.path}${DisassembledFile.DGBFILE_COPPER_SEPARATOR}${this.addressExpression}__${this.length}.${DisassembledFile.DGBFILE_EXTENSION}`;
     } else {
-      return `${this.path}${this.stackFrameIndex}__${this.addressExpression}__${this.length}.${DebugDisassembledFile.DGBFILE_EXTENSION}`;
+      return `${this.path}${this.stackFrameIndex}__${this.addressExpression}__${this.length}.${DisassembledFile.DGBFILE_EXTENSION}`;
     }
   }
 
-  public static fromPath(path: string): DebugDisassembledFile {
+  public static fromPath(path: string): DisassembledFile {
     let localPath = path;
-    const dAsmFile = new DebugDisassembledFile();
+    const dAsmFile = new DisassembledFile();
     const lastSepPos = localPath.lastIndexOf("/");
     if (lastSepPos >= 0) {
       localPath = localPath.substring(lastSepPos + 1);
       dAsmFile.path = path.substring(0, lastSepPos + 1);
     }
     const indexOfExt = localPath.lastIndexOf(
-      DebugDisassembledFile.DGBFILE_EXTENSION
+      DisassembledFile.DGBFILE_EXTENSION
     );
     if (indexOfExt > 0) {
       localPath = localPath.substring(0, indexOfExt - 1);
     }
     const segLabelPos = localPath.indexOf(
-      DebugDisassembledFile.DGBFILE_SEG_SEPARATOR
+      DisassembledFile.DGBFILE_SEG_SEPARATOR
     );
     const copperLabelPos = localPath.indexOf(
-      DebugDisassembledFile.DGBFILE_COPPER_SEPARATOR
+      DisassembledFile.DGBFILE_COPPER_SEPARATOR
     );
     if (segLabelPos >= 0) {
       const segId = parseInt(localPath.substring(segLabelPos + 4));
       dAsmFile.setSegmentId(segId);
     } else if (copperLabelPos >= 0) {
       const pathParts = localPath
-        .substring(DebugDisassembledFile.DGBFILE_COPPER_SEPARATOR.length)
+        .substring(DisassembledFile.DGBFILE_COPPER_SEPARATOR.length)
         .split("__");
       if (pathParts.length > 1) {
         const address = pathParts[0];
@@ -136,11 +134,11 @@ export class DebugDisassembledFile {
   public toURI(): Uri {
     // Code to replace #, it is not done by the Uri.parse
     const filename = this.toString().replace("#", "%23");
-    return Uri.parse(`${DebugDisassembledFile.DGBFILE_SCHEME}:${filename}`);
+    return Uri.parse(`${DisassembledFile.DGBFILE_SCHEME}:${filename}`);
   }
 
   public static isDebugAsmFile(path: string): boolean {
-    return path.endsWith(DebugDisassembledFile.DGBFILE_EXTENSION);
+    return path.endsWith(DisassembledFile.DGBFILE_EXTENSION);
   }
 }
 
@@ -194,28 +192,11 @@ export class DisassembleAddressArguments
   }
 }
 
-export class DebugDisassembledManager {
-  /** Tool to disassemble */
-  private capstone?: Capstone;
-
-  /** Proxy to Gdb */
-  private gdbProxy: GdbProxy;
-
-  /** Helper class to deal with the debug expressions */
-  private debugExpressionHelper = new DebugExpressionHelper();
-
-  /** To evaluate addresses and symbols */
-  private variableResolver: DebugVariableResolver;
-
+export class DisassemblyManager {
   public constructor(
-    gdbProxy: GdbProxy,
-    capstone: Capstone | undefined,
-    variableResolver: DebugVariableResolver
-  ) {
-    this.capstone = capstone;
-    this.gdbProxy = gdbProxy;
-    this.variableResolver = variableResolver;
-  }
+    private gdbProxy: GdbProxy,
+    private variableResolver: VariableResolver
+  ) {}
 
   public async getStackFrame(
     stackFrameIndex: number,
@@ -223,7 +204,7 @@ export class DebugDisassembledManager {
     stackFrameLabel: string,
     isCopper: boolean
   ): Promise<StackFrame> {
-    const dAsmFile = new DebugDisassembledFile();
+    const dAsmFile = new DisassembledFile();
     const length = 500;
     let lineNumber = 1;
     dAsmFile.setCopper(isCopper);
@@ -252,17 +233,11 @@ export class DebugDisassembledManager {
         // Read
         let lineInCop1 = -1;
         let lineInCop2 = -1;
-        const cop1Addr = await MemoryLabelsRegistry.getCopperAddress(
-          1,
-          this.variableResolver
-        );
+        const cop1Addr = await getCopperAddress(1, this.gdbProxy);
         if (cop1Addr) {
           lineInCop1 = Math.floor((address - cop1Addr + 4) / 4);
         }
-        const cop2Addr = await MemoryLabelsRegistry.getCopperAddress(
-          1,
-          this.variableResolver
-        );
+        const cop2Addr = await getCopperAddress(1, this.gdbProxy);
         if (cop2Addr) {
           lineInCop2 = Math.floor((address - cop2Addr + 4) / 4);
         }
@@ -289,7 +264,7 @@ export class DebugDisassembledManager {
         .setAddressExpression(`$${newAddress.toString(16)}`)
         .setLength(length);
     }
-    const url = `${DebugDisassembledFile.DGBFILE_SCHEME}:///${dAsmFile}`;
+    const url = `${DisassembledFile.DGBFILE_SCHEME}:///${dAsmFile}`;
     let sf;
     if (lineNumber >= 0 && isCopper) {
       sf = new StackFrame(
@@ -302,7 +277,7 @@ export class DebugDisassembledManager {
     } else {
       sf = new StackFrame(stackFrameIndex, stackFrameLabel);
     }
-    sf.instructionPointerReference = StringUtils.formatAddress(address);
+    sf.instructionPointerReference = formatHexadecimal(address);
     return sf;
   }
 
@@ -310,47 +285,30 @@ export class DebugDisassembledManager {
     segmentId: number,
     offset: number
   ): Promise<number> {
-    if (this.capstone) {
-      const memory = await this.gdbProxy.getSegmentMemory(segmentId);
-      // disassemble the code
-      const code = await this.capstone.disassemble(memory);
-      const [, instructions] =
-        this.debugExpressionHelper.processOutputFromDisassembler(code, 0);
-      let line = 1;
-      for (const instr of instructions) {
-        if (instr.getNumericalAddress() === offset) {
-          return line;
-        }
-        line++;
+    const memory = await this.gdbProxy.getSegmentMemory(segmentId);
+    // disassemble the code
+    const { instructions } = await disassemble(memory);
+    let line = 1;
+    for (const instr of instructions) {
+      if (parseInt(instr.address) === offset) {
+        return line;
       }
-      throw new Error(
-        `Cannot retrieve line for segment ${segmentId}, offset ${offset}: line not found`
-      );
-    } else {
-      throw new Error(
-        `Cannot retrieve line for segment ${segmentId}, offset ${offset} : capstone is not defined`
-      );
+      line++;
     }
+    throw new Error(
+      `Cannot retrieve line for segment ${segmentId}, offset ${offset}: line not found`
+    );
   }
+
   public async disassembleSegment(
     segmentId: number
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    if (this.capstone) {
-      const localCapstone = this.capstone;
-      // ask for memory dump
-      const memory = await this.gdbProxy.getSegmentMemory(segmentId);
-      const startAddress = this.gdbProxy.toAbsoluteOffset(segmentId, 0);
-      // disassemble the code
-      const code = await localCapstone.disassemble(memory);
-      const [, variables] =
-        this.debugExpressionHelper.processOutputFromDisassembler(
-          code,
-          startAddress
-        );
-      return variables;
-    } else {
-      throw new Error("Capstone has not been defined");
-    }
+    // ask for memory dump
+    const memory = await this.gdbProxy.getSegmentMemory(segmentId);
+    const startAddress = this.gdbProxy.toAbsoluteOffset(segmentId, 0);
+    // disassemble the code
+    const { instructions } = await disassemble(memory, startAddress);
+    return instructions;
   }
 
   public async disassembleAddress(
@@ -362,17 +320,16 @@ export class DebugDisassembledManager {
     let searchedAddress: number | void;
     if (isCopper && (addressExpression === "1" || addressExpression === "2")) {
       // Retrieve the copper address
-      searchedAddress = await MemoryLabelsRegistry.getCopperAddress(
+      searchedAddress = await getCopperAddress(
         parseInt(addressExpression),
-        this.variableResolver
+        this.gdbProxy
       );
     } else {
-      searchedAddress =
-        await this.debugExpressionHelper.getAddressFromExpression(
-          addressExpression,
-          undefined,
-          this.variableResolver
-        );
+      searchedAddress = await evaluateExpression(
+        addressExpression,
+        undefined,
+        this.variableResolver
+      );
     }
     if (searchedAddress || searchedAddress === 0) {
       if (offset) {
@@ -397,40 +354,30 @@ export class DebugDisassembledManager {
     if (isCopper) {
       const memory = await this.gdbProxy.getMemory(address, length);
       const startAddress = address;
-      const copDis = new CopperDisassembler(memory);
-      const instructions = copDis.disassemble();
+      const instructions = disassembleCopper(memory);
       const variables = new Array<DebugProtocol.DisassembledInstruction>();
       let offset = 0;
       for (const i of instructions) {
         const addOffset = startAddress + offset;
         variables.push({
           instructionBytes: i.getInstructionBytes(),
-          address: StringUtils.formatAddress(addOffset),
+          address: formatHexadecimal(addOffset),
           instruction: i.toString(),
         });
         // 4 addresses : 32b / address
         offset += 4;
       }
       return variables;
-    } else if (this.capstone) {
-      const localCapstone = this.capstone;
+    } else {
       // ask for memory dump
-      if (this.gdbProxy.isConnected()) {
-        const memory = await this.gdbProxy.getMemory(address, length);
-        const startAddress = address;
-        // disassemble the code
-        const code = await localCapstone.disassemble(memory);
-        const [, variables] =
-          this.debugExpressionHelper.processOutputFromDisassembler(
-            code,
-            startAddress
-          );
-        return variables;
-      } else {
+      if (!this.gdbProxy.isConnected()) {
         throw new Error("Debugger not started");
       }
-    } else {
-      throw new Error("Capstone has not been defined");
+      const memory = await this.gdbProxy.getMemory(address, length);
+      const startAddress = address;
+      // disassemble the code
+      const { instructions } = await disassemble(memory, startAddress);
+      return instructions;
     }
   }
 
@@ -439,22 +386,12 @@ export class DebugDisassembledManager {
     length: number
   ): Promise<Array<DebugProtocol.DisassembledInstruction>> {
     const address = searchedAddress;
-    if (this.capstone) {
-      const localCapstone = this.capstone;
-      // ask for memory dump
-      const memory = await this.gdbProxy.getMemory(address, length);
-      const startAddress = address;
-      // disassemble the code
-      const code = await localCapstone.disassemble(memory);
-      const [, lines] =
-        this.debugExpressionHelper.processOutputFromDisassembler(
-          code,
-          startAddress
-        );
-      return lines;
-    } else {
-      throw new Error("Capstone has not been defined");
-    }
+    // ask for memory dump
+    const memory = await this.gdbProxy.getMemory(address, length);
+    const startAddress = address;
+    // disassemble the code
+    const { instructions } = await disassemble(memory, startAddress);
+    return instructions;
   }
 
   public async disassembleRequest(
@@ -475,7 +412,7 @@ export class DebugDisassembledManager {
       } else {
         throw new Error(`Unable to disassemble; invalid parameters ${args}`);
       }
-    } else if (this.capstone) {
+    } else {
       if (args.segmentId !== undefined) {
         return this.disassembleSegment(args.segmentId);
       } else if (args.addressExpression && args.instructionCount) {
@@ -488,8 +425,6 @@ export class DebugDisassembledManager {
       } else {
         throw new Error(`Unable to disassemble; invalid parameters ${args}`);
       }
-    } else {
-      throw new Error("Capstone cstool must be configured in the settings");
     }
   }
 
@@ -499,7 +434,7 @@ export class DebugDisassembledManager {
   ): Promise<number> {
     let instructions: void | DebugProtocol.DisassembledInstruction[];
     if (lineNumber > 0) {
-      const dAsmFile = DebugDisassembledFile.fromPath(filePath);
+      const dAsmFile = DisassembledFile.fromPath(filePath);
       if (dAsmFile.isSegment()) {
         const segmentId = dAsmFile.getSegmentId();
         if (segmentId !== undefined) {
@@ -535,9 +470,5 @@ export class DebugDisassembledManager {
     } else {
       throw new Error(`Invalid line number: '${lineNumber}'`);
     }
-  }
-
-  public setCapstone(capstone: Capstone) {
-    this.capstone = capstone;
   }
 }

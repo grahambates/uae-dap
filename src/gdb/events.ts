@@ -1,4 +1,4 @@
-import { GdbPacket } from "./gdbPacket";
+import { GdbPacket } from "./packets";
 
 /**
  * Lite Consumer event interface

@@ -1,10 +1,29 @@
-import { MemoryLabelsRegistry } from "./customMemoryAddresses";
+import { getCustomName } from "../memory";
 
 /** Type of copper instruction */
 export enum CopperInstructionType {
   MOVE,
   WAIT,
   SKIP,
+}
+
+export function disassembleCopper(memory: string): CopperInstruction[] {
+  const copperList: CopperInstruction[] = [];
+
+  if (memory.length >= 8) {
+    // Split the string in blocs of 8 characters
+    for (let i = 8; i <= memory.length; i += 8) {
+      const instruction = CopperInstruction.parse(memory.substring(i - 8, i));
+      copperList.push(instruction);
+      if (instruction instanceof CopperWait && instruction.isEnd()) {
+        break;
+      }
+    }
+  } else {
+    throw new Error("Memory block too short to parse (8 characters minimum)");
+  }
+
+  return copperList;
 }
 
 /**
@@ -14,6 +33,7 @@ export class CopperInstruction {
   public instructionType: CopperInstructionType;
   public first: number;
   public second: number;
+
   public constructor(
     instructionType: CopperInstructionType,
     first: number,
@@ -23,6 +43,7 @@ export class CopperInstruction {
     this.first = first;
     this.second = second;
   }
+
   static parse(instructionString: string): CopperInstruction {
     // Split in two parts
     const firstStr = instructionString.substring(0, 4);
@@ -40,9 +61,11 @@ export class CopperInstruction {
       return new CopperMove(first, second);
     }
   }
+
   public getAsmInstruction(): string {
     return `dc.w $${this.format(this.first)},$${this.format(this.second)}`;
   }
+
   public getInstructionBytes(): string {
     const f = this.format(this.first);
     const s = this.format(this.second);
@@ -51,11 +74,13 @@ export class CopperInstruction {
       2
     )} ${s.substring(2)}`;
   }
+
   protected getPaddedAsmInstruction(): string {
     const inst = this.getAsmInstruction();
     const pad = " ".repeat(20 - inst.length);
     return inst + pad;
   }
+
   protected format(value: number): string {
     return value.toString(16).padStart(4, "0");
   }
@@ -68,13 +93,15 @@ export class CopperMove extends CopperInstruction {
   public RD: number;
   /** Understandable label */
   public label: string | undefined;
+
   constructor(first: number, second: number) {
     super(CopperInstructionType.MOVE, first, second);
     this.DA = first & 0x01fe;
     this.RD = second;
     const register = 0xdff000 + this.DA;
-    this.label = MemoryLabelsRegistry.getCustomName(register);
+    this.label = getCustomName(register);
   }
+
   public toString(): string {
     let l: string;
     if (this.label) {
@@ -87,6 +114,7 @@ export class CopperMove extends CopperInstruction {
     return `${inst}; ${l} := ${value}`;
   }
 }
+
 export class CopperCondition extends CopperInstruction {
   /** Vertical beam position unmasked */
   public VP: number;
@@ -102,6 +130,7 @@ export class CopperCondition extends CopperInstruction {
   public vertical: number;
   /** Horizontal beam position */
   public horizontal: number;
+
   constructor(
     instructionType: CopperInstructionType,
     first: number,
@@ -117,10 +146,12 @@ export class CopperCondition extends CopperInstruction {
     this.horizontal = this.HP & this.HE;
   }
 }
+
 export class CopperWait extends CopperCondition {
   constructor(first: number, second: number) {
     super(CopperInstructionType.WAIT, first, second);
   }
+
   public toString(): string {
     const inst = this.getPaddedAsmInstruction();
     if (this.isEnd()) {
@@ -140,49 +171,21 @@ export class CopperWait extends CopperCondition {
       return str + wait.join(" and ");
     }
   }
+
   public isEnd(): boolean {
     return this.first === 0xffff && this.second === 0xfffe;
   }
 }
+
 export class CopperSkip extends CopperCondition {
   constructor(first: number, second: number) {
     super(CopperInstructionType.SKIP, first, second);
   }
+
   public toString(): string {
     const inst = this.getPaddedAsmInstruction();
     return `${inst}; Skip if vpos >= 0x${this.vertical.toString(
       16
     )} and hpos >= 0x${this.horizontal.toString(16)}`;
-  }
-}
-
-/**
- * Copper list disassembler
- */
-export class CopperDisassembler {
-  copperList = new Array<CopperInstruction>();
-  constructor(memory: string) {
-    this.parse(memory);
-  }
-
-  private parse(memory: string) {
-    if (memory.length >= 8) {
-      // Split the string in blocs of 8 characters
-      for (let i = 8; i <= memory.length; i += 8) {
-        const instruction = CopperInstruction.parse(memory.substring(i - 8, i));
-        this.copperList.push(instruction);
-        if (instruction instanceof CopperWait && instruction.isEnd()) {
-          break;
-        }
-      }
-    } else {
-      throw new Error("Memory bloc too short to parse (8 characters minimum)");
-    }
-  }
-  public disassemble(): Array<CopperInstruction> {
-    return this.copperList;
-  }
-  public toString(): string {
-    return this.copperList.join("\n");
   }
 }

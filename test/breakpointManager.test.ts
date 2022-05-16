@@ -10,14 +10,10 @@ import {
   reset,
 } from "@johanblumenberg/ts-mockito";
 
-import { GdbProxy } from "../src/gdbProxy";
-import { DebugDisassembledManager } from "../src/debugDisassembled";
-import { DebugInfo } from "../src/debugInfo";
-import {
-  BreakpointManager,
-  GdbBreakpoint,
-  GdbBreakpointType,
-} from "../src/breakpointManager";
+import { GdbBreakpoint, GdbBreakpointType, GdbProxy } from "../src/gdb";
+import { DisassemblyManager } from "../src/disassembly";
+import { FileParser } from "../src/parsing/fileParser";
+import { BreakpointManager } from "../src/breakpointManager";
 
 describe("Breakpoint Manager", () => {
   const err = new Error("not Good");
@@ -28,24 +24,24 @@ describe("Breakpoint Manager", () => {
   let bpManager: BreakpointManager;
   let spiedBpManager: BreakpointManager;
   let mockedGdbProxy: GdbProxy;
-  let mockedDebugDisassembledManager: DebugDisassembledManager;
-  let mockedDebugInfo: DebugInfo;
+  let mockedDisassemblyManager: DisassemblyManager;
+  let mockedDebugInfo: FileParser;
 
   beforeEach(() => {
     mockedGdbProxy = mock(GdbProxy);
     when(mockedGdbProxy.isConnected()).thenReturn(true);
-    mockedDebugDisassembledManager = mock(DebugDisassembledManager);
-    mockedDebugInfo = mock(DebugInfo);
+    mockedDisassemblyManager = mock(DisassemblyManager);
+    mockedDebugInfo = mock(FileParser);
     bpManager = new BreakpointManager(
       instance(mockedGdbProxy),
-      instance(mockedDebugDisassembledManager)
+      instance(mockedDisassemblyManager)
     );
   });
 
   afterEach(() => {
     reset(mockedGdbProxy);
     reset(mockedDebugInfo);
-    reset(mockedDebugDisassembledManager);
+    reset(mockedDisassemblyManager);
   });
 
   describe("Spied bpManager", () => {
@@ -79,7 +75,7 @@ describe("Breakpoint Manager", () => {
 
         describe("has debug info", () => {
           beforeEach(() => {
-            bpManager.setDebugInfo(instance(mockedDebugInfo));
+            bpManager.setFileParser(instance(mockedDebugInfo));
           });
 
           it("should add a breakpoint", async () => {
@@ -109,7 +105,7 @@ describe("Breakpoint Manager", () => {
             when(mockedGdbProxy.removeBreakpoint(anything())).thenResolve();
             // clean on other source
             await expect(
-              bpManager.clearBreakpoints(<DebugProtocol.Source>{
+              bpManager.clearBreakpoints({
                 path: "/other/source.s",
               })
             ).resolves.toBeUndefined();
@@ -150,7 +146,7 @@ describe("Breakpoint Manager", () => {
       const sourceLine = 1;
       const bp = <GdbBreakpoint>{
         id: 1,
-        source: <DebugProtocol.Source>{
+        source: {
           name: DIS_NAME,
           path: DIS_PATH,
         },
@@ -161,7 +157,7 @@ describe("Breakpoint Manager", () => {
       describe("Source existing", () => {
         beforeEach(() => {
           when(
-            mockedDebugDisassembledManager.getAddressForFileEditorLine(
+            mockedDisassemblyManager.getAddressForFileEditorLine(
               DIS_NAME,
               sourceLine
             )
@@ -189,7 +185,7 @@ describe("Breakpoint Manager", () => {
       describe("Address not resolved", () => {
         beforeEach(() => {
           when(
-            mockedDebugDisassembledManager.getAddressForFileEditorLine(
+            mockedDisassemblyManager.getAddressForFileEditorLine(
               DIS_NAME,
               sourceLine
             )
@@ -218,14 +214,14 @@ describe("Breakpoint Manager", () => {
     const sourceLine = 1;
     const bp = <GdbBreakpoint>{
       id: 1,
-      source: <DebugProtocol.Source>{
+      source: {
         path: SOURCE_PATH,
       },
       line: sourceLine,
     };
     const segId = 1;
     const offset = 2;
-    bpManager.setDebugInfo(instance(mockedDebugInfo));
+    bpManager.setFileParser(instance(mockedDebugInfo));
     when(mockedDebugInfo.getAddressSeg(SOURCE_PATH, sourceLine)).thenResolve([
       segId,
       offset,
@@ -233,12 +229,16 @@ describe("Breakpoint Manager", () => {
     when(mockedGdbProxy.setBreakpoint(anything())).thenReject(err);
     bpManager.addPendingBreakpoint(bp);
     expect(bpManager.getPendingBreakpoints()).toHaveLength(1);
-    await expect(bpManager.sendAllPendingBreakpoint()).resolves.toBeUndefined();
+    await expect(
+      bpManager.sendAllPendingBreakpoints()
+    ).resolves.toBeUndefined();
     expect(bpManager.getPendingBreakpoints()).toHaveLength(1);
 
     // case ok
     when(mockedGdbProxy.setBreakpoint(anything())).thenResolve();
-    await expect(bpManager.sendAllPendingBreakpoint()).resolves.toBeUndefined();
+    await expect(
+      bpManager.sendAllPendingBreakpoints()
+    ).resolves.toBeUndefined();
     expect(bpManager.getPendingBreakpoints()).toHaveLength(0);
   });
 });

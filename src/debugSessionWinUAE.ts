@@ -1,9 +1,8 @@
 import { OutputEvent } from "@vscode/debugadapter/lib/main";
 import { DebugProtocol } from "@vscode/debugprotocol/lib/debugProtocol";
-import { GdbProxyWinUAE } from "./gdbProxyWinUAE";
-import { LaunchRequestArguments, FsUAEDebugSession } from "./fsUAEDebug";
-import { GdbProxy } from "./gdbProxy";
-import { VariableFormatter } from "./variableFormatter";
+import { GdbProxyWinUAE, GdbProxy } from "./gdb";
+import { LaunchRequestArguments, FsUAEDebugSession } from "./debugSession";
+import { formatNumber, NumberFormat } from "./strings";
 import { BreakpointManager } from "./breakpointManager";
 
 export class WinUAEDebugSession extends FsUAEDebugSession {
@@ -99,11 +98,9 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
     variableName: string
   ): Promise<string> {
     const value = await this.getVariableValueAsNumber(variableName);
-    let formatter = this.variableFormatterMap.get(variableName);
-    if (!formatter) {
-      formatter = VariableFormatter.HEXADECIMAL_FORMATTER;
-    }
-    return formatter.format(value);
+    const format =
+      this.variableFormatterMap.get(variableName) || NumberFormat.HEXADECIMAL;
+    return formatNumber(value, format);
   }
 
   protected async dataBreakpointInfoRequest(

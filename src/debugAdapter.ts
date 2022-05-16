@@ -1,3 +1,3 @@
-import { FsUAEDebugSession } from "./fsUAEDebug";
+import { FsUAEDebugSession } from "./debugSession";
 
 FsUAEDebugSession.run(FsUAEDebugSession);

@@ -1,3 +1,3 @@
-import { WinUAEDebugSession } from "./winUAEDebug";
+import { WinUAEDebugSession } from "./debugSessionWinUAE";
 
 WinUAEDebugSession.run(WinUAEDebugSession);

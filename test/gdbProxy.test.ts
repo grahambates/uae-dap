@@ -1,13 +1,11 @@
-import { GdbProxy } from "../src/gdbProxy";
 import {
-  GdbRegister,
-  GdbStackPosition,
-  GdbStackFrame,
+  GdbProxy,
   GdbError,
-  GdbHaltStatus,
   GdbAmigaSysThreadIdFsUAE,
   GdbThread,
-} from "../src/gdbProxyCore";
+  GdbBreakpoint,
+  GdbBreakpointType,
+} from "../src/gdb";
 import { Socket } from "net";
 import {
   spy,
@@ -19,8 +17,7 @@ import {
   reset,
 } from "@johanblumenberg/ts-mockito";
 import { fail } from "assert";
-import { GdbBreakpoint } from "../src/breakpointManager";
-import { StringUtils } from "../src/stringUtils";
+import { asciiToHex } from "../src/strings";
 
 function padStartWith0(stringToPad: string, targetLength: number): string {
   targetLength = targetLength >> 0; //truncate if number or convert non-number to 0;
@@ -54,21 +51,21 @@ function createBreakpoint(
   offset: number,
   exceptionMask?: number
 ): GdbBreakpoint {
-  return <GdbBreakpoint>{
+  return {
     id: breakpointId,
     segmentId: segmentId,
     offset: offset,
     exceptionMask: exceptionMask,
     verified: false,
+    breakpointType: GdbBreakpointType.SOURCE,
   };
 }
 
-describe("GdbProxy Tests", function () {
+describe("GdbProxy", function () {
   const supportRequest = GdbProxy.SUPPORT_STRING;
   const supportedReply =
     "multiprocess+;vContSupported+;QStartNoAckMode+;QNonStop+";
-  const vRunRequest =
-    "vRun;" + StringUtils.convertStringToHex("dh0:myprog") + ";";
+  const vRunRequest = "vRun;" + asciiToHex("dh0:myprog") + ";";
   const vContCRequest = `vCont;c:p${GdbThread.DEFAULT_PROCESS_ID}.f`;
   const vContRRequest = `vCont;r0,0:p${GdbThread.DEFAULT_PROCESS_ID}.f`;
   const vContSRequest = `vCont;s:p${GdbThread.DEFAULT_PROCESS_ID}.f`;
@@ -184,7 +181,7 @@ describe("GdbProxy Tests", function () {
         vThreadInfoResponse
       );
       // callback for all pending breakpoint send function
-      proxy.setSendPendingBreakpointsCallback((): Promise<void> => {
+      proxy.onSendAllPendingBreakpoints((): Promise<void> => {
         return new Promise((resolve, _) => {
           resolve();
         });
@@ -224,7 +221,7 @@ describe("GdbProxy Tests", function () {
         RESPONSE_REGISTERS
       );
       // callback for all pending breakpoint send function
-      proxy.setSendPendingBreakpointsCallback((): Promise<void> => {
+      proxy.onSendAllPendingBreakpoints((): Promise<void> => {
         return new Promise((resolve, _) => {
           resolve();
         });
@@ -374,7 +371,7 @@ describe("GdbProxy Tests", function () {
         when(spiedProxy.sendPacketString("g", anything())).thenResolve(
           RESPONSE_REGISTERS
         );
-        proxy.setSendPendingBreakpointsCallback((): Promise<void> => {
+        proxy.onSendAllPendingBreakpoints((): Promise<void> => {
           return new Promise((resolve, _) => {
             resolve();
           });
@@ -441,75 +438,75 @@ describe("GdbProxy Tests", function () {
       it("Should get the registers", async function () {
         const registers = await proxy.registers(null, null);
         let pos = 0;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "pc",
           value: 17,
         });
         pos += 1;
         for (let i = 0; i < 8; i++) {
-          expect(registers[pos + i]).toEqual(<GdbRegister>{
+          expect(registers[pos + i]).toEqual({
             name: "d" + i,
             value: i,
           });
         }
         for (let i = 8; i < 16; i++) {
-          expect(registers[pos + i]).toEqual(<GdbRegister>{
+          expect(registers[pos + i]).toEqual({
             name: "a" + (i - 8),
             value: i,
           });
         }
         pos += 16;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "sr",
           value: 43690,
         });
         pos += 1;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "SR_T1",
           value: 1,
         });
         pos += 1;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "SR_T0",
           value: 0,
         });
         pos += 1;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "SR_S",
           value: 1,
         });
         pos += 1;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "SR_M",
           value: 0,
         });
         pos += 1;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "SR_intmask",
           value: 2,
         });
         pos += 1;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "SR_X",
           value: 0,
         });
         pos += 1;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "SR_N",
           value: 1,
         });
         pos += 1;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "SR_Z",
           value: 0,
         });
         pos += 1;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "SR_V",
           value: 1,
         });
         pos += 1;
-        expect(registers[pos]).toEqual(<GdbRegister>{
+        expect(registers[pos]).toEqual({
           name: "SR_C",
           value: 0,
         });
@@ -532,16 +529,16 @@ describe("GdbProxy Tests", function () {
           const thread = proxy.getCurrentCpuThread();
           if (thread) {
             const stack = await proxy.stack(thread);
-            expect(stack).toEqual(<GdbStackFrame>{
+            expect(stack).toEqual({
               frames: [
-                <GdbStackPosition>{
+                {
                   index: -1,
                   segmentId: -1,
                   offset: 10,
                   pc: 10,
                   stackFrameIndex: 1,
                 },
-                <GdbStackPosition>{
+                {
                   index: 1,
                   segmentId: -1,
                   offset: 10,
@@ -587,9 +584,9 @@ describe("GdbProxy Tests", function () {
             GdbAmigaSysThreadIdFsUAE.COP
           );
           if (thread) {
-            return expect(proxy.stack(thread)).resolves.toEqual(<GdbStackFrame>{
+            return expect(proxy.stack(thread)).resolves.toEqual({
               frames: [
-                <GdbStackPosition>{
+                {
                   index: -1000,
                   offset: 0,
                   pc: 1,
@@ -819,7 +816,7 @@ describe("GdbProxy Tests", function () {
             `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.07;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
           )
           .thenResolve(RESPONSE_OK);
-        const haltStatus: GdbHaltStatus[] = await proxy.getHaltStatus();
+        const haltStatus = await proxy.getHaltStatus();
         expect(haltStatus.length).toBe(2);
         expect(haltStatus[0].code).toBe(5);
         // tslint:disable-next-line: no-unused-expression
@@ -871,121 +868,121 @@ describe("GdbProxy Tests", function () {
     it("Should get the detailed value of the SR register", function () {
       let registers = GdbProxy.getSRDetailedValues(0);
       let i = 0;
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_T1",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_T0",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_S",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_M",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_intmask",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_X",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_N",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_Z",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_V",
         value: 0,
       });
-      expect(registers[i]).toEqual(<GdbRegister>{ name: "SR_C", value: 0 });
+      expect(registers[i]).toEqual({ name: "SR_C", value: 0 });
       registers = GdbProxy.getSRDetailedValues(0b1010111110101010);
       i = 0;
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_T1",
         value: 1,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_T0",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_S",
         value: 1,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_M",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_intmask",
         value: 7,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_X",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_N",
         value: 1,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_Z",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_V",
         value: 1,
       });
-      expect(registers[i]).toEqual(<GdbRegister>{ name: "SR_C", value: 0 });
+      expect(registers[i]).toEqual({ name: "SR_C", value: 0 });
       registers = GdbProxy.getSRDetailedValues(0b0101001110010101);
       i = 0;
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_T1",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_T0",
         value: 1,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_S",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_M",
         value: 1,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_intmask",
         value: 3,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_X",
         value: 1,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_N",
         value: 0,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_Z",
         value: 1,
       });
-      expect(registers[i++]).toEqual(<GdbRegister>{
+      expect(registers[i++]).toEqual({
         name: "SR_V",
         value: 0,
       });
-      expect(registers[i]).toEqual(<GdbRegister>{ name: "SR_C", value: 1 });
+      expect(registers[i]).toEqual({ name: "SR_C", value: 1 });
     });
   });
 

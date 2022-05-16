@@ -1,2 +1,6 @@
 #!/usr/bin/env node
-require("./out/debugAdapter");
+if (process.argv.includes("--winUAE")) {
+  require("./out/src/debugAdapterWinUAE");
+} else {
+  require("./out/src/debugAdapter");
+}

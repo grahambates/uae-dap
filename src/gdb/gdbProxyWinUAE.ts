@@ -1,17 +1,17 @@
 import {
-  GdbAmigaSysThreadIdWinUAE,
+  GdbProxy,
   GdbHaltStatus,
   GdbRegister,
   GdbSignal,
   GdbStackFrame,
   GdbStackPosition,
-  GdbThread,
-  Segment,
-} from "./gdbProxyCore";
-import { GdbBreakpoint, GdbBreakpointAccessType } from "./breakpointManager";
-import { GdbPacketType } from "./gdbPacket";
-import { StringUtils } from "./stringUtils";
-import { GdbProxy } from "./gdbProxy";
+  GdbSegment,
+  GdbBreakpoint,
+  GdbBreakpointAccessType,
+} from "./gdbProxy";
+import { GdbThread, GdbAmigaSysThreadIdWinUAE } from "./threads";
+import { GdbPacketType } from "./packets";
+import { asciiToHex } from "../strings";
 
 /**
  * Class to contact the fs-UAE GDB server.
@@ -47,9 +47,7 @@ export class GdbProxyWinUAE extends GdbProxy {
       await new Promise<void>((resolve, reject) =>
         setTimeout(async () => {
           this.stopOnEntryRequested = stopOnEntry !== undefined && stopOnEntry;
-          const encodedProgramName = StringUtils.convertStringToHex(
-            "dh0:" + elms[elms.length - 1]
-          );
+          const encodedProgramName = asciiToHex("dh0:" + elms[elms.length - 1]);
           // Call for segments
           try {
             const message = await this.sendPacketString(
@@ -74,7 +72,7 @@ export class GdbProxyWinUAE extends GdbProxy {
     );
     // expected return message : TextSeg=00c03350;DataSeg=00c03350
     const segs = segmentReply.split(";");
-    this.segments = new Array<Segment>();
+    this.segments = new Array<GdbSegment>();
     // The segments message begins with the keyword AS
     let segIdx = 0;
     for (const seg of segs) {
@@ -89,7 +87,7 @@ export class GdbProxyWinUAE extends GdbProxy {
         name = `Segment${segIdx}`;
         address = segElms[0];
       }
-      this.segments.push(<Segment>{
+      this.segments.push({
         id: segIdx - 1,
         name: name,
         address: parseInt(address, 16),
@@ -298,7 +296,7 @@ export class GdbProxyWinUAE extends GdbProxy {
       if (values) {
         const pc = values[0];
         const [segmentId, offset] = this.toRelativeOffset(pc);
-        return <GdbStackPosition>{
+        return {
           index: frameIndex,
           stackFrameIndex: values[1] + 1,
           segmentId: segmentId,
@@ -325,7 +323,7 @@ export class GdbProxyWinUAE extends GdbProxy {
               break;
             }
           }
-          return <GdbStackPosition>{
+          return {
             index: frameIndex * 1000,
             stackFrameIndex: 1,
             segmentId: -10,
@@ -369,8 +367,8 @@ export class GdbProxyWinUAE extends GdbProxy {
           }
         }
       }
-      return <GdbStackFrame>{
-        frames: frames,
+      return {
+        frames,
         count: frames.length,
       };
     } finally {
@@ -445,7 +443,7 @@ export class GdbProxyWinUAE extends GdbProxy {
       currentThreadId = currentCpuThread.getId();
     }
     switch (haltStatus.code) {
-      case GdbSignal.GDB_SIGNAL_TRAP: // Trace/breakpoint trap
+      case GdbSignal.TRAP: // Trace/breakpoint trap
         // A breakpoint has been reached
         if (this.stopOnEntryRequested) {
           this.stopOnEntryRequested = false;
@@ -454,7 +452,7 @@ export class GdbProxyWinUAE extends GdbProxy {
           this.sendEvent("stopOnBreakpoint", currentThreadId);
         }
         break;
-      case GdbSignal.GDB_SIGNAL_EMT: // Emulation trap -> copper breakpoint
+      case GdbSignal.EMT: // Emulation trap -> copper breakpoint
         // Exception reached
         this.sendEvent("stopOnBreakpoint", currentThreadId);
         break;
