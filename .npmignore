@@ -1,7 +1,10 @@
 /docs
 /test
 /src
+/out/test
 tsconfig.json
 .eslintignore
 .eslintrc.js
 *.map
+.husky
+jest.*
