@@ -355,9 +355,9 @@ export class FsUAEDebugSession extends DebugSession {
       }
 
       // Connect to the emulator
+      const { serverName = "localhost", serverPort = 6860 } = args;
       await promiseRetry(
-        (retry) =>
-          this.gdbProxy.connect(args.serverName, args.serverPort).catch(retry),
+        (retry) => this.gdbProxy.connect(serverName, serverPort).catch(retry),
         { minTimeout: 500, retries, factor: 1.1 }
       );
 
