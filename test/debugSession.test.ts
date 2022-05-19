@@ -18,6 +18,7 @@ import {
 } from "@johanblumenberg/ts-mockito";
 
 import {
+  GdbEvents,
   GdbProxy,
   GdbThread,
   GdbAmigaSysThreadIdFsUAE,
@@ -81,7 +82,7 @@ describe("Node Debug Adapter", () => {
   beforeEach(async () => {
     // Mock GDB proxy
     gdbProxy = mock(GdbProxy);
-    when(gdbProxy.on(anyString(), anyFunction())).thenCall(
+    when(gdbProxy.on(anyString() as keyof GdbEvents, anyFunction())).thenCall(
       (event: string, callback: Callback) => {
         callbacks.set(event, callback);
         return gdbProxy;

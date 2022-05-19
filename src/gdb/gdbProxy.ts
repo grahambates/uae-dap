@@ -112,10 +112,33 @@ export interface GdbSegment {
   size: number;
 }
 
+export type GdbEvents = {
+  gdbConnected: () => void;
+  stopOnEntry: (threadId: number) => void;
+  stopOnStep: (threadId: number, preserveFocusHint?: boolean) => void;
+  stopOnPause: (threadId: number) => void;
+  stopOnBreakpoint: (threadId: number) => void;
+  segmentsUpdated: (segments: GdbSegment[]) => void;
+  stopOnException: (haltStatus: GdbHaltStatus, threadId: number) => void;
+  continueThread: (threadId: number, allThreadsContinued?: boolean) => void;
+  breakpointValidated: (bp: GdbBreakpoint) => void;
+  threadStarted: (threadId: number) => void;
+  output: (
+    text: string,
+    filePath?: string,
+    line?: number,
+    column?: number
+  ) => void;
+  end: () => void;
+  error: (err: Error) => void;
+};
+
+export type GdbEvent = keyof GdbEvents;
+
 /**
  * Class to contact the fs-UAE GDB server.
  */
-export class GdbProxy extends EventEmitter {
+export class GdbProxy {
   // Registers Indexes
   // order of registers are assumed to be
   // d0-d7, a0-a7, sr, pc [optional fp0-fp7, control, iar]
@@ -187,13 +210,15 @@ export class GdbProxy extends EventEmitter {
   /** If true the proxy is connected */
   protected connected = false;
 
+  protected eventEmitter: EventEmitter;
+
   /**
    * Constructor
    * The socket is needed only for unit test mocking.
    * @param socket Socket instance created to contact the server (for unit tests)
    */
   constructor(socket?: Socket) {
-    super();
+    this.eventEmitter = new EventEmitter();
     if (socket) {
       this.socket = socket;
     } else {
@@ -304,11 +329,7 @@ export class GdbProxy extends EventEmitter {
       "output",
       `defaultOnDataHandler (type : ${
         GdbPacketType[packet.getType()]
-      }, notification : ${packet.isNotification()}) : --> ${packet.getMessage()}`,
-      undefined,
-      undefined,
-      undefined,
-      "debug"
+      }, notification : ${packet.isNotification()}) : --> ${packet.getMessage()}`
     );
     const consumed = false;
     switch (packet.getType()) {
@@ -352,24 +373,10 @@ export class GdbProxy extends EventEmitter {
               // user output (KPrintF, etc.)
               msg = msg.substring(5); // remove "DBG: " prefix added by uaelib.cpp
             }
-            this.sendEvent(
-              "output",
-              `server output : ${msg}`,
-              undefined,
-              undefined,
-              undefined,
-              "debug"
-            );
+            this.sendEvent("output", `server output : ${msg}`);
           }
         } catch (err) {
-          this.sendEvent(
-            "output",
-            `Error parsing server output : ${err}`,
-            undefined,
-            undefined,
-            undefined,
-            "debug"
-          );
+          this.sendEvent("output", `Error parsing server output : ${err}`);
         }
       } else if (packet.getType() !== GdbPacketType.PLUS) {
         this.receivedDataManager.trigger(packet);
@@ -523,11 +530,7 @@ export class GdbProxy extends EventEmitter {
         }
         this.sendEvent(
           "output",
-          `sending ... ${dataToSend} / ${expectedTypeName}-->`,
-          undefined,
-          undefined,
-          undefined,
-          "debug"
+          `sending ... ${dataToSend} / ${expectedTypeName}-->`
         );
         let p;
         if (answerExpected) {
@@ -547,11 +550,7 @@ export class GdbProxy extends EventEmitter {
           if (packet) {
             this.sendEvent(
               "output",
-              `${dataToSend} --> ${packet.getMessage()}`,
-              undefined,
-              undefined,
-              undefined,
-              "debug"
+              `${dataToSend} --> ${packet.getMessage()}`
             );
             if (packet.getType() === GdbPacketType.ERROR) {
               throw this.parseError(packet.getMessage());
@@ -1062,14 +1061,38 @@ export class GdbProxy extends EventEmitter {
     }
   }
 
+  public on<U extends keyof GdbEvents>(event: U, listener: GdbEvents[U]): this {
+    this.eventEmitter.on(event, listener);
+    return this;
+  }
+
+  public once<U extends keyof GdbEvents>(
+    event: U,
+    listener: GdbEvents[U]
+  ): this {
+    this.eventEmitter.once(event, listener);
+    return this;
+  }
+
+  public off<U extends keyof GdbEvents>(
+    event: U,
+    listener: GdbEvents[U]
+  ): this {
+    this.eventEmitter.off(event, listener);
+    return this;
+  }
+
   /**
    * Sends an event
    * @param event Event to send
    * @param args Arguments
    */
-  public sendEvent(event: string, ...args: any[]): void {
+  protected sendEvent<U extends keyof GdbEvents>(
+    event: U,
+    ...args: Parameters<GdbEvents[U]>
+  ): void {
     setImmediate(() => {
-      this.emit(event, ...args);
+      this.eventEmitter.emit(event, ...args);
     });
   }
 

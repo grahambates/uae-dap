@@ -170,47 +170,38 @@ export class FsUAEDebugSession extends DebugSession {
    */
   public initProxy(): void {
     // setup event handlers
-    this.gdbProxy.on("stopOnEntry", (threadId: number) => {
+    this.gdbProxy.on("stopOnEntry", (threadId) => {
       this.sendStoppedEvent(threadId, "entry", false);
     });
-    this.gdbProxy.on(
-      "stopOnStep",
-      (threadId: number, preserveFocusHint?: boolean) => {
-        // Only send step events for stopped threads
-        if (this.stoppedThreads[threadId]) {
-          this.sendStoppedEvent(threadId, "step", preserveFocusHint);
-        }
+    this.gdbProxy.on("stopOnStep", (threadId, preserveFocusHint) => {
+      // Only send step events for stopped threads
+      if (this.stoppedThreads[threadId]) {
+        this.sendStoppedEvent(threadId, "step", preserveFocusHint);
       }
-    );
-    this.gdbProxy.on("stopOnPause", (threadId: number) => {
+    });
+    this.gdbProxy.on("stopOnPause", (threadId) => {
       // Only send pause evens for running threads
       if (!this.stoppedThreads[threadId]) {
         this.sendStoppedEvent(threadId, "pause", false);
       }
     });
-    this.gdbProxy.on("stopOnBreakpoint", (threadId: number) => {
+    this.gdbProxy.on("stopOnBreakpoint", (threadId) => {
       // Only send breakpoint evens for running threads
       if (!this.stoppedThreads[threadId]) {
         this.sendStoppedEvent(threadId, "breakpoint", false);
       }
     });
-    this.gdbProxy.on(
-      "stopOnException",
-      (_: GdbHaltStatus, threadId: number) => {
-        this.sendStoppedEvent(threadId, "exception", false);
-      }
-    );
-    this.gdbProxy.on(
-      "continueThread",
-      (threadId: number, allThreadsContinued?: boolean) => {
-        this.stoppedThreads[threadId] = false;
-        this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
-      }
-    );
-    this.gdbProxy.on("segmentsUpdated", (segments: GdbSegment[]) => {
+    this.gdbProxy.on("stopOnException", (_, threadId) => {
+      this.sendStoppedEvent(threadId, "exception", false);
+    });
+    this.gdbProxy.on("continueThread", (threadId, allThreadsContinued) => {
+      this.stoppedThreads[threadId] = false;
+      this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
+    });
+    this.gdbProxy.on("segmentsUpdated", (segments) => {
       this.updateSegments(segments);
     });
-    this.gdbProxy.on("breakpointValidated", (bp: GdbBreakpoint) => {
+    this.gdbProxy.on("breakpointValidated", (bp) => {
       // Dirty workaround to issue https://github.com/microsoft/vscode/issues/65993
       setTimeout(async () => {
         try {
@@ -220,7 +211,7 @@ export class FsUAEDebugSession extends DebugSession {
         }
       }, 100);
     });
-    this.gdbProxy.on("threadStarted", (threadId: number) => {
+    this.gdbProxy.on("threadStarted", (threadId) => {
       const event = <DebugProtocol.ThreadEvent>{
         event: "thread",
         body: {
@@ -230,24 +221,21 @@ export class FsUAEDebugSession extends DebugSession {
       };
       this.sendEvent(event);
     });
-    this.gdbProxy.on(
-      "output",
-      (text: string, filePath?: string, line?: number, column?: number) => {
-        if (this.trace) {
-          const e: DebugProtocol.OutputEvent = new OutputEvent(`${text}\n`);
-          if (filePath !== undefined) {
-            e.body.source = this.createSource(filePath);
-          }
-          if (line !== undefined) {
-            e.body.line = this.convertDebuggerLineToClient(line);
-          }
-          if (column !== undefined) {
-            e.body.column = this.convertDebuggerColumnToClient(column);
-          }
-          this.sendEvent(e);
+    this.gdbProxy.on("output", (text, filePath, line, column) => {
+      if (this.trace) {
+        const e: DebugProtocol.OutputEvent = new OutputEvent(`${text}\n`);
+        if (filePath !== undefined) {
+          e.body.source = this.createSource(filePath);
         }
+        if (line !== undefined) {
+          e.body.line = this.convertDebuggerLineToClient(line);
+        }
+        if (column !== undefined) {
+          e.body.column = this.convertDebuggerColumnToClient(column);
+        }
+        this.sendEvent(e);
       }
-    );
+    });
     this.gdbProxy.on("end", () => {
       this.terminate();
     });
