@@ -28,7 +28,7 @@ import {
 import { BreakpointManager } from "../src/breakpointManager";
 import { Emulator } from "../src/emulator";
 
-type Callback = (...args: any[]) => void;
+type Callback = (...args: unknown[]) => void;
 
 describe("Node Debug Adapter", () => {
   const PROJECT_ROOT = path.join(__dirname, "..").replace(/\\+/g, "/");
@@ -107,7 +107,7 @@ describe("Node Debug Adapter", () => {
 
     // Because we start on a port, the client connects to server instead of launching adapter
     dc = new DebugClient("not", "used", "ignore");
-    const address: any = server.address();
+    const address = <net.AddressInfo>server.address();
     return dc.start(address.port);
   });
 
@@ -205,7 +205,7 @@ describe("Node Debug Adapter", () => {
         ],
         count: 1,
       });
-      when(gdbProxy.registers(anything(), anything())).thenResolve([
+      when(gdbProxy.registers(anything())).thenResolve([
         { name: "d0", value: 1 },
       ]);
 
@@ -390,7 +390,7 @@ describe("Node Debug Adapter", () => {
         "0000000000c00b0000f8"
       );
 
-      when(gdbProxy.registers(anything(), anything())).thenResolve([
+      when(gdbProxy.registers(anything())).thenResolve([
         { name: "d0", value: 1 },
         { name: "a0", value: 10 },
       ]);
@@ -420,7 +420,7 @@ describe("Node Debug Adapter", () => {
         ],
         count: 2,
       });
-      when(gdbProxy.registers(anything(), anything())).thenResolve([
+      when(gdbProxy.registers(anything())).thenResolve([
         { name: "d0", value: 1 },
         { name: "a0", value: 10 },
         { name: "sr", value: 0b1000000000000000 },
@@ -599,7 +599,7 @@ describe("Node Debug Adapter", () => {
         "a",
         -1,
       ]);
-      when(gdbProxy.registers(anything(), anything())).thenResolve([
+      when(gdbProxy.registers(anything())).thenResolve([
         {
           name: "d0",
           value: 1,
@@ -768,7 +768,7 @@ describe("Node Debug Adapter", () => {
         "a",
         -1,
       ]);
-      when(gdbProxy.registers(anything(), anything())).thenResolve([
+      when(gdbProxy.registers(anything())).thenResolve([
         { name: "d0", value: 1 },
         { name: "a0", value: 10 },
       ]);
@@ -833,7 +833,7 @@ describe("Node Debug Adapter", () => {
         ],
         count: 1,
       });
-      when(gdbProxy.registers(anything(), anything())).thenResolve([
+      when(gdbProxy.registers(anything())).thenResolve([
         {
           name: "d0",
           value: 1,

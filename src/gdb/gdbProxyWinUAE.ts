@@ -33,7 +33,7 @@ export class GdbProxyWinUAE extends GdbProxy {
   /**
    * Message to load the program
    * @param programFilename Filename of the program with the local path
-   * @param stopOnEntry If true we will stop on entry
+   * @param stopOnEntry If true we will stop" on entry
    */
   public async load(
     programFilename: string,
@@ -381,7 +381,7 @@ export class GdbProxyWinUAE extends GdbProxy {
    */
   public async registers(
     frameId: number | null,
-    thread: GdbThread | null
+    thread?: GdbThread | null
   ): Promise<Array<GdbRegister>> {
     const unlock = await this.mutex.capture("selectFrame");
     try {
@@ -391,7 +391,7 @@ export class GdbProxyWinUAE extends GdbProxy {
       }
       let command = "g";
       if (thread !== null) {
-        command = "Hg" + thread.getThreadId();
+        command = "Hg" + thread?.getThreadId();
       }
       const message = await this.sendPacketString(
         command,

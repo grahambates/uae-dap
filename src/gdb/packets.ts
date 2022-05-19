@@ -46,7 +46,7 @@ export class GdbPacket {
    * Parses the data received.
    * @param data Data to parse
    */
-  public static parseData(data: any): GdbPacket[] {
+  public static parseData(data: Buffer): GdbPacket[] {
     const parsedData = new Array<GdbPacket>();
     if (data) {
       let s = data.toString();

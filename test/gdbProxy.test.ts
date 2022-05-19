@@ -181,11 +181,7 @@ describe("GdbProxy", function () {
         vThreadInfoResponse
       );
       // callback for all pending breakpoint send function
-      proxy.onSendAllPendingBreakpoints((): Promise<void> => {
-        return new Promise((resolve, _) => {
-          resolve();
-        });
-      });
+      proxy.onSendAllPendingBreakpoints(async () => undefined);
       await proxy.connect("localhost", 6860);
       await proxy.load("/home/myh\\myprog", true);
       verify(spiedProxy.sendPacketString(vRunRequest, anything())).once();
@@ -221,11 +217,7 @@ describe("GdbProxy", function () {
         RESPONSE_REGISTERS
       );
       // callback for all pending breakpoint send function
-      proxy.onSendAllPendingBreakpoints((): Promise<void> => {
-        return new Promise((resolve, _) => {
-          resolve();
-        });
-      });
+      proxy.onSendAllPendingBreakpoints(async () => undefined);
       await proxy.connect("localhost", 6860);
       await proxy.load("/home/myh\\myprog", false);
       verify(spiedProxy.sendPacketString(vRunRequest, anything())).once();
@@ -371,11 +363,7 @@ describe("GdbProxy", function () {
         when(spiedProxy.sendPacketString("g", anything())).thenResolve(
           RESPONSE_REGISTERS
         );
-        proxy.onSendAllPendingBreakpoints((): Promise<void> => {
-          return new Promise((resolve, _) => {
-            resolve();
-          });
-        });
+        proxy.onSendAllPendingBreakpoints(async () => undefined);
         // connect
         await proxy.connect("localhost", 6860);
         await proxy.load("/home/myh\\myprog", true);
@@ -436,7 +424,7 @@ describe("GdbProxy", function () {
       });
 
       it("Should get the registers", async function () {
-        const registers = await proxy.registers(null, null);
+        const registers = await proxy.registers(null);
         let pos = 0;
         expect(registers[pos]).toEqual({
           name: "pc",

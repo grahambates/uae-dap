@@ -206,7 +206,7 @@ export class GdbProxy {
   /** Manager for the received socket data */
   protected receivedDataManager: GdbReceivedDataManager;
   /** Lock for sendPacketString function */
-  protected sendPacketStringLock?: any;
+  protected sendPacketStringLock?: () => void;
   /** If true the proxy is connected */
   protected connected = false;
 
@@ -311,7 +311,7 @@ export class GdbProxy {
         reject(err);
       });
       this.socket.on("data", (data) => {
-        this.onData(this, data);
+        this.onData(data);
       });
     });
   }
@@ -360,7 +360,7 @@ export class GdbProxy {
    * @param _ A GdbProxy instance
    * @param data Data to parse
    */
-  protected onData(_: GdbProxy, data: any): void {
+  protected onData(data: Buffer): void {
     const packets = GdbPacket.parseData(data);
     for (const packet of packets) {
       // plus packet are acknowledge - to be ignored
@@ -387,7 +387,7 @@ export class GdbProxy {
   /**
    * Message to initialize the program
    */
-  public async initProgram(_: boolean | undefined): Promise<void> {
+  public async initProgram(): Promise<void> {
     // nothing
   }
 
@@ -868,10 +868,7 @@ export class GdbProxy {
   /**
    * Retrieves all the register values
    */
-  public async registers(
-    frameId: number | null,
-    _: GdbThread | null
-  ): Promise<GdbRegister[]> {
+  public async registers(frameId: number | null): Promise<GdbRegister[]> {
     const unlock = await this.mutex.capture("selectFrame");
     try {
       if (frameId !== null) {

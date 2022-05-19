@@ -17,7 +17,7 @@ import { URI as Uri } from "vscode-uri";
 import { basename } from "path";
 import promiseRetry from "promise-retry";
 
-import { GdbProxy, GdbSegment, GdbHaltStatus, GdbBreakpoint } from "./gdb";
+import { GdbProxy, GdbSegment, GdbHaltStatus } from "./gdb";
 import { FileParser } from "./parsing/fileParser";
 import { evaluateExpression } from "./expressions";
 import { DisassemblyManager, DisassembleAddressArguments } from "./disassembly";
@@ -65,7 +65,7 @@ export interface LaunchRequestArguments
 
 export interface VariableDisplayFormatRequest {
   /** info of the variable */
-  variableInfo: any;
+  variableInfo: { variable: { name: string; value: string } };
   /** Requested format */
   format: NumberFormat;
 }
@@ -82,9 +82,9 @@ export class FsUAEDebugSession extends DebugSession {
   protected static readonly MUTEX_TIMEOUT = 100000;
 
   /** Proxy to Gdb */
-  protected gdbProxy: GdbProxy;
+  protected gdb: GdbProxy;
   /** Breakpoint manager */
-  protected breakpointManager: BreakpointManager;
+  protected breakpoints: BreakpointManager;
   /** Emulator instance */
   protected emulator: Emulator;
 
@@ -125,19 +125,16 @@ export class FsUAEDebugSession extends DebugSession {
     this.setDebuggerLinesStartAt1(false);
     this.setDebuggerColumnsStartAt1(false);
 
-    this.gdbProxy = new GdbProxy();
-    this.gdbProxy.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
+    this.gdb = new GdbProxy();
+    this.gdb.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
     this.initProxy();
 
-    this.disassemblyManager = new DisassemblyManager(this.gdbProxy, this);
+    this.disassemblyManager = new DisassemblyManager(this.gdb, this);
 
-    this.breakpointManager = new BreakpointManager(
-      this.gdbProxy,
-      this.disassemblyManager
-    );
+    this.breakpoints = new BreakpointManager(this.gdb, this.disassemblyManager);
 
     this.emulator = new Emulator();
-    this.breakpointManager.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
+    this.breakpoints.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
   }
 
   /**
@@ -145,15 +142,12 @@ export class FsUAEDebugSession extends DebugSession {
    * @param gdbProxy mocked proxy
    */
   public setTestContext(gdbProxy: GdbProxy, emulator: Emulator): void {
-    this.gdbProxy = gdbProxy;
-    this.gdbProxy.setMutexTimeout(1000);
+    this.gdb = gdbProxy;
+    this.gdb.setMutexTimeout(1000);
     this.initProxy();
     this.testMode = true;
-    this.breakpointManager = new BreakpointManager(
-      this.gdbProxy,
-      this.disassemblyManager
-    );
-    this.breakpointManager.setMutexTimeout(1000);
+    this.breakpoints = new BreakpointManager(this.gdb, this.disassemblyManager);
+    this.breakpoints.setMutexTimeout(1000);
     this.emulator = emulator;
   }
 
@@ -162,7 +156,7 @@ export class FsUAEDebugSession extends DebugSession {
    * @return the breakpoint manager
    */
   public getBreakpointManager(): BreakpointManager {
-    return this.breakpointManager;
+    return this.breakpoints;
   }
 
   /**
@@ -170,38 +164,36 @@ export class FsUAEDebugSession extends DebugSession {
    */
   public initProxy(): void {
     // setup event handlers
-    this.gdbProxy.on("stopOnEntry", (threadId) => {
+    this.gdb.on("stopOnEntry", (threadId) => {
       this.sendStoppedEvent(threadId, "entry", false);
     });
-    this.gdbProxy.on("stopOnStep", (threadId, preserveFocusHint) => {
+    this.gdb.on("stopOnStep", (threadId, preserveFocusHint) => {
       // Only send step events for stopped threads
       if (this.stoppedThreads[threadId]) {
         this.sendStoppedEvent(threadId, "step", preserveFocusHint);
       }
     });
-    this.gdbProxy.on("stopOnPause", (threadId) => {
+    this.gdb.on("stopOnPause", (threadId) => {
       // Only send pause evens for running threads
       if (!this.stoppedThreads[threadId]) {
         this.sendStoppedEvent(threadId, "pause", false);
       }
     });
-    this.gdbProxy.on("stopOnBreakpoint", (threadId) => {
+    this.gdb.on("stopOnBreakpoint", (threadId) => {
       // Only send breakpoint evens for running threads
       if (!this.stoppedThreads[threadId]) {
         this.sendStoppedEvent(threadId, "breakpoint", false);
       }
     });
-    this.gdbProxy.on("stopOnException", (_, threadId) => {
+    this.gdb.on("stopOnException", (_, threadId) => {
       this.sendStoppedEvent(threadId, "exception", false);
     });
-    this.gdbProxy.on("continueThread", (threadId, allThreadsContinued) => {
+    this.gdb.on("continueThread", (threadId, allThreadsContinued) => {
       this.stoppedThreads[threadId] = false;
       this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
     });
-    this.gdbProxy.on("segmentsUpdated", (segments) => {
-      this.updateSegments(segments);
-    });
-    this.gdbProxy.on("breakpointValidated", (bp) => {
+    this.gdb.on("segmentsUpdated", this.updateSegments.bind(this));
+    this.gdb.on("breakpointValidated", (bp) => {
       // Dirty workaround to issue https://github.com/microsoft/vscode/issues/65993
       setTimeout(async () => {
         try {
@@ -211,7 +203,7 @@ export class FsUAEDebugSession extends DebugSession {
         }
       }, 100);
     });
-    this.gdbProxy.on("threadStarted", (threadId) => {
+    this.gdb.on("threadStarted", (threadId) => {
       const event = <DebugProtocol.ThreadEvent>{
         event: "thread",
         body: {
@@ -221,7 +213,7 @@ export class FsUAEDebugSession extends DebugSession {
       };
       this.sendEvent(event);
     });
-    this.gdbProxy.on("output", (text, filePath, line, column) => {
+    this.gdb.on("output", (text, filePath, line, column) => {
       if (this.trace) {
         const e: DebugProtocol.OutputEvent = new OutputEvent(`${text}\n`);
         if (filePath !== undefined) {
@@ -236,9 +228,7 @@ export class FsUAEDebugSession extends DebugSession {
         this.sendEvent(e);
       }
     });
-    this.gdbProxy.on("end", () => {
-      this.terminate();
-    });
+    this.gdb.on("end", this.terminate.bind(this));
   }
 
   /**
@@ -313,11 +303,11 @@ export class FsUAEDebugSession extends DebugSession {
         throw new Error("Unable to parse program " + args.program);
       }
 
-      this.breakpointManager.setFileParser(this.fileParser);
-      this.breakpointManager.checkPendingBreakpointsAddresses();
+      this.breakpoints.setFileParser(this.fileParser);
+      this.breakpoints.checkPendingBreakpointsAddresses();
 
       if (args.exceptionMask) {
-        this.breakpointManager.setExceptionMask(args.exceptionMask);
+        this.breakpoints.setExceptionMask(args.exceptionMask);
       }
       this.trace = args.trace ?? false;
 
@@ -345,13 +335,13 @@ export class FsUAEDebugSession extends DebugSession {
       // Connect to the emulator
       const { serverName = "localhost", serverPort = 6860 } = args;
       await promiseRetry(
-        (retry) => this.gdbProxy.connect(serverName, serverPort).catch(retry),
+        (retry) => this.gdb.connect(serverName, serverPort).catch(retry),
         { minTimeout: 500, retries, factor: 1.1 }
       );
 
       // Load the program
       this.sendEvent(new OutputEvent(`Starting program: ${args.program}`));
-      await this.gdbProxy.load(args.program, args.stopOnEntry);
+      await this.gdb.load(args.program, args.stopOnEntry);
 
       this.sendResponse(response);
     } catch (err) {
@@ -386,6 +376,7 @@ export class FsUAEDebugSession extends DebugSession {
   protected customRequest(
     command: string,
     response: DebugProtocol.Response,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     args: any
   ): void {
     if (command === "disassembleInner") {
@@ -411,7 +402,7 @@ export class FsUAEDebugSession extends DebugSession {
     try {
       let firstAddress = undefined;
       if (args.addressExpression && (args.offset || args.instructionOffset)) {
-        const segments = this.gdbProxy.getSegments();
+        const segments = this.gdb.getSegments();
         if (segments) {
           firstAddress = parseInt(args.addressExpression);
           if (args.offset) {
@@ -506,17 +497,15 @@ export class FsUAEDebugSession extends DebugSession {
   ) {
     const debugBreakPoints = new Array<DebugProtocol.Breakpoint>();
     // clear all breakpoints for this file
-    await this.breakpointManager.clearInstructionBreakpoints();
+    await this.breakpoints.clearInstructionBreakpoints();
     // set and verify breakpoint locations
     if (args.breakpoints) {
       for (const reqBp of args.breakpoints) {
-        const debugBp = this.breakpointManager.createInstructionBreakpoint(
+        const debugBp = this.breakpoints.createInstructionBreakpoint(
           parseInt(reqBp.instructionReference)
         );
         try {
-          const modifiedBp = await this.breakpointManager.setBreakpoint(
-            debugBp
-          );
+          const modifiedBp = await this.breakpoints.setBreakpoint(debugBp);
           debugBreakPoints.push(modifiedBp);
         } catch (err) {
           debugBreakPoints.push(debugBp);
@@ -537,18 +526,16 @@ export class FsUAEDebugSession extends DebugSession {
   ): Promise<void> {
     const debugBreakPoints = new Array<DebugProtocol.Breakpoint>();
     // clear all breakpoints for this file
-    await this.breakpointManager.clearBreakpoints(args.source);
+    await this.breakpoints.clearBreakpoints(args.source);
     // set and verify breakpoint locations
     if (args.breakpoints) {
       for (const reqBp of args.breakpoints) {
-        const debugBp = this.breakpointManager.createBreakpoint(
+        const debugBp = this.breakpoints.createBreakpoint(
           args.source,
           reqBp.line
         );
         try {
-          const modifiedBp = await this.breakpointManager.setBreakpoint(
-            debugBp
-          );
+          const modifiedBp = await this.breakpoints.setBreakpoint(debugBp);
           debugBreakPoints.push(modifiedBp);
         } catch (err) {
           debugBreakPoints.push(debugBp);
@@ -567,10 +554,10 @@ export class FsUAEDebugSession extends DebugSession {
     response: DebugProtocol.ThreadsResponse
   ): Promise<void> {
     try {
-      await this.gdbProxy.waitConnected();
-      const threadIds = await this.gdbProxy.getThreadIds();
+      await this.gdb.waitConnected();
+      const threadIds = await this.gdb.getThreadIds();
       const threads = threadIds.map(
-        (t) => new Thread(t.getId(), this.gdbProxy.getThreadDisplayName(t))
+        (t) => new Thread(t.getId(), this.gdb.getThreadDisplayName(t))
       );
       response.body = { threads };
       this.sendResponse(response);
@@ -586,23 +573,23 @@ export class FsUAEDebugSession extends DebugSession {
     if (!this.fileParser) {
       return this.sendStringErrorResponse(response, "No debug info loaded");
     }
-    await this.gdbProxy.waitConnected();
-    const thread = this.gdbProxy.getThread(args.threadId);
+    await this.gdb.waitConnected();
+    const thread = this.gdb.getThread(args.threadId);
     if (!thread) {
       return this.sendStringErrorResponse(response, "Unknown thread");
     }
 
     try {
-      const { frames, count: totalFrames } = await this.gdbProxy.stack(thread);
+      const { frames, count: totalFrames } = await this.gdb.stack(thread);
       const stackFrames = [];
       let updatedView = false;
 
       for (const f of frames) {
-        if (!updatedView && this.gdbProxy.isCPUThread(thread)) {
+        if (!updatedView && this.gdb.isCPUThread(thread)) {
           // Update the cpu view
           this.updateDisassembledView(f.pc);
           updatedView = true;
-          this.breakpointManager.checkTemporaryBreakpoints(f.pc);
+          this.breakpoints.checkTemporaryBreakpoints(f.pc);
         }
         let stackFrameDone = false;
         const pc = formatAddress(f.pc);
@@ -638,7 +625,7 @@ export class FsUAEDebugSession extends DebugSession {
 
         if (!stackFrameDone) {
           let line = pc;
-          if (this.gdbProxy.isCPUThread(thread)) {
+          if (this.gdb.isCPUThread(thread)) {
             const dCode = this.disassembledCache.get(f.pc);
             if (dCode) {
               line = dCode;
@@ -646,7 +633,7 @@ export class FsUAEDebugSession extends DebugSession {
               // Get the disassembled line
               line += ": ";
               try {
-                const memory = await this.gdbProxy.getMemory(f.pc, 10);
+                const memory = await this.gdb.getMemory(f.pc, 10);
                 const { code: disassembled } = await disassemble(memory);
                 const lines = disassembled.split(/\r\n|\r|\n/g);
                 let selectedLine = lines[0];
@@ -666,7 +653,7 @@ export class FsUAEDebugSession extends DebugSession {
               }
               this.disassembledCache.set(f.pc, line);
             }
-          } else if (this.gdbProxy.isCopperThread(thread)) {
+          } else if (this.gdb.isCopperThread(thread)) {
             const dCopperCode = this.disassembledCopperCache.get(f.pc);
             if (dCopperCode) {
               line = dCopperCode;
@@ -674,7 +661,7 @@ export class FsUAEDebugSession extends DebugSession {
               // Get the disassembled line
               line += ": ";
               try {
-                const memory = await this.gdbProxy.getMemory(f.pc, 10);
+                const memory = await this.gdb.getMemory(f.pc, 10);
                 const cDis = disassembleCopper(memory);
                 line = line + cDis.join("\n").split("    ")[0];
                 this.disassembledCopperCache.set(f.pc, line);
@@ -688,7 +675,7 @@ export class FsUAEDebugSession extends DebugSession {
             f.index,
             f.pc,
             line,
-            this.gdbProxy.isCopperThread(thread)
+            this.gdb.isCopperThread(thread)
           );
           stackFrames.push(stackFrame);
         }
@@ -701,6 +688,7 @@ export class FsUAEDebugSession extends DebugSession {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected async updateDisassembledView(_: number) {
     // NOOP on this implementation- needed for vs-code
   }
@@ -755,13 +743,13 @@ export class FsUAEDebugSession extends DebugSession {
       return this.sendStringErrorResponse(response, "No id to variable");
     }
 
-    await this.gdbProxy.waitConnected();
+    await this.gdb.waitConnected();
 
     // Register?
     if (id.startsWith(FsUAEDebugSession.PREFIX_REGISTERS)) {
       try {
         const frameId = parseInt(id.substring(10));
-        const registers = await this.gdbProxy.registers(frameId, null);
+        const registers = await this.gdb.registers(frameId);
         const variables = new Array<DebugProtocol.Variable>();
         const srVariables = new Array<DebugProtocol.Variable>();
         const srVRef = this.variableHandles.create(
@@ -797,7 +785,7 @@ export class FsUAEDebugSession extends DebugSession {
     // Segment?
     if (id.startsWith(FsUAEDebugSession.PREFIX_SEGMENTS)) {
       const variables = new Array<DebugProtocol.Variable>();
-      const segments = this.gdbProxy.getSegments();
+      const segments = this.gdb.getSegments();
       if (segments) {
         for (let i = 0; i < segments.length; i++) {
           const s = segments[i];
@@ -847,7 +835,7 @@ export class FsUAEDebugSession extends DebugSession {
     const id = this.variableHandles.get(args.variablesReference);
     if (id !== null && id.startsWith(FsUAEDebugSession.PREFIX_REGISTERS)) {
       try {
-        const newValue = await this.gdbProxy.setRegister(args.name, args.value);
+        const newValue = await this.gdb.setRegister(args.name, args.value);
         response.body = {
           value: newValue,
         };
@@ -861,7 +849,7 @@ export class FsUAEDebugSession extends DebugSession {
   }
 
   public terminate(): void {
-    this.gdbProxy.destroy();
+    this.gdb.destroy();
     this.emulator.destroy();
     // this.sendEvent(new TerminatedEvent());
   }
@@ -874,13 +862,13 @@ export class FsUAEDebugSession extends DebugSession {
     response: DebugProtocol.ContinueResponse,
     args: DebugProtocol.ContinueArguments
   ): Promise<void> {
-    await this.gdbProxy.waitConnected();
-    const thread = this.gdbProxy.getThread(args.threadId);
+    await this.gdb.waitConnected();
+    const thread = this.gdb.getThread(args.threadId);
     if (!thread) {
       return this.sendStringErrorResponse(response, "Unknown thread");
     }
     try {
-      await this.gdbProxy.continueExecution(thread);
+      await this.gdb.continueExecution(thread);
       response.body = {
         allThreadsContinued: false,
       };
@@ -894,13 +882,13 @@ export class FsUAEDebugSession extends DebugSession {
     response: DebugProtocol.NextResponse,
     args: DebugProtocol.NextArguments
   ): Promise<void> {
-    await this.gdbProxy.waitConnected();
-    const thread = this.gdbProxy.getThread(args.threadId);
+    await this.gdb.waitConnected();
+    const thread = this.gdb.getThread(args.threadId);
     if (!thread) {
       return this.sendStringErrorResponse(response, "Unknown thread");
     }
     try {
-      await this.gdbProxy.stepToRange(thread, 0, 0);
+      await this.gdb.stepToRange(thread, 0, 0);
       this.sendResponse(response);
     } catch (err) {
       this.sendStringErrorResponse(response, (err as Error).message);
@@ -911,13 +899,13 @@ export class FsUAEDebugSession extends DebugSession {
     response: DebugProtocol.StepInResponse,
     args: DebugProtocol.StepInArguments
   ): Promise<void> {
-    await this.gdbProxy.waitConnected();
-    const thread = this.gdbProxy.getThread(args.threadId);
+    await this.gdb.waitConnected();
+    const thread = this.gdb.getThread(args.threadId);
     if (!thread) {
       return this.sendStringErrorResponse(response, "Unknown thread");
     }
     try {
-      await this.gdbProxy.stepIn(thread);
+      await this.gdb.stepIn(thread);
       this.sendResponse(response);
     } catch (err) {
       this.sendStringErrorResponse(response, (err as Error).message);
@@ -928,17 +916,17 @@ export class FsUAEDebugSession extends DebugSession {
     response: DebugProtocol.StepOutResponse,
     args: DebugProtocol.StepOutArguments
   ): Promise<void> {
-    await this.gdbProxy.waitConnected();
-    const thread = this.gdbProxy.getThread(args.threadId);
+    await this.gdb.waitConnected();
+    const thread = this.gdb.getThread(args.threadId);
     if (!thread) {
       return this.sendStringErrorResponse(response, "Unknown thread");
     }
     try {
-      const { frames } = await this.gdbProxy.stack(thread);
+      const { frames } = await this.gdb.stack(thread);
       const { pc } = frames[1];
       const startAddress = pc + 1;
       const endAddress = pc + 10;
-      await this.gdbProxy.stepToRange(thread, startAddress, endAddress);
+      await this.gdb.stepToRange(thread, startAddress, endAddress);
       this.sendResponse(response);
     } catch (err) {
       this.sendStringErrorResponse(response, (err as Error).message);
@@ -951,7 +939,7 @@ export class FsUAEDebugSession extends DebugSession {
   ): Promise<void> {
     const address = parseInt(args.memoryReference);
     try {
-      await this.gdbProxy.waitConnected();
+      await this.gdb.waitConnected();
       let size = 0;
       let memory = "";
       const DEFAULT_CHUNK_SIZE = 1000;
@@ -961,7 +949,7 @@ export class FsUAEDebugSession extends DebugSession {
         if (remaining < chunkSize) {
           chunkSize = remaining;
         }
-        memory += await this.gdbProxy.getMemory(address + size, chunkSize);
+        memory += await this.gdb.getMemory(address + size, chunkSize);
         remaining -= chunkSize;
         size += chunkSize;
       }
@@ -989,7 +977,7 @@ export class FsUAEDebugSession extends DebugSession {
       address += args.offset;
     }
     try {
-      await this.gdbProxy.waitConnected();
+      await this.gdb.waitConnected();
       const hexString = base64ToHex(args.data);
       const count = hexString.length;
       const DEFAULT_CHUNK_SIZE = 1000;
@@ -1000,10 +988,7 @@ export class FsUAEDebugSession extends DebugSession {
         if (remaining < chunkSize) {
           chunkSize = remaining;
         }
-        await this.gdbProxy.setMemory(
-          address,
-          hexString.substring(size, chunkSize)
-        );
+        await this.gdb.setMemory(address, hexString.substring(size, chunkSize));
         remaining -= chunkSize;
         size += chunkSize;
       }
@@ -1071,11 +1056,8 @@ export class FsUAEDebugSession extends DebugSession {
   ): Promise<void> {
     // It's a reg value
     try {
-      await this.gdbProxy.waitConnected();
-      const value = await this.gdbProxy.getRegister(
-        args.expression,
-        args.frameId
-      );
+      await this.gdb.waitConnected();
+      const value = await this.gdb.getRegister(args.expression, args.frameId);
       const valueNumber = parseInt(value[0], 16);
       const format =
         this.variableFormatterMap.get(args.expression) ||
@@ -1127,8 +1109,8 @@ export class FsUAEDebugSession extends DebugSession {
       // replace the address if it is a variable
       const address = await evaluateExpression(matches[1], args.frameId, this);
       // ask for memory dump
-      await this.gdbProxy.waitConnected();
-      const memory = await this.gdbProxy.getMemory(address, length);
+      await this.gdb.waitConnected();
+      const memory = await this.gdb.getMemory(address, length);
       let key = this.variableExpressionMap.get(args.expression);
       if (!key) {
         key = this.variableHandles.create(args.expression);
@@ -1191,8 +1173,8 @@ export class FsUAEDebugSession extends DebugSession {
     try {
       // replace the address if it is a variable
       const address = await evaluateExpression(addrStr, args.frameId, this);
-      await this.gdbProxy.waitConnected();
-      await this.gdbProxy.setMemory(address, data);
+      await this.gdb.waitConnected();
+      await this.gdb.setMemory(address, data);
       args.expression = "m" + addrStr + "," + data.length.toString(16);
       return this.evaluateRequestGetMemory(response, args);
     } catch (err) {
@@ -1204,11 +1186,11 @@ export class FsUAEDebugSession extends DebugSession {
     response: DebugProtocol.PauseResponse,
     args: DebugProtocol.PauseArguments
   ): Promise<void> {
-    await this.gdbProxy.waitConnected();
-    const thread = this.gdbProxy.getThread(args.threadId);
+    await this.gdb.waitConnected();
+    const thread = this.gdb.getThread(args.threadId);
     if (thread) {
       try {
-        await this.gdbProxy.pause(thread);
+        await this.gdb.pause(thread);
         this.sendResponse(response);
       } catch (err) {
         this.sendStringErrorResponse(response, (err as Error).message);
@@ -1222,11 +1204,11 @@ export class FsUAEDebugSession extends DebugSession {
     response: DebugProtocol.ExceptionInfoResponse
   ): Promise<void> {
     try {
-      await this.gdbProxy.waitConnected();
-      const haltStatus = await this.gdbProxy.getHaltStatus();
+      await this.gdb.waitConnected();
+      const haltStatus = await this.gdb.getHaltStatus();
       let selectedHs: GdbHaltStatus = haltStatus[0];
       for (const hs of haltStatus) {
-        if (hs.thread && this.gdbProxy.isCPUThread(hs.thread)) {
+        if (hs.thread && this.gdb.isCPUThread(hs.thread)) {
           selectedHs = hs;
           break;
         }
@@ -1248,11 +1230,11 @@ export class FsUAEDebugSession extends DebugSession {
   ): Promise<void> {
     try {
       if (args.filters.length > 0) {
-        await this.breakpointManager.setExceptionBreakpoint();
+        await this.breakpoints.setExceptionBreakpoint();
         response.success = true;
         this.sendResponse(response);
       } else {
-        await this.breakpointManager.removeExceptionBreakpoint();
+        await this.breakpoints.removeExceptionBreakpoint();
         response.success = true;
         this.sendResponse(response);
       }
@@ -1284,7 +1266,7 @@ export class FsUAEDebugSession extends DebugSession {
           name: "",
           size: hunk.allocSize,
         };
-        address = this.gdbProxy.addSegment(segment);
+        address = this.gdb.addSegment(segment);
       } else {
         segment = segments[posSegment];
         address = segment.address;
@@ -1318,8 +1300,8 @@ export class FsUAEDebugSession extends DebugSession {
       lSize = 4;
     }
     // call to get the value in memory for this address
-    await this.gdbProxy.waitConnected();
-    return this.gdbProxy.getMemory(address, lSize);
+    await this.gdb.waitConnected();
+    return this.gdb.getMemory(address, lSize);
   }
 
   public async getVariableValue(
@@ -1337,8 +1319,8 @@ export class FsUAEDebugSession extends DebugSession {
     // Is it a register?
     const registerMatch = /^([ad][0-7]|pc|sr)$/i.exec(variableName);
     if (registerMatch) {
-      await this.gdbProxy.waitConnected();
-      const values = await this.gdbProxy.getRegister(variableName, frameIndex);
+      await this.gdb.waitConnected();
+      const values = await this.gdb.getRegister(variableName, frameIndex);
       return parseInt(values[0], 16);
     }
     // Is it a symbol?
@@ -1401,7 +1383,7 @@ export class FsUAEDebugSession extends DebugSession {
   protected async findInstructionSourceLines(
     instructions: DebugProtocol.DisassembledInstruction[]
   ): Promise<void> {
-    const segments = this.gdbProxy.getSegments();
+    const segments = this.gdb.getSegments();
     if (segments) {
       for (const instruction of instructions) {
         const values = await this.findSourceLine(
