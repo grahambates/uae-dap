@@ -1,12 +1,8 @@
 import { parse, eval as expEval } from "expression-eval";
 
 export interface VariableResolver {
-  getVariableValue(variable: string, frameIndex?: number): Promise<string>;
-  getVariablePointedMemory(
-    variableName: string,
-    frameIndex?: number,
-    size?: number
-  ): Promise<string>;
+  getMemory(address: number): Promise<number>;
+  getVariables(frameIndex?: number): Promise<Record<string, number>>;
 }
 
 export async function evaluateExpression(
@@ -14,10 +10,6 @@ export async function evaluateExpression(
   frameIndex: number | undefined,
   resolver: VariableResolver
 ): Promise<number> {
-  if (!expression) {
-    throw new Error("Invalid address");
-  }
-
   // Convert all numbers to decimal:
   let exp = expression
     // Hex
@@ -32,19 +24,22 @@ export async function evaluateExpression(
     return parseInt(exp, 10);
   }
 
+  const variables = await resolver.getVariables(frameIndex);
+
   // Replace all variables
   const matches = expression.matchAll(/([$#])\{([^}]+)\}/gi);
   for (const [fullStr, prefix, variableName] of matches) {
-    const value = await (prefix === "$"
-      ? resolver.getVariableValue(variableName, frameIndex)
-      : resolver.getVariablePointedMemory(variableName, frameIndex));
+    let value = variables[variableName];
     if (value) {
-      exp = exp.replace(fullStr, parseInt(value).toString());
+      if (prefix === "#") {
+        value = await resolver.getMemory(value);
+      }
+      exp = exp.replace(fullStr, value.toString());
     }
   }
 
   // Evaluate expression
-  const result = expEval(parse(exp), {});
+  const result = expEval(parse(exp), variables);
   if (isNaN(result)) {
     throw new Error("Unable to evaluate expression: " + exp);
   }

@@ -1,8 +1,12 @@
 import { OutputEvent } from "@vscode/debugadapter/lib/main";
 import { DebugProtocol } from "@vscode/debugprotocol/lib/debugProtocol";
 import { GdbProxyWinUAE, GdbProxy } from "./gdb";
-import { LaunchRequestArguments, FsUAEDebugSession } from "./debugSession";
-import { formatNumber, NumberFormat } from "./strings";
+import {
+  LaunchRequestArguments,
+  FsUAEDebugSession,
+  VariableType,
+} from "./debugSession";
+import { formatNumber, NumberFormat } from "./utils/strings";
 import { BreakpointManager } from "./breakpointManager";
 
 export class WinUAEDebugSession extends FsUAEDebugSession {
@@ -97,7 +101,8 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
   protected async getVariableAsDisplayed(
     variableName: string
   ): Promise<string> {
-    const value = await this.getVariableValueAsNumber(variableName);
+    const vars = await this.getVariables();
+    const value = vars[variableName];
     const format =
       this.variableFormatterMap.get(variableName) || NumberFormat.HEXADECIMAL;
     return formatNumber(value, format);
@@ -108,11 +113,10 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
     args: DebugProtocol.DataBreakpointInfoArguments
   ): Promise<void> {
     if (args.variablesReference !== undefined && args.name) {
-      const id = this.variableHandles.get(args.variablesReference);
+      const id = this.variableReferences.get(args.variablesReference);
       if (
         id &&
-        (id.startsWith(WinUAEDebugSession.PREFIX_SYMBOLS) ||
-          id.startsWith(WinUAEDebugSession.PREFIX_REGISTERS))
+        (id.type === VariableType.Symbols || id.type === VariableType.Registers)
       ) {
         const variableName = args.name;
         const displayValue = await this.getVariableAsDisplayed(variableName);
@@ -120,7 +124,7 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
           response,
           variableName,
           displayValue,
-          id.startsWith(WinUAEDebugSession.PREFIX_REGISTERS)
+          id.type === VariableType.Registers
         );
       }
     }

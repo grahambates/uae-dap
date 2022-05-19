@@ -28,25 +28,9 @@ describe("File parser", function () {
     ]);
   });
 
-  it("Should return all segments from a file", async function () {
-    const di = new FileParser(Uri.file(programFilename), pathReplacements);
-    await expect(di.parse()).resolves.toBe(true);
-    await expect(di.getAllSegmentIds(sourceFilename)).resolves.toEqual([0]);
-  });
-
   it("Should raise an error if the file is not found", async function () {
     const di = new FileParser(Uri.file("nothere"));
     await expect(di.parse()).resolves.toBe(false);
-  });
-
-  it("Should compare filenames", function () {
-    const di = new FileParser(Uri.file("nothere"));
-    // tslint:disable-next-line:no-unused-expression
-    expect(di.areSameSourceFileNames("b", "b")).toBeTruthy();
-    // tslint:disable-next-line:no-unused-expression
-    expect(di.areSameSourceFileNames("/b/c", "/b/C")).toBeFalsy();
-    // tslint:disable-next-line:no-unused-expression
-    expect(di.areSameSourceFileNames("./c", "/b/c")).toBeTruthy();
   });
 
   it("Should resolve the line number of a C file", async function () {

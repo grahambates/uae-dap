@@ -1,4 +1,4 @@
-import { getCustomName } from "../memory";
+import { customRegisterNames, CUSTOM_BASE } from "../customRegisters";
 
 /** Type of copper instruction */
 export enum CopperInstructionType {
@@ -8,21 +8,18 @@ export enum CopperInstructionType {
 }
 
 export function disassembleCopper(memory: string): CopperInstruction[] {
-  const copperList: CopperInstruction[] = [];
-
-  if (memory.length >= 8) {
-    // Split the string in blocs of 8 characters
-    for (let i = 8; i <= memory.length; i += 8) {
-      const instruction = CopperInstruction.parse(memory.substring(i - 8, i));
-      copperList.push(instruction);
-      if (instruction instanceof CopperWait && instruction.isEnd()) {
-        break;
-      }
-    }
-  } else {
+  if (memory.length < 8) {
     throw new Error("Memory block too short to parse (8 characters minimum)");
   }
-
+  const copperList: CopperInstruction[] = [];
+  // Split the string in blocs of 8 characters
+  for (let i = 8; i <= memory.length; i += 8) {
+    const instruction = CopperInstruction.parse(memory.substring(i - 8, i));
+    copperList.push(instruction);
+    if (instruction instanceof CopperWait && instruction.isEnd()) {
+      break;
+    }
+  }
   return copperList;
 }
 
@@ -30,19 +27,11 @@ export function disassembleCopper(memory: string): CopperInstruction[] {
  * Copper instruction
  */
 export class CopperInstruction {
-  public instructionType: CopperInstructionType;
-  public first: number;
-  public second: number;
-
   public constructor(
-    instructionType: CopperInstructionType,
-    first: number,
-    second: number
-  ) {
-    this.instructionType = instructionType;
-    this.first = first;
-    this.second = second;
-  }
+    public instructionType: CopperInstructionType,
+    public first: number,
+    public second: number
+  ) {}
 
   static parse(instructionString: string): CopperInstruction {
     // Split in two parts
@@ -98,8 +87,8 @@ export class CopperMove extends CopperInstruction {
     super(CopperInstructionType.MOVE, first, second);
     this.DA = first & 0x01fe;
     this.RD = second;
-    const register = 0xdff000 + this.DA;
-    this.label = getCustomName(register);
+    const address = CUSTOM_BASE + this.DA;
+    this.label = customRegisterNames[address];
   }
 
   public toString(): string {

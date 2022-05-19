@@ -70,13 +70,21 @@ describe("Node Debug Adapter", () => {
   let emulator: Emulator;
   let session: FsUAEDebugSession;
   let server: net.Server;
+  let onExit: undefined | (() => void);
 
   beforeAll(async () => {
     GdbThread.setSupportMultiprocess(false);
     // Mock emulator
     emulator = mock(Emulator);
-    when(emulator.run(anything())).thenResolve();
-    when(emulator.destroy()).thenReturn();
+    when(emulator.run(anything())).thenCall(async (args) => {
+      onExit = args.onExit;
+    });
+    when(emulator.destroy()).thenCall(() => {
+      if (onExit) {
+        onExit();
+        onExit = undefined;
+      }
+    });
   });
 
   beforeEach(async () => {
@@ -148,7 +156,7 @@ describe("Node Debug Adapter", () => {
   });
 
   describe("launch", () => {
-    it.skip("should run program to the end", () => {
+    it("should run program to the end", () => {
       when(gdbProxy.load(anything(), anything())).thenCall(async () => {
         callbacks.get("end")?.();
       });
@@ -384,8 +392,8 @@ describe("Node Debug Adapter", () => {
         }, 1);
       });
       when(gdbProxy.getRegister(anyString(), anything()))
-        .thenResolve(["0", -1])
-        .thenResolve(["a", 1]);
+        .thenResolve([0, -1])
+        .thenResolve([10, 1]);
       when(gdbProxy.getMemory(10, anyNumber())).thenResolve(
         "0000000000c00b0000f8"
       );
@@ -514,7 +522,7 @@ describe("Node Debug Adapter", () => {
       expect(symbols[0].variablesReference).toEqual(0);
     });
 
-    it.skip("should retrieve a copper stack", async () => {
+    it("should retrieve a copper stack", async () => {
       when(gdbProxy.getMemory(22624, 10)).thenResolve("0180056c2c07fffe0180");
       when(gdbProxy.getMemory(14676096, 4)).thenResolve("5850");
       when(gdbProxy.isCopperThread(anything())).thenReturn(true);
@@ -595,10 +603,7 @@ describe("Node Debug Adapter", () => {
         ],
         count: 1,
       });
-      when(gdbProxy.getRegister(anyString(), anything())).thenResolve([
-        "a",
-        -1,
-      ]);
+      when(gdbProxy.getRegister(anyString(), anything())).thenResolve([10, -1]);
       when(gdbProxy.registers(anything())).thenResolve([
         {
           name: "d0",
@@ -633,7 +638,7 @@ describe("Node Debug Adapter", () => {
 
     it("should evaluate a memory location", async () => {
       let evaluateResponse = await dc.evaluateRequest({
-        expression: "m0,10",
+        expression: "m 0,10",
       });
       expect(evaluateResponse.body.type).toBe("array");
       expect(evaluateResponse.body.result).toBe(
@@ -659,13 +664,11 @@ describe("Node Debug Adapter", () => {
         expression: "m #{copper_list},10",
       });
       expect(evaluateResponse.body.result).toBe(
-        // TODO: check
-        // "bb000000 00c00b00 00f8          | »....À...ø"
-        "00000000 00c00b00 00f8          | .....À...ø"
+        "bb000000 00c00b00 00f8          | »....À...ø"
       );
 
       evaluateResponse = await dc.evaluateRequest({
-        expression: "m ${color00},1",
+        expression: "m ${COLOR00},1",
       });
       expect(evaluateResponse.body.result).toBe(
         "1234                            | .4"
@@ -684,7 +687,7 @@ describe("Node Debug Adapter", () => {
 
     it("should evaluate a set memory command", async () => {
       let evaluateResponse = await dc.evaluateRequest({
-        expression: "M0=10",
+        expression: "M 0=10",
       });
       verify(gdbProxy.setMemory(0, anyString())).once();
       resetCalls(gdbProxy);
@@ -695,7 +698,7 @@ describe("Node Debug Adapter", () => {
 
       // Test variable replacement
       evaluateResponse = await dc.evaluateRequest({
-        expression: "M${a0}=10",
+        expression: "M ${a0}=10",
       });
       verify(gdbProxy.setMemory(10, anyString())).once();
       resetCalls(gdbProxy);
@@ -716,21 +719,21 @@ describe("Node Debug Adapter", () => {
 
     it("should evaluate a memory disassemble", async () => {
       let evaluateResponse = await dc.evaluateRequest({
-        expression: "m0,10,d",
+        expression: "m 0,10,d",
       });
       expect(evaluateResponse.body.type).toBe("array");
-      expect(evaluateResponse.body.result).toBe("ori.b #$0, d0");
+      expect(evaluateResponse.body.result).toBe("ori.b     #$0, d0");
 
-      // Test variable replacement
-      evaluateResponse = await dc.evaluateRequest({
-        expression: "m ${pc},10,d",
-      });
-      expect(evaluateResponse.body.result).toBe("dc.w $aa00");
+      // // Test variable replacement
+      // evaluateResponse = await dc.evaluateRequest({
+      //   expression: "m ${pc},10,d",
+      // });
+      // expect(evaluateResponse.body.result).toBe("dc.w $aa00");
 
       evaluateResponse = await dc.evaluateRequest({
         expression: "m ${copper_list},10,d",
       });
-      expect(evaluateResponse.body.result).toBe("ori.b #$b, d0");
+      expect(evaluateResponse.body.result).toBe("ori.b     #$b, d0");
     });
   });
 
@@ -764,10 +767,7 @@ describe("Node Debug Adapter", () => {
         ],
         count: 1,
       });
-      when(gdbProxy.getRegister(anyString(), anything())).thenResolve([
-        "a",
-        -1,
-      ]);
+      when(gdbProxy.getRegister(anyString(), anything())).thenResolve([10, -1]);
       when(gdbProxy.registers(anything())).thenResolve([
         { name: "d0", value: 1 },
         { name: "a0", value: 10 },

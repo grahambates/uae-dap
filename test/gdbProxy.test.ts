@@ -17,7 +17,7 @@ import {
   reset,
 } from "@johanblumenberg/ts-mockito";
 import { fail } from "assert";
-import { asciiToHex } from "../src/strings";
+import { asciiToHex } from "../src/utils/strings";
 
 function padStartWith0(stringToPad: string, targetLength: number): string {
   targetLength = targetLength >> 0; //truncate if number or convert non-number to 0;

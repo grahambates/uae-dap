@@ -16,24 +16,29 @@ import { DebugProtocol } from "@vscode/debugprotocol";
 import { URI as Uri } from "vscode-uri";
 import { basename } from "path";
 import promiseRetry from "promise-retry";
+import { openSync } from "temp";
+import * as fs from "fs/promises";
 
 import { GdbProxy, GdbSegment, GdbHaltStatus } from "./gdb";
 import { FileParser } from "./parsing/fileParser";
 import { evaluateExpression } from "./expressions";
 import { DisassemblyManager, DisassembleAddressArguments } from "./disassembly";
 import { BreakpointManager } from "./breakpointManager";
-import { processOutputFromMemoryDump, getCustomAddress } from "./memory";
+import { customRegisterAddresses } from "./customRegisters";
 import { disassemble, disassembleCopper } from "./disassembly";
 import {
   base64ToHex,
+  chunk,
   compareStringsLowerCase,
   formatAddress,
   formatHexadecimal,
   formatNumber,
+  hexStringToASCII,
   hexToBase64,
   NumberFormat,
-} from "./strings";
+} from "./utils/strings";
 import { Emulator } from "./emulator";
+import Vasm from "./vasm";
 
 export interface LaunchRequestArguments
   extends DebugProtocol.LaunchRequestArguments {
@@ -61,6 +66,17 @@ export interface LaunchRequestArguments
   rootSourceFileMap?: string[];
   /** default exception's mask */
   exceptionMask?: number;
+  /** Options for vasm assembler */
+  vasm?: VasmOptions;
+}
+
+export interface VasmOptions {
+  /** Enable extracting constants from source files using vasm */
+  parseSource?: boolean;
+  /** vasm binary - will use wasm if not set */
+  binaryPath?: string;
+  /** additional cli args for vasm - add include paths etc */
+  args?: string[];
 }
 
 export interface VariableDisplayFormatRequest {
@@ -70,14 +86,20 @@ export interface VariableDisplayFormatRequest {
   format: NumberFormat;
 }
 
-export class FsUAEDebugSession extends DebugSession {
-  /** prefix for register variables */
-  public static readonly PREFIX_REGISTERS = "registers_";
-  /** prefix for segments variables */
-  public static readonly PREFIX_SEGMENTS = "segments_";
-  /** prefix for symbols variables */
-  public static readonly PREFIX_SYMBOLS = "symbols_";
+export enum VariableType {
+  Registers,
+  Segments,
+  Symbols,
+  StatusRegister,
+  Expression,
+}
 
+export interface VariablesReference {
+  type: VariableType;
+  frameId: number;
+}
+
+export class FsUAEDebugSession extends DebugSession {
   /** Timeout of the mutex */
   protected static readonly MUTEX_TIMEOUT = 100000;
 
@@ -88,12 +110,12 @@ export class FsUAEDebugSession extends DebugSession {
   /** Emulator instance */
   protected emulator: Emulator;
 
-  /** Variable handles */
-  protected variableHandles = new Handles<string>();
-  /** Variables references map */
-  protected variableRefMap = new Map<number, DebugProtocol.Variable[]>();
-  /** Variables expression map */
-  protected variableExpressionMap = new Map<string, number>();
+  /** Variable reference handles */
+  protected variableReferences = new Handles<VariablesReference>();
+  /** Variables lookup by handle */
+  protected referencedVariables = new Map<number, DebugProtocol.Variable[]>();
+  /** Expression string to variable reference map */
+  protected expressionToVariablesReference = new Map<string, number>();
   /** Variables format map */
   protected variableFormatterMap = new Map<string, NumberFormat>();
   /** All the symbols in the file */
@@ -114,6 +136,10 @@ export class FsUAEDebugSession extends DebugSession {
   protected trace = false;
   /** Track which threads are stopped to avoid invalid events */
   protected stoppedThreads: boolean[] = [false, false];
+  /** Lazy loaded constants extracted from current file source */
+  protected sourceConstants?: Record<string, number>;
+  /** Options for vasm assembler */
+  protected vasmOptions?: VasmOptions;
 
   /**
    * Creates a new debug adapter that is used for one debug session.
@@ -126,14 +152,11 @@ export class FsUAEDebugSession extends DebugSession {
     this.setDebuggerColumnsStartAt1(false);
 
     this.gdb = new GdbProxy();
+    this.emulator = new Emulator();
     this.gdb.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
     this.initProxy();
-
     this.disassemblyManager = new DisassemblyManager(this.gdb, this);
-
     this.breakpoints = new BreakpointManager(this.gdb, this.disassemblyManager);
-
-    this.emulator = new Emulator();
     this.breakpoints.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
   }
 
@@ -142,13 +165,14 @@ export class FsUAEDebugSession extends DebugSession {
    * @param gdbProxy mocked proxy
    */
   public setTestContext(gdbProxy: GdbProxy, emulator: Emulator): void {
+    this.testMode = true;
     this.gdb = gdbProxy;
+    this.emulator = emulator;
     this.gdb.setMutexTimeout(1000);
     this.initProxy();
-    this.testMode = true;
+    this.disassemblyManager = new DisassemblyManager(this.gdb, this);
     this.breakpoints = new BreakpointManager(this.gdb, this.disassemblyManager);
     this.breakpoints.setMutexTimeout(1000);
-    this.emulator = emulator;
   }
 
   /**
@@ -275,6 +299,7 @@ export class FsUAEDebugSession extends DebugSession {
     ];
     // This default debug adapter does support the 'setVariable' request.
     response.body.supportsSetVariable = true;
+    response.body.supportsCompletionsRequest = true;
 
     this.sendResponse(response);
 
@@ -311,6 +336,8 @@ export class FsUAEDebugSession extends DebugSession {
       }
       this.trace = args.trace ?? false;
 
+      this.vasmOptions = args.vasm;
+
       if (!this.testMode) {
         this.sendHelpText();
       }
@@ -320,7 +347,7 @@ export class FsUAEDebugSession extends DebugSession {
           executable: args.emulator,
           args: args.emulatorOptions,
           cwd: args.emulatorWorkingDir,
-          onExit: () => this.terminate(),
+          onExit: () => this.sendEvent(new TerminatedEvent()),
         });
       }
 
@@ -353,22 +380,20 @@ export class FsUAEDebugSession extends DebugSession {
   protected sendHelpText() {
     const text = `Commands:
     Memory dump:
-        m address, size[, wordSizeInBytes, rowSizeInWords,ab]
+        m address|\${register|symbol}|#{symbol},size[, wordSizeInBytes, rowSizeInWords][,ab]
         			a: show ascii output, b: show bytes output
             example: m $5c50,10,2,4
-        m \${register|symbol}, #{symbol}, size[, wordSizeInBytes, rowSizeInWords]
-            example: m \${mycopperlabel},10,2,4
     Disassembled Memory dump:
         m address|\${register|symbol}|#{symbol},size,d
             example: m \${pc},10,d
+    Disassembled Copper Memory dump:
+        m address|\${register|symbol}|#{symbol},size,c
+            example: m \${copperlist},16,c
     Memory set:
-        M address=bytes
+        M address|\${register|symbol}|#{symbol}=bytes
             example: M $5c50=0ff534
-        M \${register|symbol}=bytes
-        M #{register|symbol}=bytes
-            example: M \${mycopperlabel}=0ff534
-      \${symbol} gives the address of symbol
-      #{symbol} gives the pointed value from the symbols
+    \${symbol} gives the address of symbol
+    #{symbol} gives the pointed value from the symbols
 `;
     this.sendEvent(new OutputEvent(text));
   }
@@ -401,16 +426,16 @@ export class FsUAEDebugSession extends DebugSession {
     const newArgs = { ...args };
     try {
       let firstAddress = undefined;
-      if (args.addressExpression && (args.offset || args.instructionOffset)) {
+      if (args.memoryReference && (args.offset || args.instructionOffset)) {
         const segments = this.gdb.getSegments();
         if (segments) {
-          firstAddress = parseInt(args.addressExpression);
+          firstAddress = parseInt(args.memoryReference);
           if (args.offset) {
             firstAddress = firstAddress - args.offset;
           }
           const segment = this.findSegmentForAddress(firstAddress, segments);
           if (segment) {
-            newArgs.addressExpression = segment.address.toString();
+            newArgs.memoryReference = segment.address.toString();
           }
         }
       }
@@ -484,10 +509,10 @@ export class FsUAEDebugSession extends DebugSession {
     response: DebugProtocol.DisassembleResponse,
     args: DebugProtocol.DisassembleArguments
   ): Promise<void> {
-    const isCopper =
+    const copper =
       this.disassembledCopperCache.get(parseInt(args.memoryReference)) !==
       undefined;
-    const dArgs = DisassembleAddressArguments.copy(args, isCopper);
+    const dArgs = { ...args, copper };
     return this.disassembleRequestInner(response, dArgs);
   }
 
@@ -524,7 +549,7 @@ export class FsUAEDebugSession extends DebugSession {
     response: DebugProtocol.SetBreakpointsResponse,
     args: DebugProtocol.SetBreakpointsArguments
   ): Promise<void> {
-    const debugBreakPoints = new Array<DebugProtocol.Breakpoint>();
+    const breakpoints: DebugProtocol.Breakpoint[] = [];
     // clear all breakpoints for this file
     await this.breakpoints.clearBreakpoints(args.source);
     // set and verify breakpoint locations
@@ -536,16 +561,14 @@ export class FsUAEDebugSession extends DebugSession {
         );
         try {
           const modifiedBp = await this.breakpoints.setBreakpoint(debugBp);
-          debugBreakPoints.push(modifiedBp);
+          breakpoints.push(modifiedBp);
         } catch (err) {
-          debugBreakPoints.push(debugBp);
+          breakpoints.push(debugBp);
         }
       }
     }
     // send back the actual breakpoint positions
-    response.body = {
-      breakpoints: debugBreakPoints,
-    };
+    response.body = { breakpoints };
     response.success = true;
     this.sendResponse(response);
   }
@@ -677,6 +700,7 @@ export class FsUAEDebugSession extends DebugSession {
             line,
             this.gdb.isCopperThread(thread)
           );
+
           stackFrames.push(stackFrame);
         }
       }
@@ -695,35 +719,36 @@ export class FsUAEDebugSession extends DebugSession {
 
   protected scopesRequest(
     response: DebugProtocol.ScopesResponse,
-    args: DebugProtocol.ScopesArguments
+    { frameId }: DebugProtocol.ScopesArguments
   ): void {
-    const scopes: Scope[] = [];
-    scopes.push({
-      name: "Registers",
-      variablesReference: this.variableHandles.create(
-        FsUAEDebugSession.PREFIX_REGISTERS + args.frameId
-      ),
-      expensive: false,
-    });
-    scopes.push(
-      new Scope(
-        "Segments",
-        this.variableHandles.create(
-          FsUAEDebugSession.PREFIX_SEGMENTS + args.frameId
+    response.body = {
+      scopes: [
+        new Scope(
+          "Registers",
+          this.variableReferences.create({
+            type: VariableType.Registers,
+            frameId,
+          }),
+          false
         ),
-        true
-      )
-    );
-    scopes.push(
-      new Scope(
-        "Symbols",
-        this.variableHandles.create(
-          FsUAEDebugSession.PREFIX_SYMBOLS + args.frameId
+        new Scope(
+          "Segments",
+          this.variableReferences.create({
+            type: VariableType.Segments,
+            frameId,
+          }),
+          true
         ),
-        true
-      )
-    );
-    response.body = { scopes };
+        new Scope(
+          "Symbols",
+          this.variableReferences.create({
+            type: VariableType.Symbols,
+            frameId,
+          }),
+          true
+        ),
+      ],
+    };
     this.sendResponse(response);
   }
 
@@ -732,130 +757,125 @@ export class FsUAEDebugSession extends DebugSession {
     args: DebugProtocol.VariablesArguments
   ): Promise<void> {
     // Try to look up stored reference
-    const variables = this.variableRefMap.get(args.variablesReference);
+    let variables = this.referencedVariables.get(args.variablesReference);
     if (variables) {
       response.body = { variables };
       return this.sendResponse(response);
     }
 
-    const id = this.variableHandles.get(args.variablesReference);
-    if (!id) {
-      return this.sendStringErrorResponse(response, "No id to variable");
+    // Get reference info in order to populate variables
+    const ref = this.variableReferences.get(args.variablesReference);
+    if (!ref) {
+      return this.sendStringErrorResponse(response, "Reference not found");
     }
+    const { type, frameId } = ref;
 
     await this.gdb.waitConnected();
 
-    // Register?
-    if (id.startsWith(FsUAEDebugSession.PREFIX_REGISTERS)) {
-      try {
-        const frameId = parseInt(id.substring(10));
-        const registers = await this.gdb.registers(frameId);
-        const variables = new Array<DebugProtocol.Variable>();
-        const srVariables = new Array<DebugProtocol.Variable>();
-        const srVRef = this.variableHandles.create(
-          "status_register_" + frameId
+    switch (type) {
+      case VariableType.Registers:
+        try {
+          variables = await this.getRegisterVariables(frameId);
+        } catch (err) {
+          return this.sendStringErrorResponse(response, (err as Error).message);
+        }
+        break;
+      case VariableType.Segments:
+        variables = this.getSegmentVariables();
+        break;
+      case VariableType.Symbols:
+        variables = this.getSymbolVariables();
+        break;
+      default:
+        return this.sendStringErrorResponse(
+          response,
+          "Invalid variable reference"
         );
-        for (const r of registers) {
-          if (r.name.startsWith("SR_")) {
-            const name = r.name.replace("SR_", "");
-            srVariables.push({
-              name,
-              type: "register",
-              value: this.formatVariable(name, r.value, NumberFormat.DECIMAL),
-              variablesReference: 0,
-            });
-          } else {
-            variables.push({
-              name: r.name,
-              type: "register",
-              value: this.formatVariable(r.name, r.value),
-              variablesReference: r.name.startsWith("sr") ? srVRef : 0,
-              memoryReference: r.value.toString(),
-            });
-          }
-        }
-        this.variableRefMap.set(srVRef, srVariables);
-        response.body = { variables };
-        return this.sendResponse(response);
-      } catch (err) {
-        this.sendStringErrorResponse(response, (err as Error).message);
-      }
     }
+    response.body = { variables };
+    return this.sendResponse(response);
+  }
 
-    // Segment?
-    if (id.startsWith(FsUAEDebugSession.PREFIX_SEGMENTS)) {
-      const variables = new Array<DebugProtocol.Variable>();
-      const segments = this.gdb.getSegments();
-      if (segments) {
-        for (let i = 0; i < segments.length; i++) {
-          const s = segments[i];
-          const name = `Segment #${i}`;
-          variables.push({
-            name,
-            type: "segment",
-            value: `${this.formatVariable(name, s.address)} {size:${s.size}}`,
-            variablesReference: 0,
-            memoryReference: s.address.toString(),
-          });
-        }
-        response.body = { variables };
-      } else {
-        response.success = false;
-        response.message = "No Segments found";
-      }
-      return this.sendResponse(response);
-    }
+  protected async getRegisterVariables(
+    frameId: number
+  ): Promise<DebugProtocol.Variable[]> {
+    const registers = await this.gdb.registers(frameId);
 
-    // Symbol?
-    if (id.startsWith(FsUAEDebugSession.PREFIX_SYMBOLS)) {
-      const variables = new Array<DebugProtocol.Variable>();
-      const symbolsList = Array.from(this.symbolsMap.entries()).sort(
-        compareStringsLowerCase
-      );
-      for (const [name, value] of symbolsList) {
-        variables.push({
-          name,
-          type: "symbol",
-          value: this.formatVariable(name, value),
-          variablesReference: 0,
-          memoryReference: value.toString(),
-        });
-      }
-      response.body = { variables };
-      return this.sendResponse(response);
-    }
+    // Stack register properties go in their own variables array to be fetched later by reference
+    const sr = registers
+      .filter(({ name }) => name.startsWith("SR_"))
+      .map(({ name, value }) => ({
+        name: name.substring(3),
+        type: "register",
+        value: this.formatVariable(name, value, NumberFormat.DECIMAL),
+        variablesReference: 0,
+        memoryReference: value.toString(),
+      }));
 
-    this.sendStringErrorResponse(response, "Unknown variable");
+    const srVRef = this.variableReferences.create({
+      type: VariableType.StatusRegister,
+      frameId,
+    });
+    this.referencedVariables.set(srVRef, sr);
+
+    // All other registers returned
+    return registers
+      .filter(({ name }) => !name.startsWith("SR_"))
+      .map(({ name, value }) => ({
+        name,
+        type: "register",
+        value: this.formatVariable(name, value),
+        variablesReference: name.startsWith("sr") ? srVRef : 0, // Link SR to its properties
+        memoryReference: value.toString(),
+      }));
+  }
+
+  protected getSegmentVariables(): DebugProtocol.Variable[] {
+    const segments = this.gdb.getSegments() ?? [];
+    return segments.map((s, i) => {
+      const name = `Segment #${i}`;
+      return {
+        name,
+        type: "segment",
+        value: `${this.formatVariable(name, s.address)} {size:${s.size}}`,
+        variablesReference: 0,
+        memoryReference: s.address.toString(),
+      };
+    });
+  }
+
+  protected getSymbolVariables(): DebugProtocol.Variable[] {
+    return Array.from(this.symbolsMap.entries())
+      .sort(compareStringsLowerCase)
+      .map(([name, value]) => ({
+        name,
+        type: "symbol",
+        value: this.formatVariable(name, value),
+        variablesReference: 0,
+        memoryReference: value.toString(),
+      }));
   }
 
   protected async setVariableRequest(
     response: DebugProtocol.SetVariableResponse,
     args: DebugProtocol.SetVariableArguments
   ): Promise<void> {
-    const id = this.variableHandles.get(args.variablesReference);
-    if (id !== null && id.startsWith(FsUAEDebugSession.PREFIX_REGISTERS)) {
-      try {
-        const newValue = await this.gdb.setRegister(args.name, args.value);
-        response.body = {
-          value: newValue,
-        };
-        this.sendResponse(response);
-      } catch (err) {
-        this.sendStringErrorResponse(response, (err as Error).message);
-      }
-    } else {
-      this.sendStringErrorResponse(response, "This variable cannot be set");
+    const scopeRef = this.variableReferences.get(args.variablesReference);
+    if (scopeRef?.type !== VariableType.Registers) {
+      return this.sendStringErrorResponse(
+        response,
+        "This variable cannot be set"
+      );
     }
-  }
-
-  public terminate(): void {
-    this.gdb.destroy();
-    this.emulator.destroy();
-    // this.sendEvent(new TerminatedEvent());
-  }
-
-  public shutdown(): void {
-    this.terminate();
+    try {
+      const newValue = await this.gdb.setRegister(args.name, args.value);
+      response.body = {
+        value: newValue,
+      };
+      this.sendResponse(response);
+    } catch (err) {
+      this.sendStringErrorResponse(response, (err as Error).message);
+    }
   }
 
   protected async continueRequest(
@@ -869,9 +889,7 @@ export class FsUAEDebugSession extends DebugSession {
     }
     try {
       await this.gdb.continueExecution(thread);
-      response.body = {
-        allThreadsContinued: false,
-      };
+      response.body = { allThreadsContinued: false };
       this.sendResponse(response);
     } catch (err) {
       this.sendStringErrorResponse(response, (err as Error).message);
@@ -924,9 +942,7 @@ export class FsUAEDebugSession extends DebugSession {
     try {
       const { frames } = await this.gdb.stack(thread);
       const { pc } = frames[1];
-      const startAddress = pc + 1;
-      const endAddress = pc + 10;
-      await this.gdb.stepToRange(thread, startAddress, endAddress);
+      await this.gdb.stepToRange(thread, pc + 1, pc + 10);
       this.sendResponse(response);
     } catch (err) {
       this.sendStringErrorResponse(response, (err as Error).message);
@@ -1003,183 +1019,221 @@ export class FsUAEDebugSession extends DebugSession {
 
   protected async evaluateRequest(
     response: DebugProtocol.EvaluateResponse,
-    args: DebugProtocol.EvaluateArguments
+    { expression, frameId, context }: DebugProtocol.EvaluateArguments
   ): Promise<void> {
-    // Register name?
-    const matches = /^([ad][0-7]|pc|sr)$/i.exec(args.expression);
-    if (matches) {
-      // Watch?
-      if (args.expression.startsWith("a") && args.context === "watch") {
-        const format = "m ${symbol},100,2,4";
-        args.expression = format.replace("symbol", args.expression);
-        return this.evaluateRequestGetMemory(response, args);
-      } else {
-        return this.evaluateRequestRegister(response, args);
+    await this.gdb.waitConnected();
+    let variables: DebugProtocol.Variable[] | undefined;
+    let result: string | undefined;
+
+    // Find expression type:
+    const isRegister = expression.match(/^([ad][0-7]|pc|sr)$/i) !== null;
+    const isMemRead = expression.match(/^m\s/) !== null;
+    const isMemWrite = expression.match(/^M\s/) !== null;
+    const isSymbol = this.symbolsMap.has(expression);
+
+    try {
+      switch (true) {
+        case isRegister: {
+          const [address] = await this.gdb.getRegister(expression, frameId);
+          if (expression.startsWith("a") && context === "watch") {
+            variables = await this.readMemoryAsVariables(address, 100, 2, 4);
+          } else {
+            result = this.formatVariable(expression, address);
+          }
+          break;
+        }
+        case isMemWrite:
+          variables = await this.writeMemoryExpression(expression, frameId);
+          break;
+        case isMemRead:
+          variables = await this.readMemoryExpression(expression, frameId);
+          break;
+        case isSymbol: {
+          const address = <number>this.symbolsMap.get(expression);
+          const length = context === "watch" ? 104 : 24;
+          variables = await this.readMemoryAsVariables(address, length, 2, 4);
+          break;
+        }
+        // Evaluate
+        default: {
+          const address = await evaluateExpression(expression, frameId, this);
+          result = formatHexadecimal(address);
+        }
       }
-    }
-    // Get memory?
-    if (args.expression.startsWith("m")) {
-      return this.evaluateRequestGetMemory(response, args);
-    }
-    // Set memory?
-    if (args.expression.startsWith("M")) {
-      return this.evaluateRequestSetMemory(response, args);
-    }
-    // Symbol name?
-    if (this.symbolsMap.has(args.expression)) {
-      const format =
-        args.context === "watch" ? "m ${symbol},104,2,4" : "m ${symbol},24,2,4";
-      args.expression = format.replace("symbol", args.expression);
-      return this.evaluateRequestGetMemory(response, args);
-    }
-    // Evaluate
-    try {
-      const address = await evaluateExpression(
-        args.expression,
-        args.frameId,
-        this
-      );
-      response.body = {
-        result: formatHexadecimal(address),
-        type: "string",
-        variablesReference: 0,
-      };
+
+      // Build response for either single value or array
+      if (result) {
+        response.body = {
+          result,
+          type: "string",
+          variablesReference: 0,
+        };
+      }
+      if (variables) {
+        const variablesReference = this.variableReferences.create({
+          type: VariableType.Expression,
+          frameId: frameId ?? 0,
+        });
+        this.referencedVariables.set(variablesReference, variables);
+
+        response.body = {
+          result: variables[0].value.replace(
+            /^[0-9a-f]{2} [0-9a-f]{2} [0-9a-f]{2} [0-9a-f]{2}\s+/,
+            ""
+          ),
+          type: "array",
+          variablesReference,
+        };
+      }
+
       this.sendResponse(response);
     } catch (err) {
       this.sendStringErrorResponse(response, (err as Error).message);
     }
   }
 
-  protected async evaluateRequestRegister(
-    response: DebugProtocol.EvaluateResponse,
-    args: DebugProtocol.EvaluateArguments
-  ): Promise<void> {
-    // It's a reg value
-    try {
-      await this.gdb.waitConnected();
-      const value = await this.gdb.getRegister(args.expression, args.frameId);
-      const valueNumber = parseInt(value[0], 16);
-      const format =
-        this.variableFormatterMap.get(args.expression) ||
-        NumberFormat.HEXADECIMAL;
-      const strValue = formatNumber(valueNumber, format);
-      response.body = {
-        result: strValue,
-        variablesReference: 0,
-      };
-      this.sendResponse(response);
-    } catch (err) {
-      this.sendStringErrorResponse(response, (err as Error).message);
-    }
-  }
-
-  protected async evaluateRequestGetMemory(
-    response: DebugProtocol.EvaluateResponse,
-    args: DebugProtocol.EvaluateArguments
-  ): Promise<void> {
+  protected async writeMemoryExpression(
+    expression: string,
+    frameId?: number
+  ): Promise<DebugProtocol.Variable[]> {
     const matches =
-      /m\s*([{}$#0-9a-z_+\-*/%()]+)\s*,\s*(\d+)(,\s*(\d+),\s*(\d+))?(,([abd]+))?/i.exec(
-        args.expression
+      /M\s*(?<addr>[{}$#0-9a-z_]+)\s*=\s*(?<data>[0-9a-z_]+)/i.exec(expression);
+    const groups = matches?.groups;
+    if (!groups) {
+      throw new Error("Expression not recognized");
+    }
+    const address = await evaluateExpression(groups.addr, frameId, this);
+    // const data = await evaluateExpression(groups.data, frameId, this);
+    await this.gdb.setMemory(address, groups.data);
+    return this.readMemoryAsVariables(address, groups.data.length); // TODO get size of data
+  }
+
+  protected async readMemoryExpression(
+    expression: string,
+    frameId?: number
+  ): Promise<DebugProtocol.Variable[]> {
+    // Parse expression
+    const matches =
+      /m\s*(?<address>[^,]+)(,\s*(?<length>(?!(d|c|ab?|ba?)$)[^,]+))?(,\s*(?<wordLength>(?!(d|c|ab?|ba?)$)[^,]+))?(,\s*(?<rowLength>(?!(d|c|ab?|ba?)$)[^,]+))?(,\s*(?<mode>(d|c|ab?|ba?)))?/i.exec(
+        expression
       );
+    const groups = matches?.groups;
+    if (!groups) {
+      throw new Error("Expression not recognized");
+    }
 
-    if (!matches) {
-      return this.sendStringErrorResponse(
-        response,
-        "Expression not recognized"
+    // Evaluate match groups:
+    // All of these parameters can contain expressions
+    const address = await evaluateExpression(groups.address, frameId, this);
+    const length = groups.wordLength
+      ? await evaluateExpression(groups.length, frameId, this)
+      : 16;
+    const wordLength = groups.wordLength
+      ? await evaluateExpression(groups.wordLength, frameId, this)
+      : 4;
+    const rowLength = groups.rowLength
+      ? await evaluateExpression(groups.rowLength, frameId, this)
+      : 4;
+    const mode = groups.mode ?? "ab";
+
+    if (mode === "d") {
+      return await this.disassembleAsVariables(address, length);
+    } else if (mode === "c") {
+      return await this.disassembleCopperAsVariables(address, length);
+    } else {
+      return await this.readMemoryAsVariables(
+        address,
+        length,
+        wordLength,
+        rowLength,
+        mode
       );
-    }
-
-    const length = parseInt(matches[2]);
-    if (length === null) {
-      this.sendStringErrorResponse(response, "Invalid memory dump expression");
-    }
-
-    let rowLength = 4;
-    let wordLength = 4;
-    let mode = "ab";
-    if (matches.length > 5 && matches[4] && matches[5]) {
-      wordLength = parseInt(matches[4]);
-      rowLength = parseInt(matches[5]);
-    }
-    if (matches.length > 7 && matches[7]) {
-      mode = matches[7];
-    }
-
-    try {
-      // replace the address if it is a variable
-      const address = await evaluateExpression(matches[1], args.frameId, this);
-      // ask for memory dump
-      await this.gdb.waitConnected();
-      const memory = await this.gdb.getMemory(address, length);
-      let key = this.variableExpressionMap.get(args.expression);
-      if (!key) {
-        key = this.variableHandles.create(args.expression);
-      }
-      const startAddress = address;
-      if (mode !== "d") {
-        const [firstRow, variables] = processOutputFromMemoryDump(
-          memory,
-          startAddress,
-          mode,
-          wordLength,
-          rowLength
-        );
-        this.variableRefMap.set(key, variables);
-        this.variableExpressionMap.set(args.expression, key);
-        response.body = {
-          result: firstRow,
-          type: "array",
-          variablesReference: key,
-        };
-        this.sendResponse(response);
-      } else {
-        const constKey = key;
-        // disassemble the code
-        const { firstRow, variables } = await disassemble(memory, startAddress);
-        this.variableRefMap.set(constKey, variables);
-        this.variableExpressionMap.set(args.expression, constKey);
-        response.body = {
-          result: firstRow,
-          type: "array",
-          variablesReference: constKey,
-        };
-        this.sendResponse(response);
-      }
-    } catch (err) {
-      this.sendStringErrorResponse(response, (err as Error).message);
     }
   }
 
-  protected async evaluateRequestSetMemory(
-    response: DebugProtocol.EvaluateResponse,
-    args: DebugProtocol.EvaluateArguments
-  ): Promise<void> {
-    const matches = /M\s*([{}$#0-9a-z_]+)\s*=\s*([0-9a-z_]+)/i.exec(
-      args.expression
-    );
-    if (!matches) {
-      return this.sendStringErrorResponse(
-        response,
-        "Expression not recognized"
-      );
+  protected async readMemoryAsVariables(
+    address: number,
+    length = 16,
+    wordLength = 4,
+    rowLength = 4,
+    mode = "ab"
+  ): Promise<DebugProtocol.Variable[]> {
+    const memory = await this.gdb.getMemory(address, length);
+    let firstRow = "";
+    const variables = new Array<DebugProtocol.Variable>();
+    const chunks = chunk(memory.toString(), wordLength * 2);
+    let i = 0;
+    let rowCount = 0;
+    let row = "";
+    let nextAddress = address;
+    let lineAddress = address;
+    while (i < chunks.length) {
+      if (rowCount > 0) {
+        row += " ";
+      }
+      row += chunks[i];
+      nextAddress += chunks[i].length / 2;
+      if (rowCount >= rowLength - 1 || i === chunks.length - 1) {
+        if (mode.indexOf("a") >= 0) {
+          const asciiText = hexStringToASCII(row.replace(/\s+/g, ""), 2);
+          if (mode.indexOf("b") >= 0) {
+            if (i === chunks.length - 1 && rowCount < rowLength - 1) {
+              const chunksMissing = rowLength - 1 - rowCount;
+              const padding = chunksMissing * wordLength * 2 + chunksMissing;
+              for (let j = 0; j < padding; j++) {
+                row += " ";
+              }
+            }
+            row += " | ";
+          } else {
+            row = "";
+          }
+          row += asciiText;
+        }
+        variables.push({
+          value: row,
+          name: lineAddress.toString(16).padStart(8, "0"),
+          variablesReference: 0,
+        });
+        if (firstRow.length <= 0) {
+          firstRow = row;
+        }
+        rowCount = 0;
+        lineAddress = nextAddress;
+        row = "";
+      } else {
+        rowCount++;
+      }
+      i++;
     }
+    return variables;
+  }
 
-    const addrStr = matches[1];
-    const data = matches[2];
-    if (!addrStr || !data || !data.length) {
-      this.sendStringErrorResponse(response, "Invalid memory set expression");
-    }
+  protected async disassembleAsVariables(
+    address: number,
+    length: number
+  ): Promise<DebugProtocol.Variable[]> {
+    const memory = await this.gdb.getMemory(address, length);
+    const { instructions } = await disassemble(memory, address);
 
-    try {
-      // replace the address if it is a variable
-      const address = await evaluateExpression(addrStr, args.frameId, this);
-      await this.gdb.waitConnected();
-      await this.gdb.setMemory(address, data);
-      args.expression = "m" + addrStr + "," + data.length.toString(16);
-      return this.evaluateRequestGetMemory(response, args);
-    } catch (err) {
-      this.sendStringErrorResponse(response, (err as Error).message);
-    }
+    return instructions.map(({ instruction, address, instructionBytes }) => ({
+      value: (instructionBytes ?? "").padEnd(26) + instruction,
+      name: address,
+      variablesReference: 0,
+    }));
+  }
+
+  protected async disassembleCopperAsVariables(
+    address: number,
+    length: number
+  ): Promise<DebugProtocol.Variable[]> {
+    const memory = await this.gdb.getMemory(address, length);
+
+    return disassembleCopper(memory).map((inst, i) => ({
+      value: inst.toString(),
+      name: formatAddress(address + i * 4),
+      variablesReference: 0,
+    }));
   }
 
   protected async pauseRequest(
@@ -1243,6 +1297,32 @@ export class FsUAEDebugSession extends DebugSession {
     }
   }
 
+  protected async completionsRequest(
+    response: DebugProtocol.CompletionsResponse,
+    args: DebugProtocol.CompletionsArguments
+  ): Promise<void> {
+    try {
+      const vars = await this.getVariables(args.frameId);
+      response.body = {
+        targets: Object.keys(vars)
+          .filter((key) => key.startsWith(args.text))
+          .map((label) => ({ label })),
+      };
+      this.sendResponse(response);
+    } catch (err) {
+      this.sendStringErrorResponse(response, (err as Error).message);
+    }
+  }
+
+  public terminate(): void {
+    this.gdb.destroy();
+    this.emulator.destroy();
+  }
+
+  public shutdown(): void {
+    this.terminate();
+  }
+
   /**
    * Updates the segments addresses of th hunks
    *
@@ -1283,57 +1363,81 @@ export class FsUAEDebugSession extends DebugSession {
     }
   }
 
+  public async getVariables(frameId?: number): Promise<Record<string, number>> {
+    await this.gdb.waitConnected();
+    const registers = await this.gdb.registers(frameId || null);
+    const registerEntries = registers.reduce<Record<string, number>>(
+      (acc, v) => {
+        acc[v.name] = v.value;
+        return acc;
+      },
+      {}
+    );
+    const sourceConstants = await this.getSourceConstants();
+
+    return {
+      ...Object.fromEntries(this.symbolsMap),
+      ...customRegisterAddresses,
+      ...sourceConstants,
+      ...registerEntries,
+    };
+  }
+
+  /**
+   * Lazy load constants from parsed source files
+   */
+  protected async getSourceConstants(): Promise<Record<string, number>> {
+    if (this.sourceConstants) {
+      return this.sourceConstants;
+    }
+    const constants: Record<string, number> = {};
+    if (this.vasmOptions?.parseSource === false || !this.fileParser) {
+      return constants;
+    }
+
+    // Find the first source file from each hunk
+    const sourceFiles = new Set<string>();
+    this.fileParser.hunks.forEach((h) => {
+      h.lineDebugInfo?.length && sourceFiles.add(h.lineDebugInfo[0].name);
+    });
+
+    // Use vasm 'test' output module to list constants
+    const vasm = new Vasm(this.vasmOptions?.binaryPath);
+    await Promise.all(
+      Array.from(sourceFiles).map(async (src) => {
+        const outFile = openSync(basename(src));
+        const userArgs = this.vasmOptions?.args ?? [];
+        try {
+          const args = [
+            ...userArgs,
+            "-Ftest",
+            "-quiet",
+            "-o",
+            outFile.path,
+            src,
+          ];
+          await vasm.run(args);
+          const output = (await fs.readFile(outFile.path)).toString();
+          Array.from(
+            output.matchAll(
+              /^([^ ]+) EXPR\((-?[0-9]+)=0x[0-9a-f]+\) (UNUSED )?EQU/gm
+            )
+          ).forEach((m) => (constants[m[1]] = parseInt(m[2], 10)));
+        } finally {
+          fs.unlink(outFile.path);
+        }
+      })
+    );
+    this.sourceConstants = constants;
+    return constants;
+  }
+
   //---- variable resolver
 
-  public async getVariablePointedMemory(
-    variableName: string,
-    frameIndex?: number,
-    size?: number
-  ): Promise<string> {
-    const address = await this.getVariableValueAsNumber(
-      variableName,
-      frameIndex
-    );
-    let lSize = size;
-    if (lSize === undefined) {
-      // By default me assume it is an address 32b
-      lSize = 4;
-    }
-    // call to get the value in memory for this address
+  public async getMemory(address: number, size = 4): Promise<number> {
     await this.gdb.waitConnected();
-    return this.gdb.getMemory(address, lSize);
-  }
-
-  public async getVariableValue(
-    variableName: string,
-    frameIndex?: number
-  ): Promise<string> {
-    const value = await this.getVariableValueAsNumber(variableName, frameIndex);
-    return this.formatVariable(variableName, value);
-  }
-
-  public async getVariableValueAsNumber(
-    variableName: string,
-    frameIndex?: number
-  ): Promise<number> {
-    // Is it a register?
-    const registerMatch = /^([ad][0-7]|pc|sr)$/i.exec(variableName);
-    if (registerMatch) {
-      await this.gdb.waitConnected();
-      const values = await this.gdb.getRegister(variableName, frameIndex);
-      return parseInt(values[0], 16);
-    }
-    // Is it a symbol?
-    let address = this.symbolsMap.get(variableName);
-    if (address !== undefined) {
-      return address;
-    }
-    // Is it a standard register
-    address = getCustomAddress(variableName.toUpperCase());
-    if (address !== undefined) {
-      return address;
-    }
-    throw new Error("Unknown symbol " + variableName);
+    const mem = await this.gdb.getMemory(address, size);
+    return parseInt(mem, 16);
   }
 
   //---- helpers

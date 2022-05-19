@@ -1,4 +1,4 @@
-import { Mutex } from "./mutex";
+import { Mutex } from "./utils/mutex";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { Logger } from "@vscode/debugadapter";
 import { DisassembledFile, DisassemblyManager } from "./disassembly";

@@ -1,7 +1,7 @@
 import * as cp from "child_process";
 import * as path from "path";
 import { DebugProtocol } from "@vscode/debugprotocol";
-import { formatHexadecimal } from "../strings";
+import { formatHexadecimal } from "../utils/strings";
 
 const wasmPath =
   process.env.NODE_ENV === "test"
@@ -35,18 +35,14 @@ export async function disassemble(
 }
 
 export interface DisassembledOutput {
-  firstRow: string;
-  variables: DebugProtocol.Variable[];
   instructions: DebugProtocol.DisassembledInstruction[];
   code: string;
 }
 
 function processOutput(code: string, startAddress: number): DisassembledOutput {
-  const variables: DebugProtocol.Variable[] = [];
-  let firstRow = "";
   const instructions: DebugProtocol.DisassembledInstruction[] = [];
 
-  const lines = code.split(/\r\n|\r|\n/g);
+  const lines = code.split(/\r?\n/g);
   let i = 0;
   for (let l of lines) {
     l = l.trim();
@@ -67,9 +63,6 @@ function processOutput(code: string, startAddress: number): DisassembledOutput {
           instructionBytes: elms[1],
           column: 0,
         });
-        if (firstRow.length <= 0) {
-          firstRow = elms[2].replace("\t", " ");
-        }
       } else {
         instructions.push({
           address: formatHexadecimal(i),
@@ -78,24 +71,9 @@ function processOutput(code: string, startAddress: number): DisassembledOutput {
           instructionBytes: l,
           column: 0,
         });
-        if (firstRow.length <= 0) {
-          firstRow = l;
-        }
       }
       i++;
     }
   }
-
-  for (const instruction of instructions) {
-    let ib = instruction.instructionBytes;
-    if (!ib) {
-      ib = "";
-    }
-    variables.push({
-      value: ib.padEnd(26) + instruction.instruction,
-      name: instruction.address,
-      variablesReference: 0,
-    });
-  }
-  return { firstRow, variables, instructions, code };
+  return { instructions, code };
 }

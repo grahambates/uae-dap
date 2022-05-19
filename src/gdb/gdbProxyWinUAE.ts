@@ -11,7 +11,7 @@ import {
 } from "./gdbProxy";
 import { GdbThread, GdbAmigaSysThreadIdWinUAE } from "./threads";
 import { GdbPacketType } from "./packets";
-import { asciiToHex } from "../strings";
+import { asciiToHex } from "../utils/strings";
 
 /**
  * Class to contact the fs-UAE GDB server.
@@ -292,13 +292,12 @@ export class GdbProxyWinUAE extends GdbProxy {
   ): Promise<GdbStackPosition> {
     if (thread.getThreadId() === GdbAmigaSysThreadIdWinUAE.CPU) {
       // Get the current frame
-      const values = await this.getRegisterNumerical("pc", frameIndex);
-      if (values) {
-        const pc = values[0];
+      const [pc, index] = await this.getRegister("pc", frameIndex);
+      if (pc) {
         const [segmentId, offset] = this.toRelativeOffset(pc);
         return {
           index: frameIndex,
-          stackFrameIndex: values[1] + 1,
+          stackFrameIndex: index + 1,
           segmentId: segmentId,
           offset: offset,
           pc: pc,

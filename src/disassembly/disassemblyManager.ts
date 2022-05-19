@@ -6,8 +6,7 @@ import { disassemble } from "./cpuDisassembler";
 import { GdbProxy } from "../gdb";
 import { evaluateExpression, VariableResolver } from "../expressions";
 import { disassembleCopper } from "./copperDisassembler";
-import { formatHexadecimal } from "../strings";
-import { getCopperAddress } from "../memory";
+import { formatHexadecimal } from "../utils/strings";
 
 export class DisassembledFile {
   public static readonly DGBFILE_SCHEME = "disassembly";
@@ -142,54 +141,10 @@ export class DisassembledFile {
   }
 }
 
-export class DisassembleAddressArguments
-  implements DebugProtocol.DisassembleArguments
-{
-  memoryReference: string;
-  offset?: number;
-  instructionOffset?: number;
-  instructionCount: number;
-  resolveSymbols?: boolean;
-  segmentId?: number;
-  stackFrameIndex?: number;
-  addressExpression?: string;
+export interface DisassembleAddressArguments
+  extends DebugProtocol.DisassembleArguments {
   copper: boolean;
-  constructor(
-    addressExpression?: string | undefined,
-    instructionCount?: number | undefined,
-    isCopper?: boolean | undefined
-  ) {
-    this.addressExpression = addressExpression;
-    if (addressExpression) {
-      this.memoryReference = addressExpression;
-    } else {
-      this.memoryReference = "";
-    }
-    if (instructionCount) {
-      this.instructionCount = instructionCount;
-    } else {
-      this.instructionCount = 100;
-    }
-    if (isCopper) {
-      this.copper = isCopper;
-    } else {
-      this.copper = false;
-    }
-  }
-
-  public static copy(
-    args: DebugProtocol.DisassembleArguments,
-    isCopper: boolean
-  ): DisassembleAddressArguments {
-    const newArgs = new DisassembleAddressArguments(
-      args.memoryReference,
-      args.instructionCount,
-      isCopper
-    );
-    newArgs.offset = args.offset;
-    newArgs.instructionOffset = args.instructionOffset;
-    return newArgs;
-  }
+  segmentId?: number;
 }
 
 export class DisassemblyManager {
@@ -233,11 +188,11 @@ export class DisassemblyManager {
         // Read
         let lineInCop1 = -1;
         let lineInCop2 = -1;
-        const cop1Addr = await getCopperAddress(1, this.gdbProxy);
+        const cop1Addr = await this.getCopperAddress(1);
         if (cop1Addr) {
           lineInCop1 = Math.floor((address - cop1Addr + 4) / 4);
         }
-        const cop2Addr = await getCopperAddress(1, this.gdbProxy);
+        const cop2Addr = await this.getCopperAddress(2);
         if (cop2Addr) {
           lineInCop2 = Math.floor((address - cop2Addr + 4) / 4);
         }
@@ -281,25 +236,6 @@ export class DisassemblyManager {
     return sf;
   }
 
-  public async getLineNumberInDisassembledSegment(
-    segmentId: number,
-    offset: number
-  ): Promise<number> {
-    const memory = await this.gdbProxy.getSegmentMemory(segmentId);
-    // disassemble the code
-    const { instructions } = await disassemble(memory);
-    let line = 1;
-    for (const instr of instructions) {
-      if (parseInt(instr.address) === offset) {
-        return line;
-      }
-      line++;
-    }
-    throw new Error(
-      `Cannot retrieve line for segment ${segmentId}, offset ${offset}: line not found`
-    );
-  }
-
   public async disassembleSegment(
     segmentId: number
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
@@ -320,9 +256,8 @@ export class DisassemblyManager {
     let searchedAddress: number | void;
     if (isCopper && (addressExpression === "1" || addressExpression === "2")) {
       // Retrieve the copper address
-      searchedAddress = await getCopperAddress(
-        parseInt(addressExpression),
-        this.gdbProxy
+      searchedAddress = await this.getCopperAddress(
+        parseInt(addressExpression)
       );
     } else {
       searchedAddress = await evaluateExpression(
@@ -345,55 +280,6 @@ export class DisassemblyManager {
     }
   }
 
-  public async disassembleNumericalAddress(
-    searchedAddress: number,
-    length: number,
-    isCopper: boolean
-  ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    const address = searchedAddress;
-    if (isCopper) {
-      const memory = await this.gdbProxy.getMemory(address, length);
-      const startAddress = address;
-      const instructions = disassembleCopper(memory);
-      const variables = new Array<DebugProtocol.DisassembledInstruction>();
-      let offset = 0;
-      for (const i of instructions) {
-        const addOffset = startAddress + offset;
-        variables.push({
-          instructionBytes: i.getInstructionBytes(),
-          address: formatHexadecimal(addOffset),
-          instruction: i.toString(),
-        });
-        // 4 addresses : 32b / address
-        offset += 4;
-      }
-      return variables;
-    } else {
-      // ask for memory dump
-      if (!this.gdbProxy.isConnected()) {
-        throw new Error("Debugger not started");
-      }
-      const memory = await this.gdbProxy.getMemory(address, length);
-      const startAddress = address;
-      // disassemble the code
-      const { instructions } = await disassemble(memory, startAddress);
-      return instructions;
-    }
-  }
-
-  public async disassembleNumericalAddressCPU(
-    searchedAddress: number,
-    length: number
-  ): Promise<Array<DebugProtocol.DisassembledInstruction>> {
-    const address = searchedAddress;
-    // ask for memory dump
-    const memory = await this.gdbProxy.getMemory(address, length);
-    const startAddress = address;
-    // disassemble the code
-    const { instructions } = await disassemble(memory, startAddress);
-    return instructions;
-  }
-
   public async disassembleRequest(
     args: DisassembleAddressArguments
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
@@ -402,9 +288,9 @@ export class DisassemblyManager {
       offset += args.offset;
     }
     if (args.copper) {
-      if (args.addressExpression && args.instructionCount) {
+      if (args.memoryReference && args.instructionCount) {
         return this.disassembleAddress(
-          args.addressExpression,
+          args.memoryReference,
           args.instructionCount * 4,
           offset,
           args.copper
@@ -415,9 +301,9 @@ export class DisassemblyManager {
     } else {
       if (args.segmentId !== undefined) {
         return this.disassembleSegment(args.segmentId);
-      } else if (args.addressExpression && args.instructionCount) {
+      } else if (args.memoryReference && args.instructionCount) {
         return this.disassembleAddress(
-          args.addressExpression,
+          args.memoryReference,
           args.instructionCount * 4,
           offset,
           args.copper
@@ -469,6 +355,67 @@ export class DisassemblyManager {
       }
     } else {
       throw new Error(`Invalid line number: '${lineNumber}'`);
+    }
+  }
+
+  private async getLineNumberInDisassembledSegment(
+    segmentId: number,
+    offset: number
+  ): Promise<number> {
+    const memory = await this.gdbProxy.getSegmentMemory(segmentId);
+    // disassemble the code
+    const { instructions } = await disassemble(memory);
+    let line = 1;
+    for (const instr of instructions) {
+      if (parseInt(instr.address) === offset) {
+        return line;
+      }
+      line++;
+    }
+    throw new Error(
+      `Cannot retrieve line for segment ${segmentId}, offset ${offset}: line not found`
+    );
+  }
+
+  private async getCopperAddress(copperIndex: number): Promise<number> {
+    const copperHigh = copperIndex === 1 ? 0xdff080 : 0xdff084;
+    const memory = await this.gdbProxy.getMemory(copperHigh, 4);
+    return parseInt(memory, 16);
+  }
+
+  private async disassembleNumericalAddress(
+    searchedAddress: number,
+    length: number,
+    isCopper: boolean
+  ): Promise<DebugProtocol.DisassembledInstruction[]> {
+    const address = searchedAddress;
+    if (isCopper) {
+      const memory = await this.gdbProxy.getMemory(address, length);
+      const startAddress = address;
+      const instructions = disassembleCopper(memory);
+      const variables = new Array<DebugProtocol.DisassembledInstruction>();
+      let offset = 0;
+      for (const i of instructions) {
+        const addOffset = startAddress + offset;
+        variables.push({
+          instructionBytes: i.getInstructionBytes(),
+          address: formatHexadecimal(addOffset),
+          instruction: i.toString(),
+        });
+        // 4 addresses : 32b / address
+        offset += 4;
+      }
+      return variables;
+    } else {
+      // ask for memory dump
+      if (!this.gdbProxy.isConnected()) {
+        throw new Error("Debugger not started");
+      }
+      const memory = await this.gdbProxy.getMemory(address, length);
+      const startAddress = address;
+      // disassemble the code
+      const { instructions } = await disassemble(memory, startAddress);
+      return instructions;
     }
   }
 }

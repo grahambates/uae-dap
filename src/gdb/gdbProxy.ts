@@ -1,6 +1,6 @@
 import { Socket } from "net";
 import { EventEmitter } from "events";
-import { Mutex } from "../mutex";
+import { Mutex } from "../utils/mutex";
 import {
   GdbAmigaSysThreadIdFsUAE,
   GdbThread,
@@ -9,7 +9,7 @@ import {
 } from "./threads";
 import { GdbReceivedDataManager } from "./events";
 import { GdbPacket, GdbPacketType } from "./packets";
-import { hexUTF8StringToUTF8, asciiToHex } from "../strings";
+import { hexUTF8StringToUTF8, asciiToHex } from "../utils/strings";
 import { DebugProtocol } from "@vscode/debugprotocol";
 
 /** Status for the current halt */
@@ -357,7 +357,6 @@ export class GdbProxy {
 
   /**
    * Method to precess the generics messages
-   * @param _ A GdbProxy instance
    * @param data Data to parse
    */
   protected onData(data: Buffer): void {
@@ -709,31 +708,27 @@ export class GdbProxy {
   ): Promise<GdbStackPosition> {
     if (thread.getThreadId() === GdbAmigaSysThreadIdFsUAE.CPU) {
       // Get the current frame
-      const values = await this.getRegisterNumerical("pc", frameIndex);
-      const pc = values[0];
+      const [pc, stackFrameIndex] = await this.getRegister("pc", frameIndex);
       const [segmentId, offset] = this.toRelativeOffset(pc);
       return {
         index: frameIndex,
-        stackFrameIndex: values[1],
-        segmentId: segmentId,
-        offset: offset,
-        pc: pc,
+        stackFrameIndex,
+        segmentId,
+        offset,
+        pc,
       };
     } else if (thread.getThreadId() === GdbAmigaSysThreadIdFsUAE.COP) {
       // Retrieve the stack position from the copper
       const haltStatus = await this.getHaltStatus();
       for (const hs of haltStatus) {
         if (hs.thread && hs.thread.getThreadId() === thread.getThreadId()) {
-          const copperValues = await this.getRegisterNumerical(
-            "copper",
-            frameIndex
-          );
+          const [pc] = await this.getRegister("copper", frameIndex);
           return {
             index: frameIndex * 1000,
             stackFrameIndex: 0,
             segmentId: -10,
             offset: 0,
-            pc: copperValues[0],
+            pc,
           };
         }
       }
@@ -952,7 +947,7 @@ export class GdbProxy {
    * @param dataToSend Data to send
    */
   public async setMemory(address: number, dataToSend: string): Promise<void> {
-    const size = dataToSend.length / 2;
+    const size = Math.ceil(dataToSend.length / 2);
     await this.sendPacketString(
       "M" + GdbProxy.formatNumber(address) + "," + size + ":" + dataToSend,
       GdbPacketType.OK
@@ -966,7 +961,7 @@ export class GdbProxy {
   public async getRegister(
     name: string,
     frameIndex: number | undefined
-  ): Promise<[string, number]> {
+  ): Promise<[number, number]> {
     const unlock = await this.mutex.capture("selectFrame");
     let returnedFrameIndex = GdbProxy.DEFAULT_FRAME_INDEX;
     try {
@@ -991,25 +986,13 @@ export class GdbProxy {
           "p" + GdbProxy.formatNumber(regIdx),
           GdbPacketType.UNKNOWN
         );
-        return [data, returnedFrameIndex];
+        return [parseInt(data, 16), returnedFrameIndex];
       } else {
         throw new Error("No index found for register: " + name);
       }
     } finally {
       unlock();
     }
-  }
-
-  /**
-   * Reads a register value
-   * @param name Name of the register a1, a2, etc..
-   */
-  public async getRegisterNumerical(
-    name: string,
-    frameIndex: number
-  ): Promise<[number, number]> {
-    const values = await this.getRegister(name, frameIndex);
-    return [parseInt(values[0], 16), values[1]];
   }
 
   /**
@@ -1531,8 +1514,7 @@ export class GdbError extends Error {
         this.message = "Error during the packet parse for command set register";
         break;
       case "E26":
-        this.message =
-          "Error during set registered - not supported register name";
+        this.message = "Error during set register - unsupported register name";
         break;
       case "E30":
         this.message = "Error during the packet parse for command get register";

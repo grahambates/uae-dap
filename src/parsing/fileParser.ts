@@ -1,15 +1,9 @@
 /* eslint-disable @typescript-eslint/ban-types */
 import * as path from "path";
+import { readFile } from "fs/promises";
 import { URI as Uri } from "vscode-uri";
-import * as fs from "fs";
-import { readFile, access } from "fs/promises";
-import {
-  Hunk,
-  HunkParser,
-  SourceLine,
-  HunkType,
-  Symbol,
-} from "./amigaHunkParser";
+import { Hunk, HunkParser, SourceLine } from "./amigaHunkParser";
+import { exists, normalize, areSameSourceFileNames } from "../utils/files";
 
 export class FileParser {
   public hunks = new Array<Hunk>();
@@ -36,98 +30,6 @@ export class FileParser {
         return false;
       }
     }
-  }
-
-  public getCodeData(): Uint32Array[] {
-    const codeDataArray = new Array<Uint32Array>();
-    for (const hunk of this.hunks) {
-      if (hunk.hunkType === HunkType.CODE && hunk.codeData) {
-        codeDataArray.push(hunk.codeData);
-      }
-    }
-    return codeDataArray;
-  }
-
-  public async getSymbols(
-    filename: string | undefined
-  ): Promise<Array<[Symbol, number | undefined]>> {
-    await this.parse();
-    const symbols = Array<[Symbol, number | undefined]>();
-    let normFilename = filename;
-    if (normFilename) {
-      normFilename = normalize(normFilename);
-    }
-    for (const hunk of this.hunks) {
-      if (hunk.symbols) {
-        if (normFilename) {
-          const sourceFiles = hunk.lineDebugInfo;
-          if (sourceFiles) {
-            for (const srcFile of sourceFiles) {
-              // Is there a path replacement
-              const name = await this.resolveFileName(srcFile.name);
-              if (this.areSameSourceFileNames(name, normFilename)) {
-                for (const s of hunk.symbols) {
-                  symbols.push([s, hunk.segmentsId]);
-                }
-                break;
-              }
-            }
-          }
-        } else {
-          for (const s of hunk.symbols) {
-            symbols.push([s, hunk.segmentsId]);
-          }
-        }
-      }
-    }
-    return symbols;
-  }
-
-  protected tryFindLine(
-    filename: string,
-    lines: Array<SourceLine>,
-    offset: number
-  ): [string, number] | null {
-    let sourceLine = 0;
-    let wasOver = false;
-
-    for (const line of lines) {
-      if (line.offset === offset) {
-        //println!("Matching source {} line {}", filename, line.line);
-        return [filename, line.line];
-      }
-      if (line.offset <= offset) {
-        sourceLine = line.line;
-      } else if (line.offset > offset) {
-        wasOver = true;
-      }
-    }
-
-    if (wasOver) {
-      //println!("Partial Matching source {} line {}", filename, sourceLine);
-      return [filename, sourceLine];
-    } else {
-      return null;
-    }
-  }
-
-  private async getSourceLineText(
-    filename: string,
-    line: number
-  ): Promise<[string, string | null]> {
-    const resolvedFileName = await this.resolveFileName(filename);
-    let contents: Array<string> | undefined =
-      this.sourceFilesCacheMap.get(resolvedFileName);
-    if (!contents) {
-      // Load source file
-      const fileContentsString = await readFile(resolvedFileName, "utf8");
-      contents = fileContentsString.split(/\r\n|\r|\n/g);
-      this.sourceFilesCacheMap.set(resolvedFileName, contents);
-    }
-    if (contents && line < contents.length) {
-      return [resolvedFileName, contents[line]];
-    }
-    return [resolvedFileName, null];
   }
 
   public async resolveFileLine(
@@ -159,6 +61,76 @@ export class FileParser {
       }
     }
     return null;
+  }
+
+  public async getAddressSeg(
+    filename: string,
+    fileLine: number
+  ): Promise<[number, number] | null> {
+    await this.parse();
+    const normFilename = normalize(filename);
+    for (let i = 0; i < this.hunks.length; i++) {
+      const hunk = this.hunks[i];
+      const sourceFiles = hunk.lineDebugInfo;
+      if (sourceFiles) {
+        for (const srcFile of sourceFiles) {
+          // Is there a path replacement
+          const name = await this.resolveFileName(srcFile.name);
+          if (areSameSourceFileNames(name, normFilename)) {
+            for (const line of srcFile.lines) {
+              if (line.line === fileLine) {
+                return [i, line.offset];
+              }
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+  private tryFindLine(
+    filename: string,
+    lines: Array<SourceLine>,
+    offset: number
+  ): [string, number] | null {
+    let sourceLine = 0;
+    let wasOver = false;
+
+    for (const line of lines) {
+      if (line.offset === offset) {
+        return [filename, line.line];
+      }
+      if (line.offset <= offset) {
+        sourceLine = line.line;
+      } else if (line.offset > offset) {
+        wasOver = true;
+      }
+    }
+
+    if (wasOver) {
+      return [filename, sourceLine];
+    } else {
+      return null;
+    }
+  }
+
+  private async getSourceLineText(
+    filename: string,
+    line: number
+  ): Promise<[string, string | null]> {
+    const resolvedFileName = await this.resolveFileName(filename);
+    let contents: Array<string> | undefined =
+      this.sourceFilesCacheMap.get(resolvedFileName);
+    if (!contents) {
+      // Load source file
+      const fileContentsString = await readFile(resolvedFileName, "utf8");
+      contents = fileContentsString.split(/\r\n|\r|\n/g);
+      this.sourceFilesCacheMap.set(resolvedFileName, contents);
+    }
+    if (contents && line < contents.length) {
+      return [resolvedFileName, contents[line]];
+    }
+    return [resolvedFileName, null];
   }
 
   private async resolveFileName(filename: string): Promise<string> {
@@ -197,91 +169,4 @@ export class FileParser {
     }
     return resolvedFileName;
   }
-
-  public areSameSourceFileNames(sourceA: string, sourceB: string): boolean {
-    if (path.isAbsolute(sourceA) && path.isAbsolute(sourceB)) {
-      if (process.platform === "win32") {
-        return (
-          path.normalize(sourceA).toLowerCase() ===
-          path.normalize(sourceB).toLowerCase()
-        );
-      } else {
-        return path.normalize(sourceA) === path.normalize(sourceB);
-      }
-    }
-    if (process.platform === "win32") {
-      return (
-        path.basename(sourceB).toLowerCase() ===
-        path.basename(sourceA).toLowerCase()
-      );
-    } else {
-      return path.basename(sourceB) === path.basename(sourceA);
-    }
-  }
-
-  public async getAddressSeg(
-    filename: string,
-    fileLine: number
-  ): Promise<[number, number] | null> {
-    await this.parse();
-    const normFilename = normalize(filename);
-    for (let i = 0; i < this.hunks.length; i++) {
-      const hunk = this.hunks[i];
-      const sourceFiles = hunk.lineDebugInfo;
-      if (sourceFiles) {
-        for (const srcFile of sourceFiles) {
-          // Is there a path replacement
-          const name = await this.resolveFileName(srcFile.name);
-          if (this.areSameSourceFileNames(name, normFilename)) {
-            for (const line of srcFile.lines) {
-              if (line.line === fileLine) {
-                return [i, line.offset];
-              }
-            }
-          }
-        }
-      }
-    }
-    return null;
-  }
-
-  public async getAllSegmentIds(filename: string): Promise<number[]> {
-    await this.parse();
-    const segIds: number[] = [];
-    const normFilename = normalize(filename);
-    for (let i = 0; i < this.hunks.length; i++) {
-      const hunk = this.hunks[i];
-      const sourceFiles = hunk.lineDebugInfo;
-      if (sourceFiles) {
-        for (const srcFile of sourceFiles) {
-          // Is there a path replacement
-          const name = await this.resolveFileName(srcFile.name);
-          if (this.areSameSourceFileNames(name, normFilename)) {
-            segIds.push(i);
-          }
-        }
-      }
-    }
-    return segIds;
-  }
 }
-
-/**
- * Normalizes a path
- * @param inputPath Path to normalize
- * @return Normalized path
- */
-function normalize(inputPath: string): string {
-  let newDName = inputPath.replace(/\\+/g, "/");
-  // Testing Windows derive letter -> to uppercase
-  if (newDName.length > 0 && newDName.charAt(1) === ":") {
-    const fChar = newDName.charAt(0).toUpperCase();
-    newDName = fChar + ":" + newDName.substring(2);
-  }
-  return newDName;
-}
-
-const exists = (file: string) =>
-  access(file, fs.constants.R_OK)
-    .then(() => true)
-    .catch(() => false);
