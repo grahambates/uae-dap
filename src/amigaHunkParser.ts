@@ -1,4 +1,3 @@
-import { URI as Uri } from "vscode-uri";
 import { readFile } from "fs/promises";
 import { Logger } from "@vscode/debugadapter";
 
@@ -428,9 +427,9 @@ export class HunkParser {
     }
   }
 
-  public async readFile(fileUri: Uri): Promise<Array<Hunk>> {
-    this.logger.log(`Parsing file "${fileUri.fsPath}"`);
-    const buffer = await readFile(fileUri.fsPath);
+  public async readFile(filename: string): Promise<Array<Hunk>> {
+    this.logger.log(`Parsing file "${filename}"`);
+    const buffer = await readFile(filename);
     return this.parseFile(buffer);
   }
 }

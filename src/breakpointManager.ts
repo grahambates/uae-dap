@@ -1,18 +1,15 @@
 import { Mutex } from "./utils/mutex";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { Logger } from "@vscode/debugadapter";
-import { DisassembledFile, DisassemblyManager } from "./disassembly";
-import { FileParser } from "./parsing/fileParser";
+import { DisassembledFile } from "./disassembly";
 import {
   GdbProxy,
   GdbBreakpoint,
   GdbBreakpointType,
   GdbBreakpointAccessType,
 } from "./gdb";
+import Program from "./program";
 
-/**
- * Class to contact the fs-UAE GDB server.
- */
 export class BreakpointManager {
   /** Size map */
   private static sizes = new Map<string, number>();
@@ -22,10 +19,10 @@ export class BreakpointManager {
   private exceptionMask = BreakpointManager.DEFAULT_EXCEPTION_MASK;
   /** Breakpoints selected */
   private breakpoints: GdbBreakpoint[] = [];
-  /** Pending breakpoint no yet sent to debugger */
+  /** Pending breakpoint not yet sent to debugger */
   private pendingBreakpoints: GdbBreakpoint[] = [];
   /** Debug information for the loaded program */
-  private fileParser?: FileParser;
+  private program?: Program;
   /** Next breakpoint id */
   private nextBreakpointId = 0;
   /** Temporary breakpoints arrays */
@@ -35,19 +32,16 @@ export class BreakpointManager {
   /** Lock for breakpoint management function */
   protected breakpointLock?: () => void;
 
-  public constructor(
-    private gdbProxy: GdbProxy,
-    private disassemblyManager: DisassemblyManager
-  ) {
-    gdbProxy.onSendAllPendingBreakpoints(this.sendAllPendingBreakpoints);
+  public constructor(private gdbProxy: GdbProxy) {
+    gdbProxy.onFirstStop(this.sendAllPendingBreakpoints);
   }
 
   public setExceptionMask(exceptionMask: number): void {
     this.exceptionMask = exceptionMask;
   }
 
-  public setFileParser(fileParser: FileParser): void {
-    this.fileParser = fileParser;
+  public setProgram(program: Program): void {
+    this.program = program;
   }
 
   /**
@@ -71,11 +65,11 @@ export class BreakpointManager {
     path: string,
     line: number
   ): Promise<boolean> {
-    if (this.fileParser) {
-      const values = await this.fileParser.getAddressSeg(path, line);
-      if (values) {
-        debugBp.segmentId = values[0];
-        debugBp.offset = values[1];
+    if (this.program) {
+      const location = await this.program.findLocationForLine(path, line);
+      if (location) {
+        debugBp.segmentId = location.segmentId;
+        debugBp.offset = location.offset;
         return true;
       }
     }
@@ -83,7 +77,7 @@ export class BreakpointManager {
   }
 
   public async checkPendingBreakpointsAddresses(): Promise<void> {
-    if (this.fileParser) {
+    if (this.program) {
       for (const bp of this.pendingBreakpoints) {
         if (bp.source && bp.line) {
           const path = <string>bp.source.path;
@@ -109,24 +103,23 @@ export class BreakpointManager {
         bp.verified = false;
         const path = bp.source.path ?? "";
 
+        if (!this.program) {
+          throw new Error("Program is not running");
+        }
+
         if (!DisassembledFile.isDebugAsmFile(path)) {
-          if (this.fileParser) {
-            if (await this.fillBreakpointWithSegAddress(bp, path, bp.line)) {
-              await this.gdbProxy.setBreakpoint(bp);
-              this.breakpoints.push(bp);
-            } else {
-              throw new Error("Segment offset not resolved");
-            }
+          if (await this.fillBreakpointWithSegAddress(bp, path, bp.line)) {
+            await this.gdbProxy.setBreakpoint(bp);
+            this.breakpoints.push(bp);
           } else {
-            throw new Error("Debug information not retrieved");
+            throw new Error("Segment offset not resolved");
           }
         } else {
           const name = <string>bp.source.name;
-          const address =
-            await this.disassemblyManager.getAddressForFileEditorLine(
-              name,
-              bp.line
-            );
+          const address = await this.program.getAddressForFileEditorLine(
+            name,
+            bp.line
+          );
           bp.segmentId = undefined;
           bp.offset = address;
           await this.gdbProxy.setBreakpoint(bp);

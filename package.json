@@ -42,8 +42,7 @@
     "expression-eval": "^5.0.0",
     "glob": "^8.0.1",
     "promise-retry": "^2.0.1",
-    "temp": "^0.9.4",
-    "vscode-uri": "^3.0.3"
+    "temp": "^0.9.4"
   },
   "devDependencies": {
     "@johanblumenberg/ts-mockito": "^1.0.32",

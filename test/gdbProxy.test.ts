@@ -181,13 +181,14 @@ describe("GdbProxy", function () {
         vThreadInfoResponse
       );
       // callback for all pending breakpoint send function
-      proxy.onSendAllPendingBreakpoints(async () => undefined);
+      const onFirstStop = jest.fn();
+      proxy.onFirstStop(onFirstStop);
       await proxy.connect("localhost", 6860);
       await proxy.load("/home/myh\\myprog", true);
       verify(spiedProxy.sendPacketString(vRunRequest, anything())).once();
       // the stop command arrives  - should send pending breakpoints
       mockedOnData(proxy.formatString("S5;0"));
-      verify(spiedProxy.sendAllPendingBreakpoints()).once();
+      expect(onFirstStop).toHaveBeenCalled();
       verify(spiedProxy.continueExecution(anything())).never();
     });
 
@@ -217,13 +218,14 @@ describe("GdbProxy", function () {
         RESPONSE_REGISTERS
       );
       // callback for all pending breakpoint send function
-      proxy.onSendAllPendingBreakpoints(async () => undefined);
+      const onFirstStop = jest.fn();
+      proxy.onFirstStop(onFirstStop);
       await proxy.connect("localhost", 6860);
       await proxy.load("/home/myh\\myprog", false);
       verify(spiedProxy.sendPacketString(vRunRequest, anything())).once();
       // the stop command arrives  - should send pending breakpoints
       mockedOnData(proxy.formatString("S5;0"));
-      verify(spiedProxy.sendAllPendingBreakpoints()).once();
+      expect(onFirstStop).toHaveBeenCalled();
       verify(spiedProxy.continueExecution(anything())).once();
     });
 
@@ -363,7 +365,7 @@ describe("GdbProxy", function () {
         when(spiedProxy.sendPacketString("g", anything())).thenResolve(
           RESPONSE_REGISTERS
         );
-        proxy.onSendAllPendingBreakpoints(async () => undefined);
+        proxy.onFirstStop(async () => undefined);
         // connect
         await proxy.connect("localhost", 6860);
         await proxy.load("/home/myh\\myprog", true);
@@ -517,25 +519,22 @@ describe("GdbProxy", function () {
           const thread = proxy.getCurrentCpuThread();
           if (thread) {
             const stack = await proxy.stack(thread);
-            expect(stack).toEqual({
-              frames: [
-                {
-                  index: -1,
-                  segmentId: -1,
-                  offset: 10,
-                  pc: 10,
-                  stackFrameIndex: 1,
-                },
-                {
-                  index: 1,
-                  segmentId: -1,
-                  offset: 10,
-                  pc: 10,
-                  stackFrameIndex: 1,
-                },
-              ],
-              count: 2,
-            });
+            expect(stack).toEqual([
+              {
+                index: -1,
+                segmentId: -1,
+                offset: 10,
+                pc: 10,
+                stackFrameIndex: 1,
+              },
+              {
+                index: 1,
+                segmentId: -1,
+                offset: 10,
+                pc: 10,
+                stackFrameIndex: 1,
+              },
+            ]);
           } else {
             fail("Thread not found");
           }
@@ -572,18 +571,15 @@ describe("GdbProxy", function () {
             GdbAmigaSysThreadIdFsUAE.COP
           );
           if (thread) {
-            return expect(proxy.stack(thread)).resolves.toEqual({
-              frames: [
-                {
-                  index: -1000,
-                  offset: 0,
-                  pc: 1,
-                  segmentId: -10,
-                  stackFrameIndex: 0,
-                },
-              ],
-              count: 1,
-            });
+            return expect(proxy.stack(thread)).resolves.toEqual([
+              {
+                index: -1000,
+                offset: 0,
+                pc: 1,
+                segmentId: -10,
+                stackFrameIndex: 0,
+              },
+            ]);
           } else {
             fail("Thread not found");
           }

@@ -1,7 +1,7 @@
 import * as cp from "child_process";
 import * as path from "path";
 import { DebugProtocol } from "@vscode/debugprotocol";
-import { formatHexadecimal } from "../utils/strings";
+import { formatHexadecimal, splitLines } from "../utils/strings";
 
 const wasmPath =
   process.env.NODE_ENV === "test"
@@ -42,7 +42,7 @@ export interface DisassembledOutput {
 function processOutput(code: string, startAddress: number): DisassembledOutput {
   const instructions: DebugProtocol.DisassembledInstruction[] = [];
 
-  const lines = code.split(/\r?\n/g);
+  const lines = splitLines(code);
   let i = 0;
   for (let l of lines) {
     l = l.trim();

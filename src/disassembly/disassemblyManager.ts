@@ -1,12 +1,11 @@
 import { StackFrame, Source } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
-import { URI as Uri } from "vscode-uri";
 
 import { disassemble } from "./cpuDisassembler";
-import { GdbProxy } from "../gdb";
-import { evaluateExpression, VariableResolver } from "../expressions";
+import { GdbProxy, GdbStackPosition, GdbThread } from "../gdb";
 import { disassembleCopper } from "./copperDisassembler";
-import { formatHexadecimal } from "../utils/strings";
+import { formatAddress, formatHexadecimal, splitLines } from "../utils/strings";
+import Program from "../program";
 
 export class DisassembledFile {
   public static readonly DGBFILE_SCHEME = "disassembly";
@@ -130,10 +129,10 @@ export class DisassembledFile {
     return dAsmFile;
   }
 
-  public toURI(): Uri {
+  public toURI(): string {
     // Code to replace #, it is not done by the Uri.parse
     const filename = this.toString().replace("#", "%23");
-    return Uri.parse(`${DisassembledFile.DGBFILE_SCHEME}:${filename}`);
+    return `${DisassembledFile.DGBFILE_SCHEME}:${filename}`;
   }
 
   public static isDebugAsmFile(path: string): boolean {
@@ -147,24 +146,77 @@ export interface DisassembleAddressArguments
   segmentId?: number;
 }
 
+export interface DisassembledLine {
+  text: string;
+  isCopper: boolean;
+}
+
 export class DisassemblyManager {
-  public constructor(
-    private gdbProxy: GdbProxy,
-    private variableResolver: VariableResolver
-  ) {}
+  protected lineCache = new Map<number, DisassembledLine>();
+
+  public constructor(private gdb: GdbProxy, private program: Program) {}
+
+  public async disassembleLine(
+    pc: number,
+    thread: GdbThread
+  ): Promise<DisassembledLine> {
+    const cached = this.lineCache.get(pc);
+    if (cached) {
+      return cached;
+    }
+
+    let text = formatAddress(pc) + ": ";
+    const isCopper = this.gdb.isCopperThread(thread);
+    try {
+      const memory = await this.gdb.getMemory(pc, 10);
+      if (isCopper) {
+        // Copper thread
+        const lines = disassembleCopper(memory);
+        text += lines[0].toString().split("    ")[0];
+      } else if (this.gdb.isCPUThread(thread)) {
+        // CPU thread
+        const { code } = await disassemble(memory);
+        const lines = splitLines(code);
+        let selectedLine = lines.find((l) => l.trim().length) ?? lines[0];
+        const elms = selectedLine.split("  ");
+        if (elms.length > 2) {
+          selectedLine = elms[2];
+        }
+        text += selectedLine.trim().replace(/\s\s+/g, " ");
+      }
+      this.lineCache.set(pc, { text, isCopper });
+    } catch (err) {
+      console.error("Error ignored: " + (err as Error).message);
+    }
+
+    return { text, isCopper };
+  }
+
+  public isCopperLine(pc: number): boolean {
+    const cached = this.lineCache.get(pc);
+    return cached?.isCopper === true;
+  }
 
   public async getStackFrame(
-    stackFrameIndex: number,
-    address: number,
-    stackFrameLabel: string,
-    isCopper: boolean
+    stackPosition: GdbStackPosition,
+    thread: GdbThread
   ): Promise<StackFrame> {
+    const stackFrameIndex = stackPosition.index;
+    const address = stackPosition.pc;
+    const { text: stackFrameLabel, isCopper } = await this.disassembleLine(
+      address,
+      thread
+    );
+
     const dAsmFile = new DisassembledFile();
-    const length = 500;
+    dAsmFile
+      .setCopper(isCopper)
+      .setStackFrameIndex(stackFrameIndex)
+      .setLength(500);
+
     let lineNumber = 1;
-    dAsmFile.setCopper(isCopper);
     // is the pc on a opened segment ?
-    const [segmentId, offset] = this.gdbProxy.toRelativeOffset(address);
+    const [segmentId, offset] = this.gdb.toRelativeOffset(address);
     if (segmentId >= 0 && !isCopper) {
       // We have a segment
       dAsmFile.setSegmentId(segmentId);
@@ -185,54 +237,39 @@ export class DisassemblyManager {
       let newAddress = address;
       if (isCopper) {
         // Search for selected copper list
-        // Read
-        let lineInCop1 = -1;
-        let lineInCop2 = -1;
         const cop1Addr = await this.getCopperAddress(1);
-        if (cop1Addr) {
-          lineInCop1 = Math.floor((address - cop1Addr + 4) / 4);
-        }
         const cop2Addr = await this.getCopperAddress(2);
-        if (cop2Addr) {
-          lineInCop2 = Math.floor((address - cop2Addr + 4) / 4);
-        }
-        if (cop1Addr && lineInCop1 >= 0) {
-          if (cop2Addr && lineInCop2 >= 0) {
-            if (lineInCop1 <= lineInCop2) {
-              newAddress = cop1Addr;
-              lineNumber = lineInCop1;
-            } else {
-              newAddress = cop2Addr;
-              lineNumber = lineInCop2;
-            }
-          } else {
-            newAddress = cop1Addr;
-            lineNumber = lineInCop1;
-          }
-        } else if (cop2Addr && lineInCop2 >= 0) {
+        const lineInCop1 = cop1Addr
+          ? Math.floor((address - cop1Addr + 4) / 4)
+          : -1;
+        const lineInCop2 = cop2Addr
+          ? Math.floor((address - cop2Addr + 4) / 4)
+          : -1;
+
+        if (
+          lineInCop1 >= 0 &&
+          (lineInCop2 === -1 || lineInCop1 <= lineInCop2)
+        ) {
+          newAddress = cop1Addr;
+          lineNumber = lineInCop1;
+        } else if (lineInCop2 >= 0) {
           newAddress = cop2Addr;
           lineNumber = lineInCop2;
         }
       }
-      dAsmFile
-        .setStackFrameIndex(stackFrameIndex)
-        .setAddressExpression(`$${newAddress.toString(16)}`)
-        .setLength(length);
+      dAsmFile.setAddressExpression(`$${newAddress.toString(16)}`);
     }
-    const url = `${DisassembledFile.DGBFILE_SCHEME}:///${dAsmFile}`;
-    let sf;
-    if (lineNumber >= 0 && isCopper) {
-      sf = new StackFrame(
-        stackFrameIndex,
-        stackFrameLabel,
-        new Source(dAsmFile.toString(), url),
-        lineNumber,
-        1
-      );
-    } else {
-      sf = new StackFrame(stackFrameIndex, stackFrameLabel);
-    }
+
+    const sf = new StackFrame(stackFrameIndex, stackFrameLabel);
     sf.instructionPointerReference = formatHexadecimal(address);
+
+    if (lineNumber >= 0 && isCopper) {
+      const url = `${DisassembledFile.DGBFILE_SCHEME}:///${dAsmFile}`;
+      sf.source = new Source(dAsmFile.toString(), url);
+      sf.line = lineNumber;
+      sf.column = 1;
+    }
+
     return sf;
   }
 
@@ -240,8 +277,8 @@ export class DisassemblyManager {
     segmentId: number
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
     // ask for memory dump
-    const memory = await this.gdbProxy.getSegmentMemory(segmentId);
-    const startAddress = this.gdbProxy.toAbsoluteOffset(segmentId, 0);
+    const memory = await this.gdb.getSegmentMemory(segmentId);
+    const startAddress = this.gdb.toAbsoluteOffset(segmentId, 0);
     // disassemble the code
     const { instructions } = await disassemble(memory, startAddress);
     return instructions;
@@ -253,65 +290,22 @@ export class DisassemblyManager {
     offset: number | undefined,
     isCopper: boolean
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    let searchedAddress: number | void;
+    let searchedAddress: number | undefined;
     if (isCopper && (addressExpression === "1" || addressExpression === "2")) {
       // Retrieve the copper address
       searchedAddress = await this.getCopperAddress(
         parseInt(addressExpression)
       );
     } else {
-      searchedAddress = await evaluateExpression(
-        addressExpression,
-        undefined,
-        this.variableResolver
-      );
+      searchedAddress = await this.program.evaluate(addressExpression);
     }
-    if (searchedAddress || searchedAddress === 0) {
-      if (offset) {
-        searchedAddress += offset;
-      }
-      return this.disassembleNumericalAddress(
-        searchedAddress,
-        length,
-        isCopper
-      );
-    } else {
+    if (searchedAddress === undefined) {
       throw new Error("Unable to resolve address expression void returned");
     }
-  }
-
-  public async disassembleRequest(
-    args: DisassembleAddressArguments
-  ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    let offset = 0;
-    if (args.offset) {
-      offset += args.offset;
+    if (offset) {
+      searchedAddress += offset;
     }
-    if (args.copper) {
-      if (args.memoryReference && args.instructionCount) {
-        return this.disassembleAddress(
-          args.memoryReference,
-          args.instructionCount * 4,
-          offset,
-          args.copper
-        );
-      } else {
-        throw new Error(`Unable to disassemble; invalid parameters ${args}`);
-      }
-    } else {
-      if (args.segmentId !== undefined) {
-        return this.disassembleSegment(args.segmentId);
-      } else if (args.memoryReference && args.instructionCount) {
-        return this.disassembleAddress(
-          args.memoryReference,
-          args.instructionCount * 4,
-          offset,
-          args.copper
-        );
-      } else {
-        throw new Error(`Unable to disassemble; invalid parameters ${args}`);
-      }
-    }
+    return this.disassembleNumericalAddress(searchedAddress, length, isCopper);
   }
 
   public async getAddressForFileEditorLine(
@@ -362,24 +356,22 @@ export class DisassemblyManager {
     segmentId: number,
     offset: number
   ): Promise<number> {
-    const memory = await this.gdbProxy.getSegmentMemory(segmentId);
-    // disassemble the code
+    const memory = await this.gdb.getSegmentMemory(segmentId);
     const { instructions } = await disassemble(memory);
-    let line = 1;
-    for (const instr of instructions) {
-      if (parseInt(instr.address) === offset) {
-        return line;
-      }
-      line++;
-    }
-    throw new Error(
-      `Cannot retrieve line for segment ${segmentId}, offset ${offset}: line not found`
+    const index = instructions.findIndex(
+      (instr) => parseInt(instr.address) === offset
     );
+    if (index === -1) {
+      throw new Error(
+        `Cannot retrieve line for segment ${segmentId}, offset ${offset}: line not found`
+      );
+    }
+    return index + 1;
   }
 
   private async getCopperAddress(copperIndex: number): Promise<number> {
     const copperHigh = copperIndex === 1 ? 0xdff080 : 0xdff084;
-    const memory = await this.gdbProxy.getMemory(copperHigh, 4);
+    const memory = await this.gdb.getMemory(copperHigh, 4);
     return parseInt(memory, 16);
   }
 
@@ -389,32 +381,19 @@ export class DisassemblyManager {
     isCopper: boolean
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
     const address = searchedAddress;
+    if (!this.gdb.isConnected()) {
+      throw new Error("Debugger not started");
+    }
+    const memory = await this.gdb.getMemory(address, length);
     if (isCopper) {
-      const memory = await this.gdbProxy.getMemory(address, length);
-      const startAddress = address;
-      const instructions = disassembleCopper(memory);
-      const variables = new Array<DebugProtocol.DisassembledInstruction>();
-      let offset = 0;
-      for (const i of instructions) {
-        const addOffset = startAddress + offset;
-        variables.push({
-          instructionBytes: i.getInstructionBytes(),
-          address: formatHexadecimal(addOffset),
-          instruction: i.toString(),
-        });
-        // 4 addresses : 32b / address
-        offset += 4;
-      }
-      return variables;
+      return disassembleCopper(memory).map((inst, i) => ({
+        instructionBytes: inst.getInstructionBytes(),
+        address: formatHexadecimal(address + i * 4),
+        instruction: inst.toString(),
+      }));
     } else {
-      // ask for memory dump
-      if (!this.gdbProxy.isConnected()) {
-        throw new Error("Debugger not started");
-      }
-      const memory = await this.gdbProxy.getMemory(address, length);
-      const startAddress = address;
       // disassemble the code
-      const { instructions } = await disassemble(memory, startAddress);
+      const { instructions } = await disassemble(memory, address);
       return instructions;
     }
   }

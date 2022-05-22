@@ -171,18 +171,15 @@ describe("Node Debug Adapter", () => {
       when(gdbProxy.load(anything(), anything())).thenCall(async () => {
         setTimeout(() => callbacks.get("stopOnEntry")?.(threadId), 1);
       });
-      when(gdbProxy.stack(th)).thenResolve({
-        frames: [
-          {
-            index: 1,
-            segmentId: 0,
-            offset: 0,
-            pc: 0,
-            stackFrameIndex: 0,
-          },
-        ],
-        count: 1,
-      });
+      when(gdbProxy.stack(th)).thenResolve([
+        {
+          index: 1,
+          segmentId: 0,
+          offset: 0,
+          pc: 0,
+          stackFrameIndex: 0,
+        },
+      ]);
 
       return Promise.all([
         dc.configurationSequence(),
@@ -201,18 +198,15 @@ describe("Node Debug Adapter", () => {
         bp.verified = true;
         callbacks.get("breakpointValidated")?.(bp);
       });
-      when(gdbProxy.stack(th)).thenResolve({
-        frames: [
-          {
-            index: 1,
-            segmentId: 0,
-            offset: 4,
-            pc: 10,
-            stackFrameIndex: 0,
-          },
-        ],
-        count: 1,
-      });
+      when(gdbProxy.stack(th)).thenResolve([
+        {
+          index: 1,
+          segmentId: 0,
+          offset: 4,
+          pc: 10,
+          stackFrameIndex: 0,
+        },
+      ]);
       when(gdbProxy.registers(anything())).thenResolve([
         { name: "d0", value: 1 },
       ]);
@@ -240,18 +234,15 @@ describe("Node Debug Adapter", () => {
         bp.verified = true;
         callbacks.get("breakpointValidated")?.(bp);
       });
-      when(gdbProxy.stack(th)).thenResolve({
-        frames: [
-          {
-            index: 1,
-            segmentId: 0,
-            offset: 4,
-            pc: 10,
-            stackFrameIndex: 0,
-          },
-        ],
-        count: 1,
-      });
+      when(gdbProxy.stack(th)).thenResolve([
+        {
+          index: 1,
+          segmentId: 0,
+          offset: 4,
+          pc: 10,
+          stackFrameIndex: 0,
+        },
+      ]);
 
       await Promise.all([dc.configurationSequence(), dc.launch(launchArgs)]);
       return Promise.all([
@@ -277,42 +268,33 @@ describe("Node Debug Adapter", () => {
 
     it("should step", async () => {
       when(gdbProxy.stack(th))
-        .thenResolve({
-          frames: [
-            {
-              index: 1,
-              segmentId: 0,
-              offset: 0,
-              pc: 0,
-              stackFrameIndex: 0,
-            },
-          ],
-          count: 1,
-        })
-        .thenResolve({
-          frames: [
-            {
-              index: 1,
-              segmentId: 0,
-              offset: 4,
-              pc: 4,
-              stackFrameIndex: 0,
-            },
-          ],
-          count: 1,
-        })
-        .thenResolve({
-          frames: [
-            {
-              index: 1,
-              segmentId: 0,
-              offset: 8,
-              pc: 8,
-              stackFrameIndex: 0,
-            },
-          ],
-          count: 1,
-        });
+        .thenResolve([
+          {
+            index: 1,
+            segmentId: 0,
+            offset: 0,
+            pc: 0,
+            stackFrameIndex: 0,
+          },
+        ])
+        .thenResolve([
+          {
+            index: 1,
+            segmentId: 0,
+            offset: 4,
+            pc: 4,
+            stackFrameIndex: 0,
+          },
+        ])
+        .thenResolve([
+          {
+            index: 1,
+            segmentId: 0,
+            offset: 8,
+            pc: 8,
+            stackFrameIndex: 0,
+          },
+        ]);
       when(gdbProxy.stepToRange(th, 0, 0)).thenCall(async () => {
         setTimeout(() => callbacks.get("stopOnStep")?.(threadId), 1);
       });
@@ -337,30 +319,24 @@ describe("Node Debug Adapter", () => {
 
     it("should continue and stop", async () => {
       when(gdbProxy.stack(th))
-        .thenResolve({
-          frames: [
-            {
-              index: 1,
-              segmentId: 0,
-              offset: 0,
-              pc: 0,
-              stackFrameIndex: 0,
-            },
-          ],
-          count: 1,
-        })
-        .thenResolve({
-          frames: [
-            {
-              index: 1,
-              segmentId: 0,
-              offset: 4,
-              pc: 4,
-              stackFrameIndex: 0,
-            },
-          ],
-          count: 1,
-        });
+        .thenResolve([
+          {
+            index: 1,
+            segmentId: 0,
+            offset: 0,
+            pc: 0,
+            stackFrameIndex: 0,
+          },
+        ])
+        .thenResolve([
+          {
+            index: 1,
+            segmentId: 0,
+            offset: 4,
+            pc: 4,
+            stackFrameIndex: 0,
+          },
+        ]);
       when(gdbProxy.continueExecution(th)).thenCall(async () => {
         setTimeout(() => callbacks.get("continueThread")?.(threadId, true), 1);
       });
@@ -409,25 +385,22 @@ describe("Node Debug Adapter", () => {
     });
 
     it("should retrieve a complex stack", async () => {
-      when(gdbProxy.stack(th)).thenResolve({
-        frames: [
-          {
-            index: -1,
-            segmentId: 0,
-            offset: 0,
-            pc: 0,
-            stackFrameIndex: 1,
-          },
-          {
-            index: 1,
-            segmentId: -1,
-            offset: 0,
-            pc: 10,
-            stackFrameIndex: 0,
-          },
-        ],
-        count: 2,
-      });
+      when(gdbProxy.stack(th)).thenResolve([
+        {
+          index: -1,
+          segmentId: 0,
+          offset: 0,
+          pc: 0,
+          stackFrameIndex: 1,
+        },
+        {
+          index: 1,
+          segmentId: -1,
+          offset: 0,
+          pc: 10,
+          stackFrameIndex: 0,
+        },
+      ]);
       when(gdbProxy.registers(anything())).thenResolve([
         { name: "d0", value: 1 },
         { name: "a0", value: 10 },
@@ -526,30 +499,24 @@ describe("Node Debug Adapter", () => {
       when(gdbProxy.getMemory(22624, 10)).thenResolve("0180056c2c07fffe0180");
       when(gdbProxy.getMemory(14676096, 4)).thenResolve("5850");
       when(gdbProxy.isCopperThread(anything())).thenReturn(true);
-      when(gdbProxy.stack(th)).thenResolve({
-        frames: [
-          {
-            index: -1,
-            segmentId: 0,
-            offset: 0,
-            pc: 0,
-            stackFrameIndex: 1,
-          },
-        ],
-        count: 1,
-      });
-      when(gdbProxy.stack(thCop)).thenResolve({
-        frames: [
-          {
-            index: -1,
-            segmentId: 0,
-            offset: 22624,
-            pc: 22624,
-            stackFrameIndex: 1,
-          },
-        ],
-        count: 1,
-      });
+      when(gdbProxy.stack(th)).thenResolve([
+        {
+          index: -1,
+          segmentId: 0,
+          offset: 0,
+          pc: 0,
+          stackFrameIndex: 1,
+        },
+      ]);
+      when(gdbProxy.stack(thCop)).thenResolve([
+        {
+          index: -1,
+          segmentId: 0,
+          offset: 22624,
+          pc: 22624,
+          stackFrameIndex: 1,
+        },
+      ]);
 
       await Promise.all([
         dc.configurationSequence(),
@@ -581,7 +548,7 @@ describe("Node Debug Adapter", () => {
     beforeEach(async () => {
       when(gdbProxy.load(anything(), anything())).thenCall(async () => {
         setTimeout(() => callbacks.get("stopOnEntry")?.(threadId), 1);
-        session.updateSegments([
+        callbacks.get("segmentsUpdated")?.([
           {
             name: "example",
             id: 0,
@@ -591,18 +558,15 @@ describe("Node Debug Adapter", () => {
         ]);
       });
       when(gdbProxy.setBreakpoint(anything())).thenResolve();
-      when(gdbProxy.stack(th)).thenResolve({
-        frames: [
-          {
-            index: 1,
-            segmentId: 0,
-            offset: 4,
-            pc: 10,
-            stackFrameIndex: 0,
-          },
-        ],
-        count: 1,
-      });
+      when(gdbProxy.stack(th)).thenResolve([
+        {
+          index: 1,
+          segmentId: 0,
+          offset: 4,
+          pc: 10,
+          stackFrameIndex: 0,
+        },
+      ]);
       when(gdbProxy.getRegister(anyString(), anything())).thenResolve([10, -1]);
       when(gdbProxy.registers(anything())).thenResolve([
         {
@@ -746,7 +710,7 @@ describe("Node Debug Adapter", () => {
             cb(th.getId());
           }
         }, 1);
-        session.updateSegments([
+        callbacks.get("segmentsUpdated")?.([
           {
             name: "example",
             id: 0,
@@ -755,18 +719,15 @@ describe("Node Debug Adapter", () => {
           },
         ]);
       });
-      when(gdbProxy.stack(th)).thenResolve({
-        frames: [
-          {
-            index: 1,
-            segmentId: 0,
-            offset: 4,
-            pc: 10,
-            stackFrameIndex: 0,
-          },
-        ],
-        count: 1,
-      });
+      when(gdbProxy.stack(th)).thenResolve([
+        {
+          index: 1,
+          segmentId: 0,
+          offset: 4,
+          pc: 10,
+          stackFrameIndex: 0,
+        },
+      ]);
       when(gdbProxy.getRegister(anyString(), anything())).thenResolve([10, -1]);
       when(gdbProxy.registers(anything())).thenResolve([
         { name: "d0", value: 1 },
@@ -821,18 +782,15 @@ describe("Node Debug Adapter", () => {
           }
         }
       );
-      when(gdbProxy.stack(th)).thenResolve({
-        frames: [
-          {
-            index: 1,
-            segmentId: 0,
-            offset: 4,
-            pc: 10,
-            stackFrameIndex: 0,
-          },
-        ],
-        count: 1,
-      });
+      when(gdbProxy.stack(th)).thenResolve([
+        {
+          index: 1,
+          segmentId: 0,
+          offset: 4,
+          pc: 10,
+          stackFrameIndex: 0,
+        },
+      ]);
       when(gdbProxy.registers(anything())).thenResolve([
         {
           name: "d0",

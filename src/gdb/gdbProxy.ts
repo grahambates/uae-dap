@@ -78,12 +78,6 @@ export enum GdbBreakpointAccessType {
   READWRITE = "readWrite",
 }
 
-/** StackFrame */
-export interface GdbStackFrame {
-  frames: GdbStackPosition[];
-  count: number;
-}
-
 /** StackFrame position */
 export interface GdbStackPosition {
   /** Index of the position */
@@ -201,8 +195,7 @@ export class GdbProxy {
   /** Created threads indexed by native ids */
   protected threadsNative: Map<string, GdbThread>;
   /** function from parent to send all pending breakpoints */
-  protected sendPendingBreakpointsCallback: (() => Promise<void>) | undefined =
-    undefined;
+  protected firstStopCallback?: () => Promise<void>;
   /** Manager for the received socket data */
   protected receivedDataManager: GdbReceivedDataManager;
   /** Lock for sendPacketString function */
@@ -609,26 +602,18 @@ export class GdbProxy {
         breakpoint.message = breakpoint.defaultMessage;
         this.sendEvent("breakpointValidated", breakpoint);
       } else {
-        throw new Error("Invalid breakpoint offset");
+        throw new Error("Invalid breakpoint offset " + offset);
       }
     }
   }
 
-  public onSendAllPendingBreakpoints(callback: () => Promise<void>) {
-    this.sendPendingBreakpointsCallback = callback;
-  }
-
   /**
-   * Sends all the pending breakpoint
+   * Set async callback for first stop
+   *
+   * This can be used to send pending breakpoints
    */
-  public sendAllPendingBreakpoints(): Promise<void> {
-    if (this.sendPendingBreakpointsCallback) {
-      return this.sendPendingBreakpointsCallback();
-    } else {
-      return Promise.reject(
-        new Error("send all pending breakpoints callback not set")
-      );
-    }
+  public onFirstStop(callback: () => Promise<void>) {
+    this.firstStopCallback = callback;
   }
 
   /**
@@ -743,25 +728,22 @@ export class GdbProxy {
    *
    * @param thread Thread identifier
    */
-  public async stack(thread: GdbThread): Promise<GdbStackFrame> {
-    const frames: GdbStackPosition[] = [];
+  public async stack(thread: GdbThread): Promise<GdbStackPosition[]> {
+    const stackPositions: GdbStackPosition[] = [];
     // Retrieve the current frame id
     let stackPosition = await this.getStackPosition(
       thread,
       GdbProxy.DEFAULT_FRAME_INDEX
     );
-    frames.push(stackPosition);
+    stackPositions.push(stackPosition);
     if (thread.getThreadId() === GdbAmigaSysThreadIdFsUAE.CPU) {
       const current_frame_index = stackPosition.stackFrameIndex;
       for (let i = current_frame_index; i > 0; i--) {
         stackPosition = await this.getStackPosition(thread, i);
-        frames.push(stackPosition);
+        stackPositions.push(stackPosition);
       }
     }
-    return {
-      frames,
-      count: frames.length,
-    };
+    return stackPositions;
   }
 
   /**
@@ -1114,7 +1096,9 @@ export class GdbProxy {
         // A breakpoint has been reached
         if (this.firstStop === true) {
           this.firstStop = false;
-          await this.sendAllPendingBreakpoints();
+          if (this.firstStopCallback) {
+            await this.firstStopCallback();
+          }
           if (!this.stopOnEntryRequested && currentCpuThread) {
             // Send continue command
             await this.continueExecution(currentCpuThread);

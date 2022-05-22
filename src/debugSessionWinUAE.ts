@@ -1,13 +1,9 @@
 import { OutputEvent } from "@vscode/debugadapter/lib/main";
 import { DebugProtocol } from "@vscode/debugprotocol/lib/debugProtocol";
 import { GdbProxyWinUAE, GdbProxy } from "./gdb";
-import {
-  LaunchRequestArguments,
-  FsUAEDebugSession,
-  VariableType,
-} from "./debugSession";
-import { formatNumber, NumberFormat } from "./utils/strings";
+import { LaunchRequestArguments, FsUAEDebugSession } from "./debugSession";
 import { BreakpointManager } from "./breakpointManager";
+import { ScopeType } from "./program";
 
 export class WinUAEDebugSession extends FsUAEDebugSession {
   protected createGdbProxy(): GdbProxy {
@@ -32,9 +28,9 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
           if (thread) {
             if (args.stopOnEntry) {
               await this.gdb.stepIn(thread);
-              await this.gdb.sendAllPendingBreakpoints();
+              await this.breakpoints.sendAllPendingBreakpoints();
             } else {
-              await this.gdb.sendAllPendingBreakpoints();
+              await this.breakpoints.sendAllPendingBreakpoints();
               await this.gdb.continueExecution(thread);
             }
             this.sendResponse(response);
@@ -55,8 +51,7 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
     const thread = this.gdb.getThread(args.threadId);
     if (thread) {
       try {
-        const stk = await this.gdb.stack(thread);
-        const frame = stk.frames[0];
+        const [frame] = await this.gdb.stack(thread);
         const startAddress = frame.pc;
         const endAddress = frame.pc;
         await this.gdb.stepToRange(thread, startAddress, endAddress);
@@ -77,8 +72,8 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
     if (thread) {
       try {
         const stk = await this.gdb.stack(thread);
-        if (stk.frames.length > 0) {
-          const frame = stk.frames[1];
+        if (stk.length > 0) {
+          const frame = stk[1];
           const bpArray = this.breakpoints.createTemporaryBreakpointArray([
             frame.pc + 1,
             frame.pc + 2,
@@ -101,11 +96,10 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
   protected async getVariableAsDisplayed(
     variableName: string
   ): Promise<string> {
-    const vars = await this.getVariables();
+    this.ensureProgramLoaded(this.program);
+    const vars = await this.program.getVariables();
     const value = vars[variableName];
-    const format =
-      this.variableFormatterMap.get(variableName) || NumberFormat.HEXADECIMAL;
-    return formatNumber(value, format);
+    return this.program.formatVariable(variableName, value);
   }
 
   protected async dataBreakpointInfoRequest(
@@ -113,18 +107,16 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
     args: DebugProtocol.DataBreakpointInfoArguments
   ): Promise<void> {
     if (args.variablesReference !== undefined && args.name) {
-      const id = this.variableReferences.get(args.variablesReference);
-      if (
-        id &&
-        (id.type === VariableType.Symbols || id.type === VariableType.Registers)
-      ) {
+      this.ensureProgramLoaded(this.program);
+      const { type } = this.program.getScopeReference(args.variablesReference);
+      if (type === ScopeType.Symbols || type === ScopeType.Registers) {
         const variableName = args.name;
         const displayValue = await this.getVariableAsDisplayed(variableName);
         this.breakpoints.populateDataBreakpointInfoResponseBody(
           response,
           variableName,
           displayValue,
-          id.type === VariableType.Registers
+          type === ScopeType.Registers
         );
       }
     }

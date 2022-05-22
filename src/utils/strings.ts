@@ -207,3 +207,7 @@ export function formatNumber(
     return formatDecimal(value);
   }
 }
+
+export function splitLines(value: string): string[] {
+  return value.split(/\r?\n/g);
+}

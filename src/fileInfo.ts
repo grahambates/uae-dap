@@ -1,85 +1,84 @@
 /* eslint-disable @typescript-eslint/ban-types */
 import * as path from "path";
 import { readFile } from "fs/promises";
-import { URI as Uri } from "vscode-uri";
 import { Hunk, HunkParser, SourceLine } from "./amigaHunkParser";
-import { exists, normalize, areSameSourceFileNames } from "../utils/files";
+import { exists, normalize, areSameSourceFileNames } from "./utils/files";
+import { splitLines } from "./utils/strings";
 
-export class FileParser {
-  public hunks = new Array<Hunk>();
+export interface LineInfo {
+  filename: string;
+  lineNumber: number;
+  lineText: string | null;
+}
+
+export interface SegmentLocation {
+  segmentId: number;
+  offset: number;
+}
+
+/**
+ * Extracts information about amiga executable file from parsed hunks
+ */
+export class FileInfo {
   private resolvedSourceFilesNames = new Map<string, string>();
   private sourceFilesCacheMap = new Map<string, Array<string>>();
-  private loaded = false;
 
-  constructor(
-    private uri: Uri,
+  private constructor(
+    public hunks: Hunk[],
     private pathReplacements?: Record<string, string>,
     private sourcesRootPaths?: Array<string>
   ) {}
 
-  public async parse(): Promise<boolean> {
-    if (this.loaded) {
-      return true;
-    } else {
-      const parser = new HunkParser();
-      try {
-        this.hunks = await parser.readFile(this.uri);
-        this.loaded = true;
-        return true;
-      } catch (err) {
-        return false;
-      }
-    }
+  /**
+   * Create instance
+   */
+  public static async create(
+    filename: string,
+    pathReplacements?: Record<string, string>,
+    sourcesRootPaths?: Array<string>
+  ): Promise<FileInfo> {
+    const parser = new HunkParser();
+    const hunks = await parser.readFile(filename);
+    return new FileInfo(hunks, pathReplacements, sourcesRootPaths);
   }
 
-  public async resolveFileLine(
+  public async findLineAtLocation(
     segId: number,
     offset: number
-  ): Promise<[string, number, string | null] | null> {
-    await this.parse();
-    if (segId >= this.hunks.length) {
-      return null;
-    }
+  ): Promise<LineInfo | null> {
     const hunk = this.hunks[segId];
-    let sourceLineText = null;
 
-    const source_files = hunk.lineDebugInfo;
-    if (source_files) {
-      for (const srcFile of source_files) {
-        const data = this.tryFindLine(srcFile.name, srcFile.lines, offset);
-        if (data) {
-          // transform the file path to a local one
-          let resolvedFileName = await this.resolveFileName(data[0]);
-          if (data[1] > 0) {
-            [resolvedFileName, sourceLineText] = await this.getSourceLineText(
-              resolvedFileName,
-              data[1] - 1
-            );
-          }
-          return [resolvedFileName, data[1], sourceLineText];
+    if (hunk?.lineDebugInfo) {
+      for (const srcFile of hunk.lineDebugInfo) {
+        const lineNumber = this.findLineAtOffset(srcFile.lines, offset);
+        if (lineNumber !== null) {
+          const filename = await this.resolveFileName(srcFile.name);
+          const lineText =
+            lineNumber > 0
+              ? await this.getSourceLineText(filename, lineNumber - 1)
+              : null;
+          return { filename, lineNumber, lineText };
         }
       }
     }
     return null;
   }
 
-  public async getAddressSeg(
+  public async findLocationForLine(
     filename: string,
-    fileLine: number
-  ): Promise<[number, number] | null> {
-    await this.parse();
+    lineNumber: number
+  ): Promise<SegmentLocation | null> {
     const normFilename = normalize(filename);
     for (let i = 0; i < this.hunks.length; i++) {
       const hunk = this.hunks[i];
-      const sourceFiles = hunk.lineDebugInfo;
-      if (sourceFiles) {
-        for (const srcFile of sourceFiles) {
+      if (hunk.lineDebugInfo) {
+        for (const srcFile of hunk.lineDebugInfo) {
           // Is there a path replacement
           const name = await this.resolveFileName(srcFile.name);
           if (areSameSourceFileNames(name, normFilename)) {
-            for (const line of srcFile.lines) {
-              if (line.line === fileLine) {
-                return [i, line.offset];
+            for (const l of srcFile.lines) {
+              if (l.line === lineNumber) {
+                return { segmentId: i, offset: l.offset };
               }
             }
           }
@@ -88,49 +87,54 @@ export class FileParser {
     }
     return null;
   }
-  private tryFindLine(
-    filename: string,
+
+  /**
+   * Find the first source file from each hunk
+   */
+  public async getSourceFiles(): Promise<string[]> {
+    const sourceFiles = new Set<string>();
+    for (const h of this.hunks) {
+      if (h.lineDebugInfo?.length) {
+        const resolvedFileName = await this.resolveFileName(
+          h.lineDebugInfo[0].name
+        );
+        sourceFiles.add(resolvedFileName);
+      }
+    }
+    return Array.from(sourceFiles);
+  }
+  private findLineAtOffset(
     lines: Array<SourceLine>,
     offset: number
-  ): [string, number] | null {
-    let sourceLine = 0;
+  ): number | null {
+    let lineNumber = 0;
     let wasOver = false;
 
-    for (const line of lines) {
-      if (line.offset === offset) {
-        return [filename, line.line];
+    for (const l of lines) {
+      if (l.offset === offset) {
+        return l.line;
       }
-      if (line.offset <= offset) {
-        sourceLine = line.line;
-      } else if (line.offset > offset) {
+      if (l.offset <= offset) {
+        lineNumber = l.line;
+      } else if (l.offset > offset) {
         wasOver = true;
       }
     }
-
-    if (wasOver) {
-      return [filename, sourceLine];
-    } else {
-      return null;
-    }
+    return wasOver ? lineNumber : null;
   }
 
   private async getSourceLineText(
-    filename: string,
+    resolvedFileName: string,
     line: number
-  ): Promise<[string, string | null]> {
-    const resolvedFileName = await this.resolveFileName(filename);
-    let contents: Array<string> | undefined =
-      this.sourceFilesCacheMap.get(resolvedFileName);
+  ): Promise<string | null> {
+    let contents = this.sourceFilesCacheMap.get(resolvedFileName);
     if (!contents) {
       // Load source file
       const fileContentsString = await readFile(resolvedFileName, "utf8");
-      contents = fileContentsString.split(/\r\n|\r|\n/g);
+      contents = splitLines(fileContentsString);
       this.sourceFilesCacheMap.set(resolvedFileName, contents);
     }
-    if (contents && line < contents.length) {
-      return [resolvedFileName, contents[line]];
-    }
-    return [resolvedFileName, null];
+    return contents[line] ?? null;
   }
 
   private async resolveFileName(filename: string): Promise<string> {

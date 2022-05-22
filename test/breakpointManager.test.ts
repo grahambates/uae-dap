@@ -11,9 +11,8 @@ import {
 } from "@johanblumenberg/ts-mockito";
 
 import { GdbBreakpoint, GdbBreakpointType, GdbProxy } from "../src/gdb";
-import { DisassemblyManager } from "../src/disassembly";
-import { FileParser } from "../src/parsing/fileParser";
 import { BreakpointManager } from "../src/breakpointManager";
+import Program from "../src/program";
 
 describe("Breakpoint Manager", () => {
   const err = new Error("not Good");
@@ -24,24 +23,19 @@ describe("Breakpoint Manager", () => {
   let bpManager: BreakpointManager;
   let spiedBpManager: BreakpointManager;
   let mockedGdbProxy: GdbProxy;
-  let mockedDisassemblyManager: DisassemblyManager;
-  let mockedDebugInfo: FileParser;
+  let mockedProgram: Program;
 
   beforeEach(() => {
     mockedGdbProxy = mock(GdbProxy);
     when(mockedGdbProxy.isConnected()).thenReturn(true);
-    mockedDisassemblyManager = mock(DisassemblyManager);
-    mockedDebugInfo = mock(FileParser);
-    bpManager = new BreakpointManager(
-      instance(mockedGdbProxy),
-      instance(mockedDisassemblyManager)
-    );
+    mockedProgram = mock(Program);
+    bpManager = new BreakpointManager(instance(mockedGdbProxy));
+    bpManager.setProgram(instance(mockedProgram));
   });
 
   afterEach(() => {
     reset(mockedGdbProxy);
-    reset(mockedDebugInfo);
-    reset(mockedDisassemblyManager);
+    reset(mockedProgram);
   });
 
   describe("Spied bpManager", () => {
@@ -63,26 +57,22 @@ describe("Breakpoint Manager", () => {
         verified: false,
         defaultMessage: "",
       };
-      const segId = 1;
+      const segmentId = 1;
       const offset = 2;
 
       describe("Source existing", () => {
         beforeEach(() => {
           when(
-            mockedDebugInfo.getAddressSeg(SOURCE_PATH, sourceLine)
-          ).thenResolve([segId, offset]);
+            mockedProgram.findLocationForLine(SOURCE_PATH, sourceLine)
+          ).thenResolve({ segmentId, offset });
         });
 
         describe("has debug info", () => {
-          beforeEach(() => {
-            bpManager.setFileParser(instance(mockedDebugInfo));
-          });
-
           it("should add a breakpoint", async () => {
             when(mockedGdbProxy.setBreakpoint(anything())).thenResolve();
             const rBp = await bpManager.setBreakpoint(bp);
             expect(rBp.id).toBe(bp.id);
-            expect(rBp.segmentId).toBe(segId);
+            expect(rBp.segmentId).toBe(segmentId);
             expect(rBp.offset).toBe(offset);
           });
 
@@ -117,19 +107,12 @@ describe("Breakpoint Manager", () => {
             verify(mockedGdbProxy.removeBreakpoint(anything())).once();
           });
         });
-
-        it("should reject if there is no debug info", async () => {
-          await expect(bpManager.setBreakpoint(bp)).rejects.toThrow();
-          verify(
-            spiedBpManager.addPendingBreakpoint(anything(), anything())
-          ).once();
-        });
       });
 
       describe("Segment or offset not resolved", () => {
         beforeEach(() => {
           when(
-            mockedDebugInfo.getAddressSeg(SOURCE_PATH, sourceLine)
+            mockedProgram.findLocationForLine(SOURCE_PATH, sourceLine)
           ).thenReturn();
         });
 
@@ -157,10 +140,7 @@ describe("Breakpoint Manager", () => {
       describe("Source existing", () => {
         beforeEach(() => {
           when(
-            mockedDisassemblyManager.getAddressForFileEditorLine(
-              DIS_NAME,
-              sourceLine
-            )
+            mockedProgram.getAddressForFileEditorLine(DIS_NAME, sourceLine)
           ).thenResolve(address);
         });
 
@@ -185,10 +165,7 @@ describe("Breakpoint Manager", () => {
       describe("Address not resolved", () => {
         beforeEach(() => {
           when(
-            mockedDisassemblyManager.getAddressForFileEditorLine(
-              DIS_NAME,
-              sourceLine
-            )
+            mockedProgram.getAddressForFileEditorLine(DIS_NAME, sourceLine)
           ).thenReject(err);
         });
 
@@ -219,13 +196,14 @@ describe("Breakpoint Manager", () => {
       },
       line: sourceLine,
     };
-    const segId = 1;
+    const segmentId = 1;
     const offset = 2;
-    bpManager.setFileParser(instance(mockedDebugInfo));
-    when(mockedDebugInfo.getAddressSeg(SOURCE_PATH, sourceLine)).thenResolve([
-      segId,
+    when(
+      mockedProgram.findLocationForLine(SOURCE_PATH, sourceLine)
+    ).thenResolve({
+      segmentId,
       offset,
-    ]);
+    });
     when(mockedGdbProxy.setBreakpoint(anything())).thenReject(err);
     bpManager.addPendingBreakpoint(bp);
     expect(bpManager.getPendingBreakpoints()).toHaveLength(1);

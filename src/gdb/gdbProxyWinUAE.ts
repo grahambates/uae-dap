@@ -3,7 +3,6 @@ import {
   GdbHaltStatus,
   GdbRegister,
   GdbSignal,
-  GdbStackFrame,
   GdbStackPosition,
   GdbSegment,
   GdbBreakpoint,
@@ -344,32 +343,29 @@ export class GdbProxyWinUAE extends GdbProxy {
    *
    * @param thread Thread identifier
    */
-  public async stack(thread: GdbThread): Promise<GdbStackFrame> {
+  public async stack(thread: GdbThread): Promise<GdbStackPosition[]> {
     const unlock = await this.mutex.capture("stack");
     try {
-      const frames = new Array<GdbStackPosition>();
+      const stackPositions = new Array<GdbStackPosition>();
       // Retrieve the current frame
       let stackPosition = await this.getStackPosition(
         thread,
         GdbProxy.DEFAULT_FRAME_INDEX
       );
-      frames.push(stackPosition);
+      stackPositions.push(stackPosition);
       if (thread.getThreadId() === GdbAmigaSysThreadIdWinUAE.CPU) {
         // Retrieve the current frame count
         const stackSize = await this.getFramesCount(thread);
         for (let i = stackSize - 1; i >= 0; i--) {
           try {
             stackPosition = await this.getStackPosition(thread, i);
-            frames.push(stackPosition);
+            stackPositions.push(stackPosition);
           } catch (err) {
             console.error(err);
           }
         }
       }
-      return {
-        frames,
-        count: frames.length,
-      };
+      return stackPositions;
     } finally {
       unlock();
     }

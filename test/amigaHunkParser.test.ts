@@ -1,6 +1,5 @@
-import { HunkParser, HunkType } from "../src/parsing/amigaHunkParser";
+import { HunkParser, HunkType } from "../src/amigaHunkParser";
 import * as Path from "path";
-import { URI as Uri } from "vscode-uri";
 
 const FIXTURES_PATH = Path.join(__dirname, "fixtures");
 
@@ -9,7 +8,7 @@ describe("AmigaHunkFile", function () {
   it("Should open a hunk file", async function () {
     const programFilename = Path.join(FIXTURES_PATH, "fs-uae", "hd0", "gencop");
     const parser = new HunkParser();
-    const hunks = await parser.readFile(Uri.file(programFilename));
+    const hunks = await parser.readFile(programFilename);
     expect(hunks.length).toBe(1);
     const hunk = hunks[0];
     expect(hunk.symbols).toBeDefined();
@@ -34,7 +33,7 @@ describe("AmigaHunkFile", function () {
       "tutorial"
     );
     const parser = new HunkParser();
-    const hunks = await parser.readFile(Uri.file(programFilename));
+    const hunks = await parser.readFile(programFilename);
     expect(hunks).toHaveLength(3);
     // Code hunk
     let hunk = hunks[0];
@@ -73,7 +72,7 @@ describe("AmigaHunkFile", function () {
       "hello-vbcc"
     );
     const parser = new HunkParser();
-    const hunks = await parser.readFile(Uri.file(programFilename));
+    const hunks = await parser.readFile(programFilename);
     expect(hunks).toHaveLength(7);
     // Code hunk
     const hunk = hunks[0];

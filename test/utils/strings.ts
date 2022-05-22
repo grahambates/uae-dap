@@ -1,4 +1,4 @@
-import * as strings from "../src/utils/strings";
+import * as strings from "../../src/utils/strings";
 
 describe("strings", function () {
   it("Should transform a hex string to an array", function () {
