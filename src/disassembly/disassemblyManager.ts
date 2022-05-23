@@ -8,17 +8,17 @@ import { formatAddress, formatHexadecimal, splitLines } from "../utils/strings";
 import Program from "../program";
 
 export class DisassembledFile {
-  public static readonly DGBFILE_SCHEME = "disassembly";
-  public static readonly DGBFILE_SEG_SEPARATOR = "seg_";
-  public static readonly DGBFILE_COPPER_SEPARATOR = "copper_";
-  public static readonly DGBFILE_EXTENSION = "dbgasm";
-
   private segmentId: number | undefined;
   private stackFrameIndex: number | undefined;
   private addressExpression: string | undefined;
   private length: number | undefined;
   private copper = false;
   private path = "";
+
+  public setPath(path: string): DisassembledFile {
+    this.path = path;
+    return this;
+  }
 
   public setSegmentId(segmentId: number): DisassembledFile {
     this.segmentId = segmentId;
@@ -71,79 +71,61 @@ export class DisassembledFile {
 
   public toString(): string {
     if (this.isSegment()) {
-      return `${this.path}${DisassembledFile.DGBFILE_SEG_SEPARATOR}${this.segmentId}.${DisassembledFile.DGBFILE_EXTENSION}`;
+      return `${this.path}seg_${this.segmentId}.dbgasm`;
     } else if (this.isCopper()) {
-      return `${this.path}${DisassembledFile.DGBFILE_COPPER_SEPARATOR}${this.addressExpression}__${this.length}.${DisassembledFile.DGBFILE_EXTENSION}`;
+      return `${this.path}copper_${this.addressExpression}__${this.length}.dbgasm`;
     } else {
-      return `${this.path}${this.stackFrameIndex}__${this.addressExpression}__${this.length}.${DisassembledFile.DGBFILE_EXTENSION}`;
+      return `${this.path}${this.stackFrameIndex}__${this.addressExpression}__${this.length}.dbgasm`;
     }
   }
 
   public static fromPath(path: string): DisassembledFile {
-    let localPath = path;
-    const dAsmFile = new DisassembledFile();
-    const lastSepPos = localPath.lastIndexOf("/");
-    if (lastSepPos >= 0) {
-      localPath = localPath.substring(lastSepPos + 1);
-      dAsmFile.path = path.substring(0, lastSepPos + 1);
-    }
-    const indexOfExt = localPath.lastIndexOf(
-      DisassembledFile.DGBFILE_EXTENSION
+    const segMatch = path.match(
+      /^(?<path>.+\/)?seg_(?<segmentId>[^_]+).dbgasm$/
     );
-    if (indexOfExt > 0) {
-      localPath = localPath.substring(0, indexOfExt - 1);
+    if (segMatch?.groups) {
+      const { path = "", segmentId } = segMatch.groups;
+      return new DisassembledFile()
+        .setPath(path)
+        .setSegmentId(parseInt(segmentId));
     }
-    const segLabelPos = localPath.indexOf(
-      DisassembledFile.DGBFILE_SEG_SEPARATOR
+
+    const copperMatch = path.match(
+      /^(?<path>.+\/)?copper_(?<address>[^_]+)__(?<length>[^_]+).dbgasm$/
     );
-    const copperLabelPos = localPath.indexOf(
-      DisassembledFile.DGBFILE_COPPER_SEPARATOR
-    );
-    if (segLabelPos >= 0) {
-      const segId = parseInt(localPath.substring(segLabelPos + 4));
-      dAsmFile.setSegmentId(segId);
-    } else if (copperLabelPos >= 0) {
-      const pathParts = localPath
-        .substring(DisassembledFile.DGBFILE_COPPER_SEPARATOR.length)
-        .split("__");
-      if (pathParts.length > 1) {
-        const address = pathParts[0];
-        const length = parseInt(pathParts[1]);
-        dAsmFile
-          .setAddressExpression(address)
-          .setLength(length)
-          .setCopper(true);
-      }
-    } else {
-      const pathParts = localPath.split("__");
-      if (pathParts.length > 1) {
-        const stackFrameIndex = parseInt(pathParts[0]);
-        const address = pathParts[1];
-        const length = parseInt(pathParts[2]);
-        dAsmFile
-          .setStackFrameIndex(stackFrameIndex)
-          .setAddressExpression(address)
-          .setLength(length);
-      }
+    if (copperMatch?.groups) {
+      const { path = "", address, length } = copperMatch.groups;
+      return new DisassembledFile()
+        .setPath(path)
+        .setAddressExpression(address)
+        .setLength(parseInt(length))
+        .setCopper(true);
     }
-    return dAsmFile;
+
+    const addressMatch = path.match(
+      /^(?<path>.+\/)?(?<frame>[^_]+)__(?<address>[^_]+)__(?<length>[^_]+).dbgasm$/
+    );
+    if (addressMatch?.groups) {
+      const { path = "", frame, address, length } = addressMatch.groups;
+      return new DisassembledFile()
+        .setPath(path)
+        .setStackFrameIndex(parseInt(frame))
+        .setAddressExpression(address)
+        .setLength(parseInt(length));
+    }
+
+    throw new Error("Unrecognised filename format " + path);
   }
 
   public toURI(): string {
     // Code to replace #, it is not done by the Uri.parse
     const filename = this.toString().replace("#", "%23");
-    return `${DisassembledFile.DGBFILE_SCHEME}:${filename}`;
+    return `disassembly:${filename}`;
   }
 
   public static isDebugAsmFile(path: string): boolean {
-    return path.endsWith(DisassembledFile.DGBFILE_EXTENSION);
+    return path.endsWith(".dbgasm");
   }
-}
-
-export interface DisassembleAddressArguments
-  extends DebugProtocol.DisassembleArguments {
-  copper: boolean;
-  segmentId?: number;
 }
 
 export interface DisassembledLine {
@@ -264,8 +246,7 @@ export class DisassemblyManager {
     sf.instructionPointerReference = formatHexadecimal(address);
 
     if (lineNumber >= 0 && isCopper) {
-      const url = `${DisassembledFile.DGBFILE_SCHEME}:///${dAsmFile}`;
-      sf.source = new Source(dAsmFile.toString(), url);
+      sf.source = new Source(dAsmFile.toString(), dAsmFile.toURI());
       sf.line = lineNumber;
       sf.column = 1;
     }

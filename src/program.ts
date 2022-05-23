@@ -44,6 +44,13 @@ export interface SourceConstantResolver {
   getSourceConstants(sourceFiles: string[]): Promise<Record<string, number>>;
 }
 
+export interface DisassembleArgumentsExtended
+  extends DebugProtocol.DisassembleArguments {
+  copper?: boolean;
+  segmentId?: number;
+  stackFrameIndex?: number;
+}
+
 class Program {
   private scopes = new Handles<ScopeReference>();
   /** Variables lookup by handle */
@@ -201,16 +208,20 @@ class Program {
 
   /**
    * Disassemble memory to CPU or Copper instructions
+   *
+   * @todo handle segmentId and stackFrameIndex
    */
   public async disassemble(
-    args: DebugProtocol.DisassembleArguments
+    args: DisassembleArgumentsExtended
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
     const address = parseInt(args.memoryReference);
-    const isCopper = this.disassemblyManager.isCopperLine(address);
+    const isCopper =
+      args.copper ?? this.disassemblyManager.isCopperLine(address);
     const segments = this.gdb.getSegments();
 
     let { memoryReference } = args;
 
+    // Apply offest to memoryReference
     let firstAddress = undefined;
     const hasOffset = args.offset || args.instructionOffset;
     if (memoryReference && hasOffset && segments) {

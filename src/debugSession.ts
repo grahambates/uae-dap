@@ -11,6 +11,9 @@ import {
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { basename } from "path";
 import promiseRetry from "promise-retry";
+import * as fs from "fs/promises";
+import { URL } from "url";
+import { mkdir } from "temp";
 
 import { GdbProxy, GdbHaltStatus, GdbThread } from "./gdb";
 import { BreakpointManager } from "./breakpointManager";
@@ -18,6 +21,7 @@ import { base64ToHex, hexToBase64, NumberFormat } from "./utils/strings";
 import { Emulator } from "./emulator";
 import Program, { SourceConstantResolver } from "./program";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
+import { DisassembledFile } from "./disassembly";
 
 export interface LaunchRequestArguments
   extends DebugProtocol.LaunchRequestArguments {
@@ -74,6 +78,9 @@ export class FsUAEDebugSession extends DebugSession {
   protected trace = false;
   /** Track which threads are stopped to avoid invalid events */
   protected stoppedThreads: boolean[] = [false, false];
+
+  protected createDbgasmFiles = true;
+  protected tmpDir?: string;
 
   /**
    * Creates a new debug adapter that is used for one debug session.
@@ -346,11 +353,9 @@ export class FsUAEDebugSession extends DebugSession {
     this.handleAsyncRequest(response, async () => {
       assertIsDefined(this.program);
       const instructions = await this.program.disassemble(args);
-      // Convert source paths:
-      instructions.forEach((i) => {
-        if (i.location?.path)
-          i.location.path = this.convertDebuggerPathToClient(i.location.path);
-      });
+      await Promise.all(
+        instructions.map(({ location }) => this.processSource(location))
+      );
       response.body = { instructions };
     });
   }
@@ -416,6 +421,7 @@ export class FsUAEDebugSession extends DebugSession {
     args: DebugProtocol.StackTraceArguments
   ) {
     this.handleAsyncRequest(response, async () => {
+      assertIsDefined(this.program);
       const thread = await this.getThread(args.threadId);
       const positions = await this.gdb.stack(thread);
 
@@ -428,15 +434,66 @@ export class FsUAEDebugSession extends DebugSession {
         }
       }
 
-      assertIsDefined(this.program);
       const stackFrames = await this.program.getStackTrace(thread, positions);
+      await Promise.all(
+        stackFrames.map(({ source }) => this.processSource(source))
+      );
+
       response.body = { stackFrames, totalFrames: positions.length };
-      // Convert source paths:
-      response.body.stackFrames.forEach((f) => {
-        if (f.source?.path)
-          f.source.path = this.convertDebuggerPathToClient(f.source.path);
-      });
     });
+  }
+
+  protected async processSource(source?: DebugProtocol.Source) {
+    if (source?.path) {
+      if (this.createDbgasmFiles && source.path.endsWith(".dbgasm")) {
+        if (!this.tmpDir) {
+          this.tmpDir = await mkdir({ prefix: "uae-dap" });
+        }
+        try {
+          source.path = this.tmpDir + "/" + source.name;
+          const content = await this.getDbgasmContent(source.path);
+          await fs.writeFile(source.path, content);
+        } catch (_) {
+          //
+        }
+      }
+      source.path = this.convertDebuggerPathToClient(source.path);
+    }
+  }
+
+  protected async getDbgasmContent(path: string): Promise<string> {
+    assertIsDefined(this.program);
+    const dAsmFile = DisassembledFile.fromPath(path);
+    const defaultCount = 100;
+
+    if (dAsmFile.isSegment()) {
+      const instructions = await this.program.disassemble({
+        memoryReference: dAsmFile.getAddressExpression() ?? "",
+        segmentId: dAsmFile.getSegmentId() ?? 0,
+        instructionCount: defaultCount,
+        copper: false,
+      });
+      return instructions.join("\n");
+    }
+
+    if (dAsmFile.isCopper()) {
+      const instructions = await this.program.disassemble({
+        memoryReference: dAsmFile.getAddressExpression() ?? "",
+        instructionCount: dAsmFile.getLength() ?? defaultCount,
+        copper: true,
+      });
+      return instructions
+        .map((v) => `${v.address}: ${v.instruction}`)
+        .join("\n");
+    }
+
+    const instructions = await this.program.disassemble({
+      memoryReference: dAsmFile.getAddressExpression() ?? "",
+      instructionCount: dAsmFile.getLength() ?? defaultCount,
+      stackFrameIndex: dAsmFile.getStackFrameIndex() ?? -1,
+      copper: false,
+    });
+    return instructions.join("\n");
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
