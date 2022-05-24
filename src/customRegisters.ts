@@ -1,5 +1,9 @@
+/** Custom register base address */
 export const CUSTOM_BASE = 0xdff000;
 
+/**
+ * Custom register names mapped to addresses
+ */
 export const customRegisterAddresses: Record<string, number> = {
   ADKCON: 0xdff09e,
   ADKCONR: 0xdff010,
@@ -239,6 +243,9 @@ export const customRegisterAddresses: Record<string, number> = {
   VTOTAL: 0xdff1c8,
 };
 
+/**
+ * Custom register addresses mapped to names
+ */
 export const customRegisterNames: Record<number, string> = {
   [0xdff000]: "BLTDDAT",
   [0xdff002]: "DMACONR",

@@ -42,6 +42,9 @@ export class FileInfo {
     return new FileInfo(hunks, pathReplacements, sourcesRootPaths);
   }
 
+  /**
+   * Find source file / line for segment ID and offset
+   */
   public async findLineAtLocation(
     segId: number,
     offset: number
@@ -64,6 +67,9 @@ export class FileInfo {
     return null;
   }
 
+  /**
+   * Get segment ID and offset for source line
+   */
   public async findLocationForLine(
     filename: string,
     lineNumber: number
@@ -103,10 +109,11 @@ export class FileInfo {
     }
     return Array.from(sourceFiles);
   }
-  private findLineAtOffset(
-    lines: Array<SourceLine>,
-    offset: number
-  ): number | null {
+
+  /**
+   * Scan array of lines to find one containing offset
+   */
+  private findLineAtOffset(lines: SourceLine[], offset: number): number | null {
     let lineNumber = 0;
     let wasOver = false;
 
@@ -123,10 +130,15 @@ export class FileInfo {
     return wasOver ? lineNumber : null;
   }
 
+  /**
+   * Get source text for line in file
+   */
   private async getSourceLineText(
     resolvedFileName: string,
     line: number
   ): Promise<string | null> {
+    // Get all lines of source file:
+    // Try cache
     let contents = this.sourceFilesCacheMap.get(resolvedFileName);
     if (!contents) {
       // Load source file
@@ -134,13 +146,22 @@ export class FileInfo {
       contents = splitLines(fileContentsString);
       this.sourceFilesCacheMap.set(resolvedFileName, contents);
     }
+    // Select line index from source
     return contents[line] ?? null;
   }
 
+  /**
+   * Resolve filename
+   *
+   * Applies path replacements and searches all source directories
+   */
   private async resolveFileName(filename: string): Promise<string> {
+    // Try cache
     let resolvedFileName = this.resolvedSourceFilesNames.get(filename);
     if (!resolvedFileName) {
       resolvedFileName = filename;
+
+      // Apply path replacements - used for tests
       if (this.pathReplacements) {
         const normalizedFilename = normalize(resolvedFileName);
         for (const key in this.pathReplacements) {
@@ -158,7 +179,7 @@ export class FileInfo {
         }
       }
 
-      // search the file in the workspace
+      // search for the file in roots paths if not found
       if (this.sourcesRootPaths && !(await exists(resolvedFileName))) {
         for (const rootPath of this.sourcesRootPaths) {
           const checkedPath = path.join(rootPath, resolvedFileName);

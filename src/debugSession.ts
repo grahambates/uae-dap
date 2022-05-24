@@ -7,12 +7,12 @@ import {
   OutputEvent,
   ContinuedEvent,
   InvalidatedEvent,
+  logger,
 } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { basename } from "path";
 import promiseRetry from "promise-retry";
 import * as fs from "fs/promises";
-import { URL } from "url";
 import { mkdir } from "temp";
 
 import { GdbProxy, GdbHaltStatus, GdbThread } from "./gdb";
@@ -21,7 +21,8 @@ import { base64ToHex, hexToBase64, NumberFormat } from "./utils/strings";
 import { Emulator } from "./emulator";
 import Program, { SourceConstantResolver } from "./program";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
-import { DisassembledFile } from "./disassembly";
+import { LogLevel } from "@vscode/debugadapter/lib/logger";
+import { FileInfo } from "./fileInfo";
 
 export interface LaunchRequestArguments
   extends DebugProtocol.LaunchRequestArguments {
@@ -32,17 +33,17 @@ export interface LaunchRequestArguments
   /** enable logging the Debug Adapter Protocol */
   trace?: boolean;
   /** Host name of the server */
-  serverName: string;
+  serverName?: string;
   /** Port of the server */
-  serverPort: number;
+  serverPort?: number;
   /** Start emulator */
-  startEmulator: boolean;
+  startEmulator?: boolean;
   /** emulator program */
   emulator?: string;
   /** emulator working directory */
   emulatorWorkingDir?: string;
   /** Emulator options */
-  emulatorOptions: string[];
+  emulatorOptions?: string[];
   /** path replacements for source files */
   sourceFileMap?: Record<string, string>;
   /** root paths for sources */
@@ -238,36 +239,60 @@ export class FsUAEDebugSession extends DebugSession {
     response: DebugProtocol.LaunchResponse,
     args: LaunchRequestArguments
   ) {
+    const {
+      program,
+      sourceFileMap,
+      rootSourceFileMap,
+      exceptionMask,
+      serverName = "localhost",
+      serverPort = 6860,
+      startEmulator = true,
+      stopOnEntry = false,
+      emulator,
+      emulatorOptions = [],
+      emulatorWorkingDir,
+      trace = false,
+    } = args;
+
     try {
-      if (!args.program) {
+      if (!program) {
         throw new Error("Missing program argument in launch request");
       }
 
-      this.program = await Program.create(
-        args.program,
+      const fileInfo = await FileInfo.create(
+        program,
+        sourceFileMap,
+        rootSourceFileMap
+      );
+
+      this.program = new Program(
         this.gdb,
-        args.sourceFileMap,
-        args.rootSourceFileMap,
+        fileInfo,
         this.getSourceConstantResolver(args)
       );
 
       this.breakpoints.setProgram(this.program);
-      this.breakpoints.checkPendingBreakpointsAddresses();
-      if (args.exceptionMask) {
-        this.breakpoints.setExceptionMask(args.exceptionMask);
+      this.breakpoints.addLocationToPending();
+      if (exceptionMask) {
+        this.breakpoints.setExceptionMask(exceptionMask);
       }
 
-      this.trace = args.trace ?? false;
+      this.trace = trace;
+      logger.init((e) => this.sendEvent(e));
+      logger.setup(trace ? LogLevel.Verbose : LogLevel.Error);
 
       if (!this.testMode) {
         this.sendHelpText();
       }
 
-      if (args.startEmulator) {
+      if (startEmulator) {
+        if (!emulator) {
+          throw new Error("Missing emulator argument in launch request");
+        }
         await this.emulator.run({
-          executable: args.emulator,
-          args: args.emulatorOptions,
-          cwd: args.emulatorWorkingDir,
+          executable: emulator,
+          args: emulatorOptions,
+          cwd: emulatorWorkingDir,
           onExit: () => this.sendEvent(new TerminatedEvent()),
         });
       }
@@ -281,21 +306,24 @@ export class FsUAEDebugSession extends DebugSession {
       }
 
       // Connect to the emulator
-      const { serverName = "localhost", serverPort = 6860 } = args;
       await promiseRetry(
         (retry) => this.gdb.connect(serverName, serverPort).catch(retry),
         { minTimeout: 500, retries, factor: 1.1 }
       );
 
       // Load the program
-      this.sendEvent(new OutputEvent(`Starting program: ${args.program}`));
-      await this.gdb.load(args.program, args.stopOnEntry);
+      this.output(`Starting program: ${program}`);
+      this.startProgram(program, stopOnEntry);
 
       this.sendResponse(response);
     } catch (err) {
       this.sendEvent(new TerminatedEvent());
       this.sendStringErrorResponse(response, (err as Error).message);
     }
+  }
+
+  protected async startProgram(program: string, stopOnEntry: boolean) {
+    await this.gdb.load(program, stopOnEntry);
   }
 
   protected getSourceConstantResolver(
@@ -322,7 +350,7 @@ export class FsUAEDebugSession extends DebugSession {
     \${symbol} gives the address of symbol
     #{symbol} gives the pointed value from the symbols
 `;
-    this.sendEvent(new OutputEvent(text));
+    this.output(text);
   }
 
   protected async customRequest(
@@ -370,15 +398,11 @@ export class FsUAEDebugSession extends DebugSession {
       // set and verify breakpoint locations
       if (args.breakpoints) {
         for (const reqBp of args.breakpoints) {
-          const debugBp = this.breakpoints.createInstructionBreakpoint(
+          const bp = this.breakpoints.createInstructionBreakpoint(
             parseInt(reqBp.instructionReference)
           );
-          try {
-            const modifiedBp = await this.breakpoints.setBreakpoint(debugBp);
-            breakpoints.push(modifiedBp);
-          } catch (err) {
-            breakpoints.push(debugBp);
-          }
+          await this.breakpoints.setBreakpoint(bp);
+          breakpoints.push(bp);
         }
       }
       response.body = { breakpoints };
@@ -398,7 +422,8 @@ export class FsUAEDebugSession extends DebugSession {
         ? await Promise.all(
             args.breakpoints.map(async ({ line }) => {
               const bp = this.breakpoints.createBreakpoint(args.source, line);
-              return this.breakpoints.setBreakpoint(bp).catch(() => bp);
+              await this.breakpoints.setBreakpoint(bp);
+              return bp;
             })
           )
         : [];
@@ -445,55 +470,24 @@ export class FsUAEDebugSession extends DebugSession {
 
   protected async processSource(source?: DebugProtocol.Source) {
     if (source?.path) {
-      if (this.createDbgasmFiles && source.path.endsWith(".dbgasm")) {
+      if (
+        source.path.endsWith(".dbgasm") &&
+        this.createDbgasmFiles &&
+        !this.testMode
+      ) {
         if (!this.tmpDir) {
           this.tmpDir = await mkdir({ prefix: "uae-dap" });
         }
-        try {
-          source.path = this.tmpDir + "/" + source.name;
-          const content = await this.getDbgasmContent(source.path);
-          await fs.writeFile(source.path, content);
-        } catch (_) {
-          //
-        }
+        source.path = this.tmpDir + "/" + source.name;
+
+        assertIsDefined(this.program);
+        const content = await this.program.getDisassebledFileContents(
+          source.path
+        );
+        await fs.writeFile(source.path, content);
       }
       source.path = this.convertDebuggerPathToClient(source.path);
     }
-  }
-
-  protected async getDbgasmContent(path: string): Promise<string> {
-    assertIsDefined(this.program);
-    const dAsmFile = DisassembledFile.fromPath(path);
-    const defaultCount = 100;
-
-    if (dAsmFile.isSegment()) {
-      const instructions = await this.program.disassemble({
-        memoryReference: dAsmFile.getAddressExpression() ?? "",
-        segmentId: dAsmFile.getSegmentId() ?? 0,
-        instructionCount: defaultCount,
-        copper: false,
-      });
-      return instructions.join("\n");
-    }
-
-    if (dAsmFile.isCopper()) {
-      const instructions = await this.program.disassemble({
-        memoryReference: dAsmFile.getAddressExpression() ?? "",
-        instructionCount: dAsmFile.getLength() ?? defaultCount,
-        copper: true,
-      });
-      return instructions
-        .map((v) => `${v.address}: ${v.instruction}`)
-        .join("\n");
-    }
-
-    const instructions = await this.program.disassemble({
-      memoryReference: dAsmFile.getAddressExpression() ?? "",
-      instructionCount: dAsmFile.getLength() ?? defaultCount,
-      stackFrameIndex: dAsmFile.getStackFrameIndex() ?? -1,
-      copper: false,
-    });
-    return instructions.join("\n");
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -751,7 +745,13 @@ export class FsUAEDebugSession extends DebugSession {
       await cb();
       this.sendResponse(response);
     } catch (err) {
-      this.sendStringErrorResponse(response, (err as Error).message);
+      let message = "Unknown error";
+      if (err instanceof Error) {
+        const showStack = this.trace || this.testMode;
+        // Display stack trace in trace mode
+        message = showStack ? err.stack ?? err.message : err.message;
+      }
+      this.sendStringErrorResponse(response, message);
     }
   }
 
@@ -779,6 +779,12 @@ export class FsUAEDebugSession extends DebugSession {
     response.success = false;
     response.message = message;
     this.sendResponse(response);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  protected output(output: string, category = "console", data?: any) {
+    const e = new OutputEvent(output, category, data);
+    this.sendEvent(e);
   }
 }
 

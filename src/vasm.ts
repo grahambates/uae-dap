@@ -3,6 +3,7 @@ import * as path from "path";
 import { basename } from "path";
 import { openSync } from "temp";
 import * as fs from "fs/promises";
+import { SourceConstantResolver } from "./program";
 
 export interface VasmOptions {
   /** Enable extracting constants from source files using vasm */
@@ -18,9 +19,18 @@ const wasmPath =
     ? path.join(__dirname, "..", "wasm", "vasmm68k_mot")
     : path.join(__dirname, "..", "..", "wasm", "vasmm68k_mot");
 
+/**
+ * Wrapper for vasm assembler
+ */
 export default class Vasm {
   constructor(private binPath?: string) {}
 
+  /**
+   * RUn assembler
+   *
+   * @param args CLI arguments to pass to process
+   * @param cwd Current directory to execute process in
+   */
   public run(args: string[], cwd?: string): Promise<string> {
     const options: cp.SpawnOptionsWithoutStdio = {
       cwd,
@@ -43,9 +53,15 @@ export default class Vasm {
   }
 }
 
-export class VasmSourceConstantResolver {
+/**
+ * Uses vasm to assemble the process in 'test' mode to list definitions
+ */
+export class VasmSourceConstantResolver implements SourceConstantResolver {
   constructor(private vasmOptions: VasmOptions = {}) {}
 
+  /**
+   * @inheritdoc
+   */
   public async getSourceConstants(
     sourceFiles: string[]
   ): Promise<Record<string, number>> {

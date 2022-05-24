@@ -13,6 +13,7 @@ import { customRegisterAddresses } from "./customRegisters";
 import {
   disassemble,
   disassembleCopper,
+  disassembledFileFromPath,
   DisassemblyManager,
 } from "./disassembly";
 import { GdbProxy, GdbSegment, GdbStackPosition, GdbThread } from "./gdb";
@@ -40,17 +41,35 @@ export interface ScopeReference {
   frameId: number;
 }
 
+/**
+ * Provider to get constants for program sources
+ */
 export interface SourceConstantResolver {
+  /**
+   * Get constants defined in the sources
+   *
+   * @param sourceFiles Array of file paths for source files
+   * @returns object containing key/value pairs for
+   */
   getSourceConstants(sourceFiles: string[]): Promise<Record<string, number>>;
 }
 
+/**
+ * Adds additional options to standard DisassembleArguments
+ */
 export interface DisassembleArgumentsExtended
   extends DebugProtocol.DisassembleArguments {
+  /** Should be disassembled as copper instructions? */
   copper?: boolean;
+  /** Segment ID */
   segmentId?: number;
+  /** Stack frame index */
   stackFrameIndex?: number;
 }
 
+/**
+ * Wrapper to interact with running Program
+ */
 class Program {
   private scopes = new Handles<ScopeReference>();
   /** Variables lookup by handle */
@@ -64,7 +83,7 @@ class Program {
   /** Store format options for specific variables */
   private variableFormatterMap = new Map<string, NumberFormat>();
 
-  private constructor(
+  constructor(
     private gdb: GdbProxy,
     private fileInfo: FileInfo,
     private constantResolver?: SourceConstantResolver
@@ -72,23 +91,10 @@ class Program {
     this.disassemblyManager = new DisassemblyManager(gdb, this);
   }
 
-  public static async create(
-    filename: string,
-    gdb: GdbProxy,
-    pathReplacements?: Record<string, string>,
-    sourcesRootPaths?: Array<string>,
-    constantResolver?: SourceConstantResolver
-  ) {
-    const fileParser = await FileInfo.create(
-      filename,
-      pathReplacements,
-      sourcesRootPaths
-    );
-    return new Program(gdb, fileParser, constantResolver);
-  }
-
   /**
-   * Updates the segments addresses of the hunks
+   * Updates the segment addresses of the hunks
+   *
+   * Called when segments change in GdbProxy
    *
    * @param segments The list of returned segments from the debugger
    */
@@ -126,10 +132,12 @@ class Program {
 
   /**
    * Read memory from address
+   *
+   * @param length Length of data to read in bytes
    */
-  public async getMemory(address: number, size = 4): Promise<number> {
+  public async getMemory(address: number, length = 4): Promise<number> {
     await this.gdb.waitConnected();
-    const mem = await this.gdb.getMemory(address, size);
+    const mem = await this.gdb.getMemory(address, length);
     return parseInt(mem, 16);
   }
 
@@ -174,6 +182,7 @@ class Program {
     thread: GdbThread,
     stackPositions: GdbStackPosition[]
   ): Promise<StackFrame[]> {
+    await this.gdb.waitConnected();
     const stackFrames = [];
 
     for (const p of stackPositions) {
@@ -214,21 +223,18 @@ class Program {
   public async disassemble(
     args: DisassembleArgumentsExtended
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    const address = parseInt(args.memoryReference);
-    const isCopper =
-      args.copper ?? this.disassemblyManager.isCopperLine(address);
     const segments = this.gdb.getSegments();
 
     let { memoryReference } = args;
-
-    // Apply offest to memoryReference
-    let firstAddress = undefined;
+    let firstAddress: number | undefined;
     const hasOffset = args.offset || args.instructionOffset;
     if (memoryReference && hasOffset && segments) {
+      // Apply offset to address
       firstAddress = parseInt(args.memoryReference);
       if (args.offset) {
         firstAddress -= args.offset;
       }
+      // Set memoryReference to segment address if found
       const segment = this.findSegmentContainingAddress(firstAddress, segments);
       if (segment) {
         memoryReference = segment.address.toString();
@@ -238,85 +244,130 @@ class Program {
     if (!memoryReference || !args.instructionCount) {
       throw new Error(`Unable to disassemble; invalid parameters ${args}`);
     }
-    let instructions = await this.disassemblyManager.disassembleAddress(
-      memoryReference,
-      args.instructionCount * 4,
-      args.offset ?? 0,
-      isCopper
-    );
 
-    if (firstAddress) {
-      let iIndex = undefined;
-      let index = 0;
-      const firstInstructionAddress = parseInt(instructions[0].address);
-      for (const instruction of instructions) {
-        if (parseInt(instruction.address) === firstAddress) {
-          iIndex = index;
-          break;
-        }
-        index++;
-      }
-      if (iIndex !== undefined && args.instructionOffset) {
-        const start = iIndex + args.instructionOffset;
-        if (start < 0) {
-          const emptyArray = new Array<DebugProtocol.DisassembledInstruction>(
-            -start
-          );
-          let currentAddress = firstInstructionAddress - 4;
-          for (let i = emptyArray.length - 1; i >= 0; i--) {
-            emptyArray[i] = {
-              address: formatHexadecimal(currentAddress),
-              instruction: "-------",
-            };
-            currentAddress -= 4;
-            if (currentAddress < 0) {
-              currentAddress = 0;
-            }
-          }
-          instructions = emptyArray.concat(instructions);
-        } else if (start > 0 && start < instructions.length) {
-          instructions = instructions.splice(0, start);
-        }
-        if (instructions.length < args.instructionCount) {
-          const emptyArray = new Array<DebugProtocol.DisassembledInstruction>(
-            args.instructionCount - instructions.length
-          );
-          const instr = instructions[instructions.length - 1];
-          let lastAddress = parseInt(instr.address);
-          if (instr.instructionBytes) {
-            lastAddress += instr.instructionBytes.split(" ").length;
-          }
-          for (let i = 0; i < emptyArray.length; i++) {
-            emptyArray[i] = {
-              address: formatHexadecimal(lastAddress + i * 4),
-              instruction: "-------",
-            };
-          }
-          instructions = instructions.concat(emptyArray);
-        } else if (instructions.length > args.instructionCount) {
-          instructions = instructions.splice(0, args.instructionCount);
-        }
-      }
-    }
+    // Check whether memoryReference points to previously disassembled copper lines if not specified.
+    const isCopper =
+      args.copper ??
+      this.disassemblyManager.isCopperLine(parseInt(args.memoryReference));
 
-    // Add source lines to instructions
+    let instructions =
+      await this.disassemblyManager.disassembleAddressExpression(
+        memoryReference,
+        args.instructionCount * 4,
+        args.offset ?? 0,
+        isCopper
+      );
+
+    // Add source line data to instructions
     if (segments) {
       for (const instruction of instructions) {
-        const foundLine = await this.findSourceLine(
+        const line = await this.findSourceLine(
           parseInt(instruction.address),
           segments
         );
-        if (foundLine) {
-          instruction.location = new Source(
-            basename(foundLine.filename),
-            foundLine.filename
-          );
-          instruction.line = foundLine.lineNumber;
+        if (line) {
+          const filename = line.filename;
+          instruction.location = new Source(basename(filename), filename);
+          instruction.line = line.lineNumber;
         }
       }
     }
 
+    // Nothing left to do?
+    if (!firstAddress || !args.instructionOffset) {
+      return instructions;
+    }
+
+    // Find index of instruction matching first address
+    const instructionIndex = instructions.findIndex(
+      ({ address }) => parseInt(address) === firstAddress
+    );
+    if (instructionIndex === -1) {
+      // Not found
+      return instructions;
+    }
+
+    // Apply instruction offset
+    const offsetIndex = instructionIndex + args.instructionOffset;
+
+    // Negative offset:
+    if (offsetIndex < 0) {
+      // Pad instructions array with dummy entries
+      const emptyArray = new Array<DebugProtocol.DisassembledInstruction>(
+        -offsetIndex
+      );
+      const firstInstructionAddress = parseInt(instructions[0].address);
+      let currentAddress = firstInstructionAddress - 4;
+      for (let i = emptyArray.length - 1; i >= 0; i--) {
+        emptyArray[i] = {
+          address: formatHexadecimal(currentAddress),
+          instruction: "-------",
+        };
+        currentAddress -= 4;
+        if (currentAddress < 0) {
+          currentAddress = 0;
+        }
+      }
+      instructions = emptyArray.concat(instructions);
+    }
+    // Positive offset within range:
+    if (offsetIndex > 0 && offsetIndex < instructions.length) {
+      // Splice up to start??
+      // TODO: check this
+      instructions = instructions.splice(0, offsetIndex);
+    }
+
+    // Ensure instructions length matches requested count:
+    if (instructions.length < args.instructionCount) {
+      // Too few instructions:
+
+      // Get address of last instruction
+      const lastInstruction = instructions[instructions.length - 1];
+      let lastAddress = parseInt(lastInstruction.address);
+      if (lastInstruction.instructionBytes) {
+        lastAddress += lastInstruction.instructionBytes.split(" ").length;
+      }
+
+      // Pad instructions array with dummy instructions at correct addresses
+      const padLength = args.instructionCount - instructions.length;
+      for (let i = 0; i < padLength; i++) {
+        instructions.push({
+          address: formatHexadecimal(lastAddress + i * 4),
+          instruction: "-------",
+        });
+      }
+    } else if (instructions.length > args.instructionCount) {
+      // Too many instructions - truncate
+      instructions = instructions.splice(0, args.instructionCount);
+    }
+
     return instructions;
+  }
+
+  /**
+   * Get disassembled content for a .dgasm file path
+   *
+   * The filename contains tokens for the disassemble options
+   */
+  public async getDisassebledFileContents(path: string): Promise<string> {
+    const dAsmFile = disassembledFileFromPath(path);
+    const { address, segmentId, stackFrameIndex, length, copper } = dAsmFile;
+    const memoryReference = address?.toString() ?? "";
+    const instructionCount = length ?? 100;
+
+    const instructions = await this.disassemble({
+      memoryReference,
+      instructionCount,
+      segmentId,
+      stackFrameIndex,
+      copper,
+    });
+    if (copper) {
+      return instructions
+        .map((v) => `${v.address}: ${v.instruction}`)
+        .join("\n");
+    }
+    return instructions.join("\n");
   }
 
   // Variables:
@@ -497,6 +548,11 @@ class Program {
 
   // Expressions:
 
+  /**
+   * Evaluate an expression or custom command
+   *
+   * @returns Single value or array
+   */
   public async evaluateExpression({
     expression,
     frameId,
@@ -572,6 +628,9 @@ class Program {
     throw new Error("No result");
   }
 
+  /**
+   * Evaluate simple expression to numeric value
+   */
   public async evaluate(
     expression: string,
     frameIndex?: number
@@ -644,7 +703,7 @@ class Program {
     // Evaluate match groups:
     // All of these parameters can contain expressions
     const address = await this.evaluate(groups.address, frameId);
-    const length = groups.wordLength
+    const length = groups.length
       ? await this.evaluate(groups.length, frameId)
       : 16;
     const wordLength = groups.wordLength
@@ -728,7 +787,7 @@ class Program {
     return variables;
   }
 
-  public async disassembleAsVariables(
+  private async disassembleAsVariables(
     address: number,
     length: number
   ): Promise<DebugProtocol.Variable[]> {
@@ -742,7 +801,7 @@ class Program {
     }));
   }
 
-  public async disassembleCopperAsVariables(
+  private async disassembleCopperAsVariables(
     address: number,
     length: number
   ): Promise<DebugProtocol.Variable[]> {
@@ -780,6 +839,9 @@ class Program {
     );
   }
 
+  /**
+   * Get numeric memory address for a given source line
+   */
   public getAddressForFileEditorLine(
     filePath: string,
     lineNumber: number
@@ -790,6 +852,9 @@ class Program {
     );
   }
 
+  /**
+   * Get segment ID and offset in exe for a given  source line
+   */
   public findLocationForLine(
     filename: string,
     lineNumber: number

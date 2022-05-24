@@ -6,127 +6,11 @@ import { GdbProxy, GdbStackPosition, GdbThread } from "../gdb";
 import { disassembleCopper } from "./copperDisassembler";
 import { formatAddress, formatHexadecimal, splitLines } from "../utils/strings";
 import Program from "../program";
-
-export class DisassembledFile {
-  private segmentId: number | undefined;
-  private stackFrameIndex: number | undefined;
-  private addressExpression: string | undefined;
-  private length: number | undefined;
-  private copper = false;
-  private path = "";
-
-  public setPath(path: string): DisassembledFile {
-    this.path = path;
-    return this;
-  }
-
-  public setSegmentId(segmentId: number): DisassembledFile {
-    this.segmentId = segmentId;
-    return this;
-  }
-
-  public getSegmentId(): number | undefined {
-    return this.segmentId;
-  }
-
-  public setStackFrameIndex(stackFrameIndex: number): DisassembledFile {
-    this.stackFrameIndex = stackFrameIndex;
-    return this;
-  }
-
-  public getStackFrameIndex(): number | undefined {
-    return this.stackFrameIndex;
-  }
-
-  public setAddressExpression(addressExpression: string): DisassembledFile {
-    this.addressExpression = addressExpression;
-    return this;
-  }
-
-  public getAddressExpression(): string | undefined {
-    return this.addressExpression;
-  }
-
-  public setLength(length: number): DisassembledFile {
-    this.length = length;
-    return this;
-  }
-
-  public getLength(): number | undefined {
-    return this.length;
-  }
-
-  public isSegment(): boolean {
-    return this.segmentId !== undefined;
-  }
-
-  public setCopper(isCopper: boolean): DisassembledFile {
-    this.copper = isCopper;
-    return this;
-  }
-
-  public isCopper(): boolean {
-    return this.copper;
-  }
-
-  public toString(): string {
-    if (this.isSegment()) {
-      return `${this.path}seg_${this.segmentId}.dbgasm`;
-    } else if (this.isCopper()) {
-      return `${this.path}copper_${this.addressExpression}__${this.length}.dbgasm`;
-    } else {
-      return `${this.path}${this.stackFrameIndex}__${this.addressExpression}__${this.length}.dbgasm`;
-    }
-  }
-
-  public static fromPath(path: string): DisassembledFile {
-    const segMatch = path.match(
-      /^(?<path>.+\/)?seg_(?<segmentId>[^_]+).dbgasm$/
-    );
-    if (segMatch?.groups) {
-      const { path = "", segmentId } = segMatch.groups;
-      return new DisassembledFile()
-        .setPath(path)
-        .setSegmentId(parseInt(segmentId));
-    }
-
-    const copperMatch = path.match(
-      /^(?<path>.+\/)?copper_(?<address>[^_]+)__(?<length>[^_]+).dbgasm$/
-    );
-    if (copperMatch?.groups) {
-      const { path = "", address, length } = copperMatch.groups;
-      return new DisassembledFile()
-        .setPath(path)
-        .setAddressExpression(address)
-        .setLength(parseInt(length))
-        .setCopper(true);
-    }
-
-    const addressMatch = path.match(
-      /^(?<path>.+\/)?(?<frame>[^_]+)__(?<address>[^_]+)__(?<length>[^_]+).dbgasm$/
-    );
-    if (addressMatch?.groups) {
-      const { path = "", frame, address, length } = addressMatch.groups;
-      return new DisassembledFile()
-        .setPath(path)
-        .setStackFrameIndex(parseInt(frame))
-        .setAddressExpression(address)
-        .setLength(parseInt(length));
-    }
-
-    throw new Error("Unrecognised filename format " + path);
-  }
-
-  public toURI(): string {
-    // Code to replace #, it is not done by the Uri.parse
-    const filename = this.toString().replace("#", "%23");
-    return `disassembly:${filename}`;
-  }
-
-  public static isDebugAsmFile(path: string): boolean {
-    return path.endsWith(".dbgasm");
-  }
-}
+import {
+  DisassembledFile,
+  disassembledFileToPath,
+  disassembledFileFromPath,
+} from "./disassembledFile";
 
 export interface DisassembledLine {
   text: string;
@@ -190,18 +74,18 @@ export class DisassemblyManager {
       thread
     );
 
-    const dAsmFile = new DisassembledFile();
-    dAsmFile
-      .setCopper(isCopper)
-      .setStackFrameIndex(stackFrameIndex)
-      .setLength(500);
+    const dAsmFile: DisassembledFile = {
+      copper: isCopper,
+      stackFrameIndex,
+      length: 500,
+    };
 
     let lineNumber = 1;
     // is the pc on a opened segment ?
     const [segmentId, offset] = this.gdb.toRelativeOffset(address);
     if (segmentId >= 0 && !isCopper) {
       // We have a segment
-      dAsmFile.setSegmentId(segmentId);
+      dAsmFile.segmentId = segmentId;
       let returnedLineNumber;
       try {
         returnedLineNumber = await this.getLineNumberInDisassembledSegment(
@@ -239,14 +123,16 @@ export class DisassemblyManager {
           lineNumber = lineInCop2;
         }
       }
-      dAsmFile.setAddressExpression(`$${newAddress.toString(16)}`);
+      dAsmFile.address = newAddress;
     }
 
     const sf = new StackFrame(stackFrameIndex, stackFrameLabel);
     sf.instructionPointerReference = formatHexadecimal(address);
 
     if (lineNumber >= 0 && isCopper) {
-      sf.source = new Source(dAsmFile.toString(), dAsmFile.toURI());
+      const filename = disassembledFileToPath(dAsmFile);
+      const uri = `disassembly:${filename.replace("#", "%23")}`;
+      sf.source = new Source(filename, uri);
       sf.line = lineNumber;
       sf.column = 1;
     }
@@ -265,7 +151,7 @@ export class DisassemblyManager {
     return instructions;
   }
 
-  public async disassembleAddress(
+  public async disassembleAddressExpression(
     addressExpression: string,
     length: number,
     offset: number | undefined,
@@ -286,7 +172,29 @@ export class DisassemblyManager {
     if (offset) {
       searchedAddress += offset;
     }
-    return this.disassembleNumericalAddress(searchedAddress, length, isCopper);
+    return this.disassembleAddress(searchedAddress, length, isCopper);
+  }
+
+  public async disassembleAddress(
+    address: number,
+    length: number,
+    isCopper: boolean
+  ): Promise<DebugProtocol.DisassembledInstruction[]> {
+    if (!this.gdb.isConnected()) {
+      throw new Error("Debugger not started");
+    }
+    const memory = await this.gdb.getMemory(address, length);
+    if (isCopper) {
+      return disassembleCopper(memory).map((inst, i) => ({
+        instructionBytes: inst.getInstructionBytes(),
+        address: formatHexadecimal(address + i * 4),
+        instruction: inst.toString(),
+      }));
+    } else {
+      // disassemble the code
+      const { instructions } = await disassemble(memory, address);
+      return instructions;
+    }
   }
 
   public async getAddressForFileEditorLine(
@@ -295,24 +203,16 @@ export class DisassemblyManager {
   ): Promise<number> {
     let instructions: void | DebugProtocol.DisassembledInstruction[];
     if (lineNumber > 0) {
-      const dAsmFile = DisassembledFile.fromPath(filePath);
-      if (dAsmFile.isSegment()) {
-        const segmentId = dAsmFile.getSegmentId();
-        if (segmentId !== undefined) {
-          instructions = await this.disassembleSegment(segmentId);
-        } else {
-          throw new Error(`SegmentId undefined in path ${filePath}`);
-        }
+      const dAsmFile = disassembledFileFromPath(filePath);
+      if (dAsmFile.segmentId !== undefined) {
+        instructions = await this.disassembleSegment(dAsmFile.segmentId);
       } else {
         // Path from outside segments
-        const address = dAsmFile.getAddressExpression();
-        const length = dAsmFile.getLength();
-        if (address !== undefined && length !== undefined) {
+        if (dAsmFile.address && dAsmFile.length) {
           instructions = await this.disassembleAddress(
-            address,
-            length,
-            0,
-            dAsmFile.isCopper()
+            dAsmFile.address,
+            dAsmFile.length,
+            dAsmFile.copper ?? false
           );
         }
       }
@@ -354,28 +254,5 @@ export class DisassemblyManager {
     const copperHigh = copperIndex === 1 ? 0xdff080 : 0xdff084;
     const memory = await this.gdb.getMemory(copperHigh, 4);
     return parseInt(memory, 16);
-  }
-
-  private async disassembleNumericalAddress(
-    searchedAddress: number,
-    length: number,
-    isCopper: boolean
-  ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    const address = searchedAddress;
-    if (!this.gdb.isConnected()) {
-      throw new Error("Debugger not started");
-    }
-    const memory = await this.gdb.getMemory(address, length);
-    if (isCopper) {
-      return disassembleCopper(memory).map((inst, i) => ({
-        instructionBytes: inst.getInstructionBytes(),
-        address: formatHexadecimal(address + i * 4),
-        instruction: inst.toString(),
-      }));
-    } else {
-      // disassemble the code
-      const { instructions } = await disassemble(memory, address);
-      return instructions;
-    }
   }
 }

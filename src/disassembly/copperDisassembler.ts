@@ -7,6 +7,9 @@ export enum CopperInstructionType {
   SKIP,
 }
 
+/**
+ * Disassemble memory into copper instructions
+ */
 export function disassembleCopper(memory: string): CopperInstruction[] {
   if (memory.length < 8) {
     throw new Error("Memory block too short to parse (8 characters minimum)");

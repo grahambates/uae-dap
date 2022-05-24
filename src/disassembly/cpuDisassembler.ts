@@ -9,8 +9,7 @@ const wasmPath =
     : path.join(__dirname, "..", "..", "..", "wasm", "cstool");
 
 /**
- * Disassemble a buffer
- * @param buffer Buffer to disassemble
+ * Disassemble a buffer into CPU instructions
  */
 export async function disassemble(
   buffer: string,

@@ -70,15 +70,14 @@ describe("Breakpoint Manager", () => {
         describe("has debug info", () => {
           it("should add a breakpoint", async () => {
             when(mockedGdbProxy.setBreakpoint(anything())).thenResolve();
-            const rBp = await bpManager.setBreakpoint(bp);
-            expect(rBp.id).toBe(bp.id);
-            expect(rBp.segmentId).toBe(segmentId);
-            expect(rBp.offset).toBe(offset);
+            await bpManager.setBreakpoint(bp);
+            expect(bp.segmentId).toBe(segmentId);
+            expect(bp.offset).toBe(offset);
           });
 
           it("should react on proxy error", async () => {
             when(mockedGdbProxy.setBreakpoint(anything())).thenReject(err);
-            await expect(bpManager.setBreakpoint(bp)).rejects.toThrowError(err);
+            await expect(bpManager.setBreakpoint(bp)).resolves.toBe(false);
             verify(
               spiedBpManager.addPendingBreakpoint(anything(), anything())
             ).once();
@@ -117,7 +116,7 @@ describe("Breakpoint Manager", () => {
         });
 
         it("should reject if the segment or offset not resolved", async () => {
-          await expect(bpManager.setBreakpoint(bp)).rejects.toThrow();
+          await expect(bpManager.setBreakpoint(bp)).resolves.toBe(false);
           verify(
             spiedBpManager.addPendingBreakpoint(anything(), anything())
           ).once();
@@ -146,16 +145,14 @@ describe("Breakpoint Manager", () => {
 
         it("should add a breakpoint", async () => {
           when(mockedGdbProxy.setBreakpoint(anything())).thenResolve();
-          const rBp = await bpManager.setBreakpoint(bp);
-          expect(rBp.id).toBe(bp.id);
-          // tslint:disable-next-line: no-unused-expression
-          expect(rBp.segmentId).toBeUndefined();
-          expect(rBp.offset).toBe(address);
+          await bpManager.setBreakpoint(bp);
+          expect(bp.segmentId).toBeUndefined();
+          expect(bp.offset).toBe(address);
         });
 
         it("should react on proxy error", async () => {
           when(mockedGdbProxy.setBreakpoint(anything())).thenReject(err);
-          await expect(bpManager.setBreakpoint(bp)).rejects.toThrowError(err);
+          await expect(bpManager.setBreakpoint(bp)).resolves.toBe(false);
           verify(
             spiedBpManager.addPendingBreakpoint(anything(), anything())
           ).once();
@@ -170,7 +167,7 @@ describe("Breakpoint Manager", () => {
         });
 
         it("should reject if the segment or offset not resolved", async () => {
-          await expect(bpManager.setBreakpoint(bp)).rejects.toThrowError(err);
+          await expect(bpManager.setBreakpoint(bp)).resolves.toBe(false);
           verify(
             spiedBpManager.addPendingBreakpoint(anything(), anything())
           ).once();
@@ -180,7 +177,7 @@ describe("Breakpoint Manager", () => {
 
     it("should reject if the breakpoint is incomplete", async () => {
       const bp = <GdbBreakpoint>{};
-      await expect(bpManager.setBreakpoint(bp)).rejects.toThrow();
+      await expect(bpManager.setBreakpoint(bp)).resolves.toBe(false);
       verify(
         spiedBpManager.addPendingBreakpoint(anything(), anything())
       ).once();

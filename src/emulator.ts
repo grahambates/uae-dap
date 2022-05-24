@@ -2,23 +2,27 @@ import * as cp from "child_process";
 import * as fs from "fs";
 
 interface EmulatorOptions {
-  executable?: string;
-  cwd?: string;
+  /** Emulator executable binary */
+  executable: string;
+  /** CLI args to pass on run */
   args: string[];
+  /** Current directory */
+  cwd?: string;
+  /** Callback executed on process exit */
   onExit?: () => void;
 }
 
+/**
+ * Wrpper for FS-UAE / WinUAE process
+ */
 export class Emulator {
   private childProcess?: cp.ChildProcess;
 
+  /**
+   * Start emulator process
+   */
   public run(options: EmulatorOptions): Promise<void> {
     const { executable, args, cwd, onExit } = options;
-
-    if (!executable) {
-      throw new Error(
-        "The emulator executable file path must be defined in the launch settings"
-      );
-    }
 
     try {
       fs.accessSync(executable, fs.constants.X_OK);
@@ -41,6 +45,9 @@ export class Emulator {
     });
   }
 
+  /**
+   * Terminate process
+   */
   public destroy() {
     if (this.childProcess) {
       this.childProcess.kill("SIGTERM");
