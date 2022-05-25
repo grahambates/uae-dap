@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Big refactor and cleanup
+- Copper disassembly to temporary files
+
 ## [0.1.0] - 2022-05-18
 
 ### Added
