@@ -14,19 +14,24 @@ export async function disassemble(
   const args = ["m68k", buffer];
 
   const wasmPath = path.join(findWasmDir(), "cstool");
-  const process = cp.fork(wasmPath, args, { stdio: "pipe" });
+  const proc = cp.fork(wasmPath, args, {
+    stdio: "pipe",
+    // Prevent the child process from also being started in inspect mode
+    // See https://github.com/nodejs/node/issues/14325
+    execArgv: [],
+  });
 
   let code = "";
-  process.stdout?.on("data", (data) => (code += data));
-  process.stderr?.on("data", (data) => (code += data));
+  proc.stdout?.on("data", (data) => (code += data));
+  proc.stderr?.on("data", (data) => (code += data));
 
   return new Promise((resolve, reject) => {
-    process.on("exit", () =>
+    proc.on("exit", () =>
       code.includes("ERROR")
         ? reject(code)
         : resolve(processOutput(code, startAddress))
     );
-    process.on("error", () => reject(code));
+    proc.on("error", () => reject(code));
   });
 }
 

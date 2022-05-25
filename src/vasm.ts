@@ -36,18 +36,23 @@ export default class Vasm {
     const wasmPath = path.join(findWasmDir(), "vasmm68k_mot");
 
     // Execute vasm via binary or wasm
-    const process = this.binPath
+    const proc = this.binPath
       ? cp.spawn(this.binPath, args, options)
-      : cp.fork(wasmPath, args, options);
+      : cp.fork(wasmPath, args, {
+          ...options,
+          // Prevent the child process from also being started in inspect mode
+          // See https://github.com/nodejs/node/issues/14325
+          execArgv: [],
+        });
 
-    process.stdout?.on("data", (data) => (out += data));
-    process.stderr?.on("data", (data) => (out += data));
+    proc.stdout?.on("data", (data) => (out += data));
+    proc.stderr?.on("data", (data) => (out += data));
 
     let out = "";
 
     return new Promise((resolve, reject) => {
-      process.on("exit", () => resolve(out));
-      process.on("error", reject);
+      proc.on("exit", () => resolve(out));
+      proc.on("error", reject);
     });
   }
 }
