@@ -1,6 +1,6 @@
 {
   "name": "uae-dap",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Debug Adapter Protocol for Amiga development with FS-UAE or WinUAE",
   "main": "out/debugAdapter.js",
   "engines": {
