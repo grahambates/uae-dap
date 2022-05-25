@@ -16,7 +16,6 @@ import {
   mock,
   reset,
 } from "@johanblumenberg/ts-mockito";
-import { fail } from "assert";
 import { asciiToHex } from "../src/utils/strings";
 
 function padStartWith0(stringToPad: string, targetLength: number): string {
@@ -121,7 +120,9 @@ describe("GdbProxy", function () {
         spiedProxy.sendPacketString("QStartNoAckMode", anything())
       ).thenResolve(RESPONSE_OK);
       await proxy.connect("localhost", 6860);
-      verify(mockedSocket.connect(6860, "localhost")).once();
+      expect(
+        verify(mockedSocket.connect(6860, "localhost")).once()
+      ).toBeUndefined();
     });
 
     it("Should generate an error on support request", async function () {
@@ -134,7 +135,9 @@ describe("GdbProxy", function () {
       await expect(proxy.connect("localhost", 6860)).rejects.toThrowError(
         error
       );
-      verify(mockedSocket.connect(6860, "localhost")).once();
+      expect(
+        verify(mockedSocket.connect(6860, "localhost")).once()
+      ).toBeUndefined();
     });
 
     it("Should send an error on QStartNoAckMode not active", async function () {
@@ -508,37 +511,32 @@ describe("GdbProxy", function () {
         );
         const rIdx = proxy.getRegisterIndex("pc");
         expect(rIdx).not.toBe(null);
-        if (rIdx !== null) {
-          const pcGetRegisterMessage = "p" + rIdx.toString(16);
-          when(
-            spiedProxy.sendPacketString(pcGetRegisterMessage, anything())
-          ).thenResolve("0000000a");
-          when(
-            spiedProxy.sendPacketString("QTFrame:1", anything())
-          ).thenResolve("00000001");
-          const thread = proxy.getCurrentCpuThread();
-          if (thread) {
-            const stack = await proxy.stack(thread);
-            expect(stack).toEqual([
-              {
-                index: -1,
-                segmentId: -1,
-                offset: 10,
-                pc: 10,
-                stackFrameIndex: 1,
-              },
-              {
-                index: 1,
-                segmentId: -1,
-                offset: 10,
-                pc: 10,
-                stackFrameIndex: 1,
-              },
-            ]);
-          } else {
-            fail("Thread not found");
-          }
-        }
+        const pcGetRegisterMessage = "p" + rIdx?.toString(16);
+        when(
+          spiedProxy.sendPacketString(pcGetRegisterMessage, anything())
+        ).thenResolve("0000000a");
+        when(spiedProxy.sendPacketString("QTFrame:1", anything())).thenResolve(
+          "00000001"
+        );
+        const thread = proxy.getCurrentCpuThread();
+        expect(thread).toBeDefined();
+        const stack = await proxy.stack(<GdbThread>thread);
+        expect(stack).toEqual([
+          {
+            index: -1,
+            segmentId: -1,
+            offset: 10,
+            pc: 10,
+            stackFrameIndex: 1,
+          },
+          {
+            index: 1,
+            segmentId: -1,
+            offset: 10,
+            pc: 10,
+            stackFrameIndex: 1,
+          },
+        ]);
       });
 
       it("Should get the copper stack frame", async function () {
@@ -547,43 +545,38 @@ describe("GdbProxy", function () {
         );
         const rIdx = proxy.getRegisterIndex("copper");
         expect(rIdx).not.toBe(null);
-        if (rIdx !== null) {
-          const pcGetRegisterMessage = "p" + rIdx.toString(16);
-          when(
-            spiedProxy.sendPacketString(pcGetRegisterMessage, anything())
-          ).thenResolve("0000000a");
-          when(
-            spiedProxy.sendPacketString("QTFrame:1", anything())
-          ).thenResolve("00000001");
-          const regIndex = GdbProxy.REGISTER_COPPER_ADDR_INDEX.toString(16);
-          when(
-            spiedProxy.sendPacketString(`p${regIndex}`, anything())
-          ).thenResolve("00000001");
-          when(spiedProxy.sendPacketString("?", anything())).thenResolve(
-            `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.0f;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
-          );
-          when(spiedProxy.sendPacketString("vStopped", anything()))
-            .thenResolve(
-              `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.07;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
-            )
-            .thenResolve(RESPONSE_OK);
-          const thread = proxy.getThreadFromSysThreadId(
-            GdbAmigaSysThreadIdFsUAE.COP
-          );
-          if (thread) {
-            return expect(proxy.stack(thread)).resolves.toEqual([
-              {
-                index: -1000,
-                offset: 0,
-                pc: 1,
-                segmentId: -10,
-                stackFrameIndex: 0,
-              },
-            ]);
-          } else {
-            fail("Thread not found");
-          }
-        }
+        const pcGetRegisterMessage = "p" + rIdx?.toString(16);
+        when(
+          spiedProxy.sendPacketString(pcGetRegisterMessage, anything())
+        ).thenResolve("0000000a");
+        when(spiedProxy.sendPacketString("QTFrame:1", anything())).thenResolve(
+          "00000001"
+        );
+        const regIndex = GdbProxy.REGISTER_COPPER_ADDR_INDEX.toString(16);
+        when(
+          spiedProxy.sendPacketString(`p${regIndex}`, anything())
+        ).thenResolve("00000001");
+        when(spiedProxy.sendPacketString("?", anything())).thenResolve(
+          `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.0f;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
+        );
+        when(spiedProxy.sendPacketString("vStopped", anything()))
+          .thenResolve(
+            `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.07;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
+          )
+          .thenResolve(RESPONSE_OK);
+        const thread = proxy.getThreadFromSysThreadId(
+          GdbAmigaSysThreadIdFsUAE.COP
+        );
+        expect(thread).toBeDefined();
+        return expect(proxy.stack(<GdbThread>thread)).resolves.toEqual([
+          {
+            index: -1000,
+            offset: 0,
+            pc: 1,
+            segmentId: -10,
+            stackFrameIndex: 0,
+          },
+        ]);
       });
 
       it("Should raise error on get the copper stack frame", async function () {
@@ -592,35 +585,30 @@ describe("GdbProxy", function () {
         );
         const rIdx = proxy.getRegisterIndex("copper");
         expect(rIdx).not.toBe(null);
-        if (rIdx !== null) {
-          const pcGetRegisterMessage = "p" + rIdx.toString(16);
-          when(
-            spiedProxy.sendPacketString(pcGetRegisterMessage, anything())
-          ).thenResolve("0000000a");
-          when(
-            spiedProxy.sendPacketString("QTFrame:1", anything())
-          ).thenResolve("00000001");
-          const regIndex = GdbProxy.REGISTER_COPPER_ADDR_INDEX.toString(16);
-          when(
-            spiedProxy.sendPacketString(`p${regIndex}`, anything())
-          ).thenReject(new Error("nope"));
-          when(spiedProxy.sendPacketString("?", anything())).thenResolve(
-            `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.0f;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
-          );
-          when(spiedProxy.sendPacketString("vStopped", anything()))
-            .thenResolve(
-              `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.07;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
-            )
-            .thenResolve(RESPONSE_OK);
-          const thread = proxy.getThreadFromSysThreadId(
-            GdbAmigaSysThreadIdFsUAE.COP
-          );
-          if (thread) {
-            return expect(proxy.stack(thread)).rejects.toThrow();
-          } else {
-            fail("Thread not found");
-          }
-        }
+        const pcGetRegisterMessage = "p" + rIdx?.toString(16);
+        when(
+          spiedProxy.sendPacketString(pcGetRegisterMessage, anything())
+        ).thenResolve("0000000a");
+        when(spiedProxy.sendPacketString("QTFrame:1", anything())).thenResolve(
+          "00000001"
+        );
+        const regIndex = GdbProxy.REGISTER_COPPER_ADDR_INDEX.toString(16);
+        when(
+          spiedProxy.sendPacketString(`p${regIndex}`, anything())
+        ).thenReject(new Error("nope"));
+        when(spiedProxy.sendPacketString("?", anything())).thenResolve(
+          `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.0f;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
+        );
+        when(spiedProxy.sendPacketString("vStopped", anything()))
+          .thenResolve(
+            `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.07;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
+          )
+          .thenResolve(RESPONSE_OK);
+        const thread = proxy.getThreadFromSysThreadId(
+          GdbAmigaSysThreadIdFsUAE.COP
+        );
+        expect(thread).toBeDefined();
+        return expect(proxy.stack(<GdbThread>thread)).rejects.toThrow();
       });
 
       it("Should remove an existing breakpoint", async function () {
@@ -635,7 +623,9 @@ describe("GdbProxy", function () {
           RESPONSE_OK
         );
         await proxy.removeBreakpoint(bp);
-        verify(spiedProxy.sendPacketString("z0,4,0", anything())).once();
+        return expect(
+          verify(spiedProxy.sendPacketString("z0,4,0", anything())).once()
+        ).toBeUndefined();
       });
 
       it("Should remove an existing exception breakpoint", async function () {
@@ -650,7 +640,9 @@ describe("GdbProxy", function () {
           RESPONSE_OK
         );
         await proxy.removeBreakpoint(bp);
-        verify(spiedProxy.sendPacketString("z1,a", anything())).once();
+        return expect(
+          verify(spiedProxy.sendPacketString("z1,a", anything())).once()
+        ).toBeUndefined();
       });
 
       it("Should reject on error removing a breakpoint", async function () {
@@ -663,53 +655,43 @@ describe("GdbProxy", function () {
           spiedProxy.sendPacketString(vContRRequest, anything())
         ).thenResolve(RESPONSE_OK);
         const thread = proxy.getCurrentCpuThread();
-        if (thread) {
-          await expect(
-            proxy.stepToRange(thread, 0, 0)
-          ).resolves.toBeUndefined();
-          verify(spiedProxy.sendPacketString(vContRRequest, anything())).once();
-        } else {
-          fail("Thread not found");
-        }
+        expect(thread).toBeDefined();
+        await expect(
+          proxy.stepToRange(<GdbThread>thread, 0, 0)
+        ).resolves.toBeUndefined();
+        verify(spiedProxy.sendPacketString(vContRRequest, anything())).once();
       });
 
       it("Should reject on step instruction error", async function () {
         const thread = proxy.getCurrentCpuThread();
-        if (thread) {
-          when(
-            spiedProxy.sendPacketString(vContRRequest, anything())
-          ).thenReject(error);
-          await expect(proxy.stepToRange(thread, 0, 0)).rejects.toThrowError(
-            error
-          );
-        } else {
-          fail("Thread not found");
-        }
+        expect(thread).toBeDefined();
+        when(spiedProxy.sendPacketString(vContRRequest, anything())).thenReject(
+          error
+        );
+        await expect(
+          proxy.stepToRange(<GdbThread>thread, 0, 0)
+        ).rejects.toThrowError(error);
       });
 
       it("Should step in instruction", async function () {
         const thread = proxy.getCurrentCpuThread();
-        if (thread) {
-          when(
-            spiedProxy.sendPacketString(vContSRequest, anything())
-          ).thenResolve(RESPONSE_OK);
-          await expect(proxy.stepIn(thread)).resolves.toBeUndefined();
-          verify(spiedProxy.sendPacketString(vContSRequest, anything())).once();
-        } else {
-          fail("Thread not found");
-        }
+        expect(thread).toBeDefined();
+        when(
+          spiedProxy.sendPacketString(vContSRequest, anything())
+        ).thenResolve(RESPONSE_OK);
+        await expect(proxy.stepIn(<GdbThread>thread)).resolves.toBeUndefined();
+        verify(spiedProxy.sendPacketString(vContSRequest, anything())).once();
       });
 
       it("Should reject on step in instruction error", async function () {
         const thread = proxy.getCurrentCpuThread();
-        if (thread) {
-          when(
-            spiedProxy.sendPacketString(vContSRequest, anything())
-          ).thenReject(error);
-          await expect(proxy.stepIn(thread)).rejects.toThrowError(error);
-        } else {
-          fail("Thread not found");
-        }
+        expect(thread).toBeDefined();
+        when(spiedProxy.sendPacketString(vContSRequest, anything())).thenReject(
+          error
+        );
+        await expect(proxy.stepIn(<GdbThread>thread)).rejects.toThrowError(
+          error
+        );
       });
 
       it("Should get memory contents", async function () {
@@ -747,16 +729,15 @@ describe("GdbProxy", function () {
           spiedProxy.sendPacketString(vContCRequest, anything())
         ).thenResolve(RESPONSE_OK);
         const thread = proxy.getCurrentCpuThread();
-        if (thread) {
-          await expect(
-            proxy.continueExecution(thread)
-          ).resolves.toBeUndefined();
-        } else {
-          fail("Thread not found");
-        }
-        verify(
-          spiedProxy.sendPacketString(vContCRequest, anything(), anything())
-        ).once();
+        expect(thread).toBeDefined();
+        await expect(
+          proxy.continueExecution(<GdbThread>thread)
+        ).resolves.toBeUndefined();
+        return expect(
+          verify(
+            spiedProxy.sendPacketString(vContCRequest, anything(), anything())
+          ).once()
+        ).toBeUndefined();
       });
 
       it("Should reject continue execution error", async function () {
@@ -764,13 +745,10 @@ describe("GdbProxy", function () {
           spiedProxy.sendPacketString(vContCRequest, anything(), anything())
         ).thenReject(error);
         const thread = proxy.getCurrentCpuThread();
-        if (thread) {
-          await expect(proxy.continueExecution(thread)).rejects.toThrowError(
-            error
-          );
-        } else {
-          fail("Thread not found");
-        }
+        expect(thread).toBeDefined();
+        await expect(
+          proxy.continueExecution(<GdbThread>thread)
+        ).rejects.toThrowError(error);
       });
 
       it("Should set register", async function () {
@@ -781,7 +759,7 @@ describe("GdbProxy", function () {
         verify(spiedProxy.sendPacketString("P0=8aff", anything())).once();
       });
 
-      it("Should send an error if set memory contents fails", async function () {
+      it("Should send an error if set register fails", async function () {
         when(spiedProxy.sendPacketString("P0=8aff", anything())).thenReject(
           error
         );
@@ -804,20 +782,16 @@ describe("GdbProxy", function () {
         expect(haltStatus.length).toBe(2);
         expect(haltStatus[0].code).toBe(5);
         // tslint:disable-next-line: no-unused-expression
-        expect(haltStatus[0].thread).not.toBeUndefined();
-        if (haltStatus[0].thread) {
-          expect(haltStatus[0].thread.getThreadId()).toBe(
-            GdbAmigaSysThreadIdFsUAE.CPU
-          );
-        }
+        expect(haltStatus[0].thread).toBeDefined();
+        expect(haltStatus[0].thread?.getThreadId()).toBe(
+          GdbAmigaSysThreadIdFsUAE.CPU
+        );
         expect(haltStatus[1].code).toBe(5);
         // tslint:disable-next-line: no-unused-expression
-        expect(haltStatus[1].thread).not.toBeUndefined();
-        if (haltStatus[1].thread) {
-          expect(haltStatus[1].thread.getThreadId()).toBe(
-            GdbAmigaSysThreadIdFsUAE.COP
-          );
-        }
+        expect(haltStatus[1].thread).toBeDefined();
+        expect(haltStatus[1].thread?.getThreadId()).toBe(
+          GdbAmigaSysThreadIdFsUAE.COP
+        );
         verify(spiedProxy.sendPacketString("?", anything())).once();
         verify(spiedProxy.sendPacketString("vStopped", anything())).twice();
       });
@@ -827,11 +801,8 @@ describe("GdbProxy", function () {
           spiedProxy.sendPacketString(vContTRequest, anything())
         ).thenResolve(RESPONSE_OK);
         const thread = proxy.getCurrentCpuThread();
-        if (thread) {
-          await expect(proxy.pause(thread)).resolves.toBeUndefined();
-        } else {
-          fail("Thread not found");
-        }
+        expect(thread).toBeDefined();
+        await expect(proxy.pause(<GdbThread>thread)).resolves.toBeUndefined();
         verify(spiedProxy.sendPacketString(vContTRequest, anything())).once();
       });
     });

@@ -30,6 +30,8 @@ import { Emulator } from "../src/emulator";
 
 type Callback = (...args: unknown[]) => void;
 
+const anyArray = expect.any(Array);
+
 describe("Node Debug Adapter", () => {
   const PROJECT_ROOT = path.join(__dirname, "..").replace(/\\+/g, "/");
   const FIXTURES_DIR = path
@@ -156,15 +158,17 @@ describe("Node Debug Adapter", () => {
   });
 
   describe("launch", () => {
-    it("should run program to the end", () => {
+    it("should run program to the end", async () => {
       when(gdbProxy.load(anything(), anything())).thenCall(async () => {
         callbacks.get("end")?.();
       });
-      return Promise.all([
-        dc.configurationSequence(),
-        dc.launch(launchArgs),
-        dc.waitForEvent("terminated"),
-      ]);
+      await expect(
+        Promise.all([
+          dc.configurationSequence(),
+          dc.launch(launchArgs),
+          dc.waitForEvent("terminated"),
+        ])
+      ).resolves.toEqual(anyArray);
     });
 
     it("should stop on entry", () => {
@@ -181,11 +185,13 @@ describe("Node Debug Adapter", () => {
         },
       ]);
 
-      return Promise.all([
-        dc.configurationSequence(),
-        dc.launch(launchArgsStopEntry),
-        dc.assertStoppedLocation("entry", { line: 32 }),
-      ]);
+      return expect(
+        Promise.all([
+          dc.configurationSequence(),
+          dc.launch(launchArgsStopEntry),
+          dc.assertStoppedLocation("entry", { line: 32 }),
+        ])
+      ).resolves.toEqual(anyArray);
     });
   });
 
@@ -212,10 +218,12 @@ describe("Node Debug Adapter", () => {
       ]);
 
       await Promise.all([dc.configurationSequence(), dc.launch(launchArgs)]);
-      return dc.hitBreakpoint(launchArgs, {
-        path: SOURCE_FILE_NAME,
-        line: 33,
-      });
+      return expect(
+        dc.hitBreakpoint(launchArgs, {
+          path: SOURCE_FILE_NAME,
+          line: 33,
+        })
+      ).resolves.toEqual(anyArray);
     });
 
     it("hitting a lazy breakpoint should send a breakpoint event", async () => {
@@ -311,10 +319,12 @@ describe("Node Debug Adapter", () => {
         dc.nextRequest({ threadId }),
         dc.assertStoppedLocation("step", { line: 33 }),
       ]);
-      return Promise.all([
-        dc.stepInRequest({ threadId }),
-        dc.assertStoppedLocation("step", { line: 37 }),
-      ]);
+      return expect(
+        Promise.all([
+          dc.stepInRequest({ threadId }),
+          dc.assertStoppedLocation("step", { line: 37 }),
+        ])
+      ).resolves.toEqual(anyArray);
     });
 
     it("should continue and stop", async () => {
@@ -349,11 +359,13 @@ describe("Node Debug Adapter", () => {
         dc.launch(launchArgsStopEntry),
         dc.assertStoppedLocation("entry", { line: 32 }),
       ]);
-      await Promise.all([
-        dc.continueRequest({ threadId }),
-        dc.pauseRequest({ threadId }),
-        dc.assertStoppedLocation("pause", { line: 33 }),
-      ]);
+      return expect(
+        Promise.all([
+          dc.continueRequest({ threadId }),
+          dc.pauseRequest({ threadId }),
+          dc.assertStoppedLocation("pause", { line: 33 }),
+        ])
+      ).resolves.toEqual(anyArray);
     });
   });
 
@@ -427,16 +439,12 @@ describe("Node Debug Adapter", () => {
 
       const src = stackFrames[0].source;
       expect(src).not.toBeUndefined();
-      if (src) {
-        expect(src.name).not.toBeUndefined();
-        expect(src.name?.toUpperCase()).toEqual("GENCOP.S");
-        const pathToTest = path
-          .join("fixtures", "gencop.s")
-          .replace(/\\+/g, "/");
-        expect(
-          src.path?.toUpperCase().endsWith(pathToTest.toUpperCase())
-        ).toEqual(true);
-      }
+      expect(src?.name).not.toBeUndefined();
+      expect(src?.name?.toUpperCase()).toEqual("GENCOP.S");
+      const pathToTest = path.join("fixtures", "gencop.s").replace(/\\+/g, "/");
+      expect(
+        src?.path?.toUpperCase().endsWith(pathToTest.toUpperCase())
+      ).toEqual(true);
       expect(stackFrames[1].id).toEqual(1);
       expect(stackFrames[1].line).toEqual(0);
       expect(stackFrames[1].name).toEqual("$a: ori.b	#$0, d0");
@@ -535,12 +543,8 @@ describe("Node Debug Adapter", () => {
 
       const src = stackFrames[0].source;
       expect(src).not.toBeUndefined();
-      if (src) {
-        expect(src.name).not.toBeUndefined();
-        if (src.name) {
-          expect(src.name).toEqual("copper_$5850__500.dbgasm");
-        }
-      }
+      expect(src?.name).not.toBeUndefined();
+      expect(src?.name).toEqual("copper_$5850__500.dbgasm");
     });
   });
 
