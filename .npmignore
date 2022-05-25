@@ -5,6 +5,7 @@
 tsconfig.json
 .eslintignore
 .eslintrc.js
+.github
 *.map
 .husky
 jest.*
