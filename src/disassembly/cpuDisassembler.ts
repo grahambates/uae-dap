@@ -2,11 +2,7 @@ import * as cp from "child_process";
 import * as path from "path";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { formatHexadecimal, splitLines } from "../utils/strings";
-
-const wasmPath =
-  process.env.NODE_ENV === "test"
-    ? path.join(__dirname, "..", "..", "wasm", "cstool")
-    : path.join(__dirname, "..", "..", "..", "wasm", "cstool");
+import { findWasmDir } from "../utils/files";
 
 /**
  * Disassemble a buffer into CPU instructions
@@ -17,6 +13,7 @@ export async function disassemble(
 ): Promise<DisassembledOutput> {
   const args = ["m68k", buffer];
 
+  const wasmPath = path.join(findWasmDir(), "cstool");
   const process = cp.fork(wasmPath, args, { stdio: "pipe" });
 
   let code = "";

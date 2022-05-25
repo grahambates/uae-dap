@@ -4,6 +4,7 @@ import { basename } from "path";
 import { openSync } from "temp";
 import * as fs from "fs/promises";
 import { SourceConstantResolver } from "./program";
+import { findWasmDir } from "./utils/files";
 
 export interface VasmOptions {
   /** Enable extracting constants from source files using vasm */
@@ -13,11 +14,6 @@ export interface VasmOptions {
   /** additional cli args for vasm - add include paths etc */
   args?: string[];
 }
-
-const wasmPath =
-  process.env.NODE_ENV === "test"
-    ? path.join(__dirname, "..", "wasm", "vasmm68k_mot")
-    : path.join(__dirname, "..", "..", "wasm", "vasmm68k_mot");
 
 /**
  * Wrapper for vasm assembler
@@ -36,6 +32,9 @@ export default class Vasm {
       cwd,
       stdio: "pipe",
     };
+
+    const wasmPath = path.join(findWasmDir(), "vasmm68k_mot");
+
     // Execute vasm via binary or wasm
     const process = this.binPath
       ? cp.spawn(this.binPath, args, options)

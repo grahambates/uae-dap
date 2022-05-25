@@ -46,3 +46,20 @@ export async function exists(file: string) {
     .then(() => true)
     .catch(() => false);
 }
+
+let wasmDir: string | undefined;
+
+export function findWasmDir(): string {
+  if (wasmDir) {
+    return wasmDir;
+  }
+  let dir = __dirname;
+  for (let i = 0; i < 5; i++) {
+    wasmDir = path.join(dir, "wasm");
+    if (fs.existsSync(wasmDir)) {
+      return wasmDir;
+    }
+    dir = path.dirname(dir);
+  }
+  throw new Error("wasm dir not found");
+}
