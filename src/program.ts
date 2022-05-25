@@ -241,7 +241,11 @@ class Program {
       }
     }
 
-    if (!memoryReference || !args.instructionCount) {
+    if (
+      args.segmentId === undefined &&
+      !memoryReference &&
+      !args.instructionCount
+    ) {
       throw new Error(`Unable to disassemble; invalid parameters ${args}`);
     }
 
@@ -251,12 +255,14 @@ class Program {
       this.disassemblyManager.isCopperLine(parseInt(args.memoryReference));
 
     let instructions =
-      await this.disassemblyManager.disassembleAddressExpression(
-        memoryReference,
-        args.instructionCount * 4,
-        args.offset ?? 0,
-        isCopper
-      );
+      args.segmentId !== undefined
+        ? await this.disassemblyManager.disassembleSegment(args.segmentId)
+        : await this.disassemblyManager.disassembleAddressExpression(
+            memoryReference,
+            args.instructionCount * 4,
+            args.offset ?? 0,
+            isCopper
+          );
 
     // Add source line data to instructions
     if (segments) {
