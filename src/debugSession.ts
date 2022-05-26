@@ -58,7 +58,7 @@ export interface VariableDisplayFormatRequest {
   /** info of the variable */
   variableInfo: { variable: { name: string; value: string } };
   /** Requested format */
-  format: NumberFormat;
+  variableDisplayFormat: NumberFormat;
 }
 
 export class FsUAEDebugSession extends DebugSession {
@@ -366,7 +366,7 @@ export class FsUAEDebugSession extends DebugSession {
       const variableReq: VariableDisplayFormatRequest = args;
       this.program?.setVariableFormat(
         variableReq.variableInfo.variable.name,
-        variableReq.format
+        variableReq.variableDisplayFormat
       );
       this.sendEvent(new InvalidatedEvent(["variables"]));
       return this.sendResponse(response);
