@@ -41,6 +41,13 @@ export interface ScopeReference {
   frameId: number;
 }
 
+export interface MemoryFormat {
+  length: number;
+  wordLength?: number;
+  rowLength?: number;
+  mode?: string;
+}
+
 /**
  * Provider to get constants for program sources
  */
@@ -86,7 +93,8 @@ class Program {
   constructor(
     private gdb: GdbProxy,
     private fileInfo: FileInfo,
-    private constantResolver?: SourceConstantResolver
+    private constantResolver?: SourceConstantResolver,
+    private memoryFormats: Record<string, MemoryFormat> = {}
   ) {
     this.disassemblyManager = new DisassemblyManager(gdb, this);
   }
@@ -572,6 +580,8 @@ class Program {
     let variables: DebugProtocol.Variable[] | undefined;
     let result: string | undefined;
 
+    const { length, wordLength, rowLength } = this.getMemoryFormat(context);
+
     // Find expression type:
     const isRegister = expression.match(/^([ad][0-7]|pc|sr)$/i) !== null;
     const isMemRead = expression.match(/^m\s/) !== null;
@@ -582,7 +592,12 @@ class Program {
       case isRegister: {
         const [address] = await this.gdb.getRegister(expression, frameId);
         if (expression.startsWith("a") && context === "watch") {
-          variables = await this.readMemoryAsVariables(address, 100, 2, 4);
+          variables = await this.readMemoryAsVariables(
+            address,
+            length,
+            wordLength,
+            rowLength
+          );
         } else {
           result = this.formatVariable(expression, address);
         }
@@ -596,8 +611,12 @@ class Program {
         break;
       case isSymbol: {
         const address = <number>this.symbols.get(expression);
-        const length = context === "watch" ? 104 : 24;
-        variables = await this.readMemoryAsVariables(address, length, 2, 4);
+        variables = await this.readMemoryAsVariables(
+          address,
+          length,
+          wordLength,
+          rowLength
+        );
         break;
       }
       // Evaluate
@@ -632,6 +651,16 @@ class Program {
       };
     }
     throw new Error("No result");
+  }
+
+  protected getMemoryFormat(context?: string): MemoryFormat {
+    const defaultFormat = {
+      length: 24,
+      wordLength: 2,
+    };
+    return context
+      ? this.memoryFormats[context] ?? defaultFormat
+      : defaultFormat;
   }
 
   /**

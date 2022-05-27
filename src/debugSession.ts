@@ -19,7 +19,7 @@ import { GdbProxy, GdbHaltStatus, GdbThread } from "./gdb";
 import { BreakpointManager } from "./breakpointManager";
 import { base64ToHex, hexToBase64, NumberFormat } from "./utils/strings";
 import { Emulator } from "./emulator";
-import Program, { SourceConstantResolver } from "./program";
+import Program, { MemoryFormat, SourceConstantResolver } from "./program";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
 import { FileInfo } from "./fileInfo";
@@ -79,8 +79,9 @@ export class FsUAEDebugSession extends DebugSession {
   protected trace = false;
   /** Track which threads are stopped to avoid invalid events */
   protected stoppedThreads: boolean[] = [false, false];
-
+  /** Should we create real files on the filesystem for .dbgasm URIs? */
   protected createDbgasmFiles = true;
+  /** Temporary directory for dbgasm files */
   protected tmpDir?: string;
 
   /**
@@ -268,7 +269,8 @@ export class FsUAEDebugSession extends DebugSession {
       this.program = new Program(
         this.gdb,
         fileInfo,
-        this.getSourceConstantResolver(args)
+        this.getSourceConstantResolver(args),
+        this.getMemoryFormats()
       );
 
       this.breakpoints.setProgram(this.program);
@@ -330,6 +332,24 @@ export class FsUAEDebugSession extends DebugSession {
     args: LaunchRequestArguments
   ): SourceConstantResolver {
     return new VasmSourceConstantResolver(args.vasm);
+  }
+
+  /**
+   * Get default formats for evalated memory display
+   *
+   * Intended to be overridden to read from config in vscode
+   */
+  protected getMemoryFormats(): Record<string, MemoryFormat> {
+    return {
+      watch: {
+        length: 104,
+        wordLength: 2,
+      },
+      hover: {
+        length: 24,
+        wordLength: 2,
+      },
+    };
   }
 
   protected sendHelpText() {
@@ -450,13 +470,8 @@ export class FsUAEDebugSession extends DebugSession {
       const thread = await this.getThread(args.threadId);
       const positions = await this.gdb.stack(thread);
 
-      // Update the cpu view
-      for (const f of positions) {
-        if (this.gdb.isCPUThread(thread)) {
-          this.updateDisassembledView(f.pc);
-          this.breakpoints.checkTemporaryBreakpoints(f.pc);
-          break;
-        }
+      if (this.gdb.isCPUThread(thread) && positions[0]) {
+        this.onCpuFrame(positions[0].pc);
       }
 
       const stackFrames = await this.program.getStackTrace(thread, positions);
@@ -468,8 +483,19 @@ export class FsUAEDebugSession extends DebugSession {
     });
   }
 
+  /**
+   * Hook to perform actions when entering a new CPU stack frame
+   */
+  protected async onCpuFrame(address: number) {
+    this.breakpoints.checkTemporaryBreakpoints(address);
+  }
+
+  /**
+   * Process a Source object before returning in to the client
+   */
   protected async processSource(source?: DebugProtocol.Source) {
     if (source?.path) {
+      // Materialise disassembled files to filesystem if required
       if (
         source.path.endsWith(".dbgasm") &&
         this.createDbgasmFiles &&
@@ -486,13 +512,9 @@ export class FsUAEDebugSession extends DebugSession {
         );
         await fs.writeFile(source.path, content);
       }
+      // Ensure path is in correct format for client
       source.path = this.convertDebuggerPathToClient(source.path);
     }
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected async updateDisassembledView(_: number) {
-    // NOOP on this implementation- needed for vs-code
   }
 
   protected scopesRequest(
