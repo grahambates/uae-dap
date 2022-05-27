@@ -99,8 +99,14 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
         return;
       }
       for (const reqBp of args.breakpoints) {
-        const { displayValue, value } = this.parseDataIdAddress(reqBp.dataId);
-        const size = this.getSize(reqBp.dataId);
+        const { name, displayValue, value } = this.parseDataIdAddress(
+          reqBp.dataId
+        );
+        const size = await this.getDataBreakpointSize(
+          reqBp.dataId,
+          displayValue,
+          name
+        );
         const bp = this.breakpoints.createDataBreakpoint(
           value,
           size,
@@ -137,7 +143,11 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
     return new BreakpointStorageMap();
   }
 
-  protected getSize(id: string): number {
+  protected async getDataBreakpointSize(
+    id: string,
+    _address: string,
+    _variable: string
+  ): Promise<number> {
     return this.getBreakpointStorage().getSize(id) ?? 2;
   }
 }
