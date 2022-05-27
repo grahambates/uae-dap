@@ -1,25 +1,26 @@
 export interface DisassembledFile {
-  path?: string;
-  segmentId?: number;
-  stackFrameIndex?: number;
-  address?: number;
-  length?: number;
+  memoryReference?: string;
+  instructionCount?: number;
+  /** Should be disassembled as copper instructions? */
   copper?: boolean;
+  /** Segment ID */
+  segmentId?: number;
+  /** Stack frame index */
+  stackFrameIndex?: number;
 }
 
 /**
  * Create file path for DisassembledFile
  */
 export function disassembledFileToPath(file: DisassembledFile): string {
-  const address = file.address?.toString(16);
-  const path = file.path ?? "";
+  const address = file.memoryReference;
   if (file.segmentId !== undefined) {
-    return `${path}seg_${file.segmentId}.dbgasm`;
+    return `seg_${file.segmentId}.dbgasm`;
   }
   if (file.copper) {
-    return `${path}copper_$${address}__${file.length}.dbgasm`;
+    return `copper_${address}__${file.instructionCount}.dbgasm`;
   }
-  return `${path}${file.stackFrameIndex}__$${address}__${file.length}.dbgasm`;
+  return `${file.stackFrameIndex}__${address}__${file.instructionCount}.dbgasm`;
 }
 
 /**
@@ -37,37 +38,34 @@ export function isDisassembledFile(path: string): boolean {
 export function disassembledFileFromPath(path: string): DisassembledFile {
   const segMatch = path.match(/^(?<path>.+\/)?seg_(?<segmentId>[^_]+).dbgasm$/);
   if (segMatch?.groups) {
-    const { path = "", segmentId } = segMatch.groups;
+    const { segmentId } = segMatch.groups;
     return {
-      path,
       segmentId: parseInt(segmentId),
       copper: false,
     };
   }
 
   const copperMatch = path.match(
-    /^(?<path>.+\/)?copper_\$(?<address>[^_]+)__(?<length>[^_]+).dbgasm$/
+    /^(?<path>.+\/)?copper_(?<memoryReference>[^_]+)__(?<instructionCount>[^_]+).dbgasm$/
   );
   if (copperMatch?.groups) {
-    const { path = "", address, length } = copperMatch.groups;
+    const { memoryReference, instructionCount } = copperMatch.groups;
     return {
-      path,
-      address: parseInt(address, 16),
-      length: parseInt(length),
+      memoryReference,
+      instructionCount: parseInt(instructionCount),
       copper: true,
     };
   }
 
   const addressMatch = path.match(
-    /^(?<path>.+\/)?(?<frame>[^_]+)__\$(?<address>[^_]+)__(?<length>[^_]+).dbgasm$/
+    /^(?<path>.+\/)?(?<frame>[^_]+)__(?<memoryReference>[^_]+)__(?<instructionCount>[^_]+).dbgasm$/
   );
   if (addressMatch?.groups) {
-    const { path = "", frame, address, length } = addressMatch.groups;
+    const { frame, memoryReference, instructionCount } = addressMatch.groups;
     return {
-      path,
       stackFrameIndex: parseInt(frame),
-      address: parseInt(address, 16),
-      length: parseInt(length),
+      memoryReference,
+      instructionCount: parseInt(instructionCount),
       copper: false,
     };
   }

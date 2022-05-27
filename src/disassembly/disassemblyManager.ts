@@ -77,7 +77,7 @@ export class DisassemblyManager {
     const dAsmFile: DisassembledFile = {
       copper: isCopper,
       stackFrameIndex,
-      length: 500,
+      instructionCount: 500,
     };
 
     let lineNumber = 1;
@@ -123,7 +123,7 @@ export class DisassemblyManager {
           lineNumber = lineInCop2;
         }
       }
-      dAsmFile.address = newAddress;
+      dAsmFile.memoryReference = "$" + newAddress.toString(16);
     }
 
     const sf = new StackFrame(stackFrameIndex, stackFrameLabel);
@@ -157,28 +157,26 @@ export class DisassemblyManager {
     offset: number | undefined,
     isCopper: boolean
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    let searchedAddress: number | undefined;
+    let address: number | undefined;
     if (isCopper && (addressExpression === "1" || addressExpression === "2")) {
       // Retrieve the copper address
-      searchedAddress = await this.getCopperAddress(
-        parseInt(addressExpression)
-      );
+      address = await this.getCopperAddress(parseInt(addressExpression));
     } else {
-      searchedAddress = await this.program.evaluate(addressExpression);
+      address = await this.program.evaluate(addressExpression);
     }
-    if (searchedAddress === undefined) {
+    if (address === undefined) {
       throw new Error("Unable to resolve address expression void returned");
     }
     if (offset) {
-      searchedAddress += offset;
+      address += offset;
     }
-    return this.disassembleAddress(searchedAddress, length, isCopper);
+    return this.disassembleAddress(address, length, isCopper);
   }
 
   public async disassembleAddress(
     address: number,
     length: number,
-    isCopper: boolean
+    isCopper?: boolean
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
     if (!this.gdb.isConnected()) {
       throw new Error("Debugger not started");
@@ -208,11 +206,12 @@ export class DisassemblyManager {
         instructions = await this.disassembleSegment(dAsmFile.segmentId);
       } else {
         // Path from outside segments
-        if (dAsmFile.address && dAsmFile.length) {
+        if (dAsmFile.memoryReference && dAsmFile.instructionCount) {
+          const address = await this.program.evaluate(dAsmFile.memoryReference);
           instructions = await this.disassembleAddress(
-            dAsmFile.address,
-            dAsmFile.length,
-            dAsmFile.copper ?? false
+            address,
+            dAsmFile.instructionCount,
+            dAsmFile.copper
           );
         }
       }

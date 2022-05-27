@@ -13,6 +13,7 @@ import { customRegisterAddresses } from "./customRegisters";
 import {
   disassemble,
   disassembleCopper,
+  DisassembledFile,
   disassembledFileFromPath,
   DisassemblyManager,
 } from "./disassembly";
@@ -59,19 +60,6 @@ export interface SourceConstantResolver {
    * @returns object containing key/value pairs for
    */
   getSourceConstants(sourceFiles: string[]): Promise<Record<string, number>>;
-}
-
-/**
- * Adds additional options to standard DisassembleArguments
- */
-export interface DisassembleArgumentsExtended
-  extends DebugProtocol.DisassembleArguments {
-  /** Should be disassembled as copper instructions? */
-  copper?: boolean;
-  /** Segment ID */
-  segmentId?: number;
-  /** Stack frame index */
-  stackFrameIndex?: number;
 }
 
 /**
@@ -225,11 +213,9 @@ class Program {
 
   /**
    * Disassemble memory to CPU or Copper instructions
-   *
-   * @todo handle segmentId and stackFrameIndex
    */
   public async disassemble(
-    args: DisassembleArgumentsExtended
+    args: DebugProtocol.DisassembleArguments & DisassembledFile
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
     const segments = this.gdb.getSegments();
 
@@ -365,9 +351,13 @@ class Program {
    */
   public async getDisassembledFileContents(path: string): Promise<string> {
     const dAsmFile = disassembledFileFromPath(path);
-    const { address, segmentId, stackFrameIndex, length, copper } = dAsmFile;
-    const memoryReference = address?.toString() ?? "";
-    const instructionCount = length ?? 100;
+    const {
+      memoryReference = "",
+      segmentId,
+      stackFrameIndex,
+      instructionCount = 100,
+      copper,
+    } = dAsmFile;
 
     const instructions = await this.disassemble({
       memoryReference,
