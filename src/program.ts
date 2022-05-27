@@ -366,12 +366,7 @@ class Program {
       stackFrameIndex,
       copper,
     });
-    if (copper) {
-      return instructions
-        .map((v) => `${v.address}: ${v.instruction}`)
-        .join("\n");
-    }
-    return instructions.join("\n");
+    return instructions.map((v) => `${v.address}: ${v.instruction}`).join("\n");
   }
 
   // Variables:
