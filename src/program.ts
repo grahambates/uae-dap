@@ -363,7 +363,7 @@ class Program {
    *
    * The filename contains tokens for the disassemble options
    */
-  public async getDisassebledFileContents(path: string): Promise<string> {
+  public async getDisassembledFileContents(path: string): Promise<string> {
     const dAsmFile = disassembledFileFromPath(path);
     const { address, segmentId, stackFrameIndex, length, copper } = dAsmFile;
     const memoryReference = address?.toString() ?? "";

@@ -382,6 +382,12 @@ export class FsUAEDebugSession extends DebugSession {
     if (command === "disassembleInner") {
       return this.disassembleRequest(response, args);
     }
+    if (command === "disassembledFileContents") {
+      assertIsDefined(this.program);
+      const content = await this.program.getDisassembledFileContents(args.path);
+      response.body = { content };
+      return this.sendResponse(response);
+    }
     if (command === "modifyVariableFormat") {
       const variableReq: VariableDisplayFormatRequest = args;
       this.program?.setVariableFormat(
@@ -507,7 +513,7 @@ export class FsUAEDebugSession extends DebugSession {
         source.path = this.tmpDir + "/" + source.name;
 
         assertIsDefined(this.program);
-        const content = await this.program.getDisassebledFileContents(
+        const content = await this.program.getDisassembledFileContents(
           source.path
         );
         await fs.writeFile(source.path, content);
