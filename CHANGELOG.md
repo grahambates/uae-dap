@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Abstract breakpoint storage. This will allow the vscode extension to make storage persistent
+- Refactor for vscode hooks
+
 ### Fixed
 
+- Use correct variable format property name
 - Prevent child process starting in inspect mode
 
 ## [0.2.1] - 2022-05-25
