@@ -1,7 +1,7 @@
 import { DebugProtocol } from "@vscode/debugprotocol/lib/debugProtocol";
 import { GdbProxyWinUAE, GdbProxy } from "./gdb";
 import { FsUAEDebugSession } from "./debugSession";
-import { BreakpointManager } from "./breakpointManager";
+import { BreakpointStorage, BreakpointStorageMap } from "./breakpoints";
 import { ScopeType } from "./program";
 
 export class WinUAEDebugSession extends FsUAEDebugSession {
@@ -100,8 +100,7 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
       }
       for (const reqBp of args.breakpoints) {
         const { displayValue, value } = this.parseDataIdAddress(reqBp.dataId);
-        const size =
-          BreakpointManager.getSizeForDataBreakpoint(reqBp.dataId) ?? 2;
+        const size = this.getSize(reqBp.dataId);
         const bp = this.breakpoints.createDataBreakpoint(
           value,
           size,
@@ -132,5 +131,13 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
       displayValue,
       value: parseInt(displayValue),
     };
+  }
+
+  protected getBreakpointStorage(): BreakpointStorage {
+    return new BreakpointStorageMap();
+  }
+
+  protected getSize(id: string): number {
+    return this.getBreakpointStorage().getSize(id) ?? 2;
   }
 }

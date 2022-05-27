@@ -11,7 +11,7 @@ import {
 } from "@johanblumenberg/ts-mockito";
 
 import { GdbBreakpoint, GdbBreakpointType, GdbProxy } from "../src/gdb";
-import { BreakpointManager } from "../src/breakpointManager";
+import { BreakpointManager } from "../src/breakpoints";
 import Program from "../src/program";
 
 describe("Breakpoint Manager", () => {

@@ -1,6 +1,5 @@
 import { Mutex } from "./utils/mutex";
 import { DebugProtocol } from "@vscode/debugprotocol";
-import { logger } from "@vscode/debugadapter";
 import {
   GdbProxy,
   GdbBreakpoint,
@@ -10,14 +9,25 @@ import {
 import Program from "./program";
 import { isDisassembledFile } from "./disassembly";
 
-const accessTypes: Record<
-  DebugProtocol.DataBreakpointAccessType,
-  GdbBreakpointAccessType
-> = {
-  read: GdbBreakpointAccessType.READ,
-  write: GdbBreakpointAccessType.WRITE,
-  readWrite: GdbBreakpointAccessType.READWRITE,
-};
+export interface BreakpointStorage {
+  getSize(id: string): number | undefined;
+  setSize(id: string, size: number): void;
+  clear(): void;
+}
+
+export class BreakpointStorageMap implements BreakpointStorage {
+  private static map = new Map<string, number>();
+
+  getSize(id: string): number | undefined {
+    return BreakpointStorageMap.map.get(id);
+  }
+  setSize(id: string, size: number): void {
+    BreakpointStorageMap.map.set(id, size);
+  }
+  clear(): void {
+    BreakpointStorageMap.map = new Map<string, number>();
+  }
+}
 
 /**
  * Breakpoint manager
@@ -25,8 +35,6 @@ const accessTypes: Record<
  * Handles adding and removing breakpoints to program
  */
 export class BreakpointManager {
-  /** Size map */
-  private static sizes = new Map<string, number>();
   /** Default selection mask for exception : each bit is a exception code */
   static readonly DEFAULT_EXCEPTION_MASK = 0b111100;
   /** exception mask */
@@ -432,26 +440,13 @@ export class BreakpointManager {
       this.breakpointLock = undefined;
     }
   }
-
-  // Breakpoint sizes TODO
-
-  public static getSizeForDataBreakpoint(id: string): number | undefined {
-    const size = BreakpointManager.sizes.get(id);
-    logger.log(
-      `[BreakpointManager] GET size of DataBreakpoint id: ${id}=${size}`
-    );
-    return size;
-  }
-
-  public static setSizeForDataBreakpoint(id: string, size: number) {
-    logger.log(
-      `[BreakpointManager] SET size of DataBreakpoint id: ${id}=${size}`
-    );
-    BreakpointManager.sizes.set(id, size);
-  }
-
-  public static removeSizeForDataBreakpoint(id: string) {
-    logger.log(`[BreakpointManager] Removing DataBreakpoint id: ${id}`);
-    BreakpointManager.sizes.delete(id);
-  }
 }
+
+const accessTypes: Record<
+  DebugProtocol.DataBreakpointAccessType,
+  GdbBreakpointAccessType
+> = {
+  read: GdbBreakpointAccessType.READ,
+  write: GdbBreakpointAccessType.WRITE,
+  readWrite: GdbBreakpointAccessType.READWRITE,
+};

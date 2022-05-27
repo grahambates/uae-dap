@@ -16,7 +16,7 @@ import * as fs from "fs/promises";
 import { mkdir } from "temp";
 
 import { GdbProxy, GdbHaltStatus, GdbThread } from "./gdb";
-import { BreakpointManager } from "./breakpointManager";
+import { BreakpointManager } from "./breakpoints";
 import { base64ToHex, hexToBase64, NumberFormat } from "./utils/strings";
 import { Emulator } from "./emulator";
 import Program, { MemoryFormat, SourceConstantResolver } from "./program";

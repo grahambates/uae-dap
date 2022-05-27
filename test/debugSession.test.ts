@@ -25,7 +25,7 @@ import {
   GdbBreakpoint,
   GdbBreakpointType,
 } from "../src/gdb";
-import { BreakpointManager } from "../src/breakpointManager";
+import { BreakpointManager } from "../src/breakpoints";
 import { Emulator } from "../src/emulator";
 
 type Callback = (...args: unknown[]) => void;
