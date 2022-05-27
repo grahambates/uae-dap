@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Custom command for disassembled file contents
 
+### Fixed
+
+- Expressions in dbgasm addresses
+- CPU dbgasm formatting
+
 ## [0.3.0] - 2022-05-27
 
 ### Changed
