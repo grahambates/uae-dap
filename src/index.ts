@@ -6,3 +6,4 @@ export * from "./disassembly/copperDisassembler";
 export * from "./disassembly/disassembledFile";
 export * from "./customRegisters";
 export { BreakpointStorage } from "./breakpoints";
+export { MemoryFormat } from "./program";

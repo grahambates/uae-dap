@@ -52,6 +52,8 @@ export interface LaunchRequestArguments
   exceptionMask?: number;
   /** Options for vasm assembler */
   vasm?: VasmOptions;
+  /** Display format per context */
+  memoryFormats?: Record<string, MemoryFormat>;
 }
 
 export interface VariableDisplayFormatRequest {
@@ -60,6 +62,17 @@ export interface VariableDisplayFormatRequest {
   /** Requested format */
   variableDisplayFormat: NumberFormat;
 }
+
+export const defaultMemoryFormats = {
+  watch: {
+    length: 104,
+    wordLength: 2,
+  },
+  hover: {
+    length: 24,
+    wordLength: 2,
+  },
+};
 
 export class FsUAEDebugSession extends DebugSession {
   /** Timeout of the mutex */
@@ -253,6 +266,7 @@ export class FsUAEDebugSession extends DebugSession {
       emulatorOptions = [],
       emulatorWorkingDir,
       trace = false,
+      memoryFormats,
     } = args;
 
     try {
@@ -270,7 +284,10 @@ export class FsUAEDebugSession extends DebugSession {
         this.gdb,
         fileInfo,
         this.getSourceConstantResolver(args),
-        this.getMemoryFormats()
+        {
+          ...defaultMemoryFormats,
+          ...memoryFormats,
+        }
       );
 
       this.breakpoints.setProgram(this.program);
@@ -332,24 +349,6 @@ export class FsUAEDebugSession extends DebugSession {
     args: LaunchRequestArguments
   ): SourceConstantResolver {
     return new VasmSourceConstantResolver(args.vasm);
-  }
-
-  /**
-   * Get default formats for evalated memory display
-   *
-   * Intended to be overridden to read from config in vscode
-   */
-  protected getMemoryFormats(): Record<string, MemoryFormat> {
-    return {
-      watch: {
-        length: 104,
-        wordLength: 2,
-      },
-      hover: {
-        length: 24,
-        wordLength: 2,
-      },
-    };
   }
 
   protected sendHelpText() {
