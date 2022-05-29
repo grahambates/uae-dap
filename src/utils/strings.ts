@@ -189,22 +189,43 @@ export enum NumberFormat {
   DECIMAL,
   BINARY,
   HEXADECIMAL,
-  MEMORY,
-  ADDRESS,
+  DECIMAL_WORD,
+  DECIMAL_BYTE,
+  BINARY_WORD,
+  BINARY_BYTE,
+  HEXADECIMAL_WORD,
+  HEXADECIMAL_BYTE,
+  // TODO: signed/unsigned
 }
 
 export function formatNumber(
   value: number,
   displayFormat = NumberFormat.DECIMAL
 ): string {
-  if (displayFormat === NumberFormat.HEXADECIMAL) {
-    return formatHexadecimal(value);
-  } else if (displayFormat === NumberFormat.BINARY) {
-    return formatBinary(value);
-  } else if (displayFormat === NumberFormat.ADDRESS) {
-    return formatAddress(value);
-  } else {
-    return formatDecimal(value);
+  switch (displayFormat) {
+    // Hex:
+    case NumberFormat.HEXADECIMAL:
+      return formatHexadecimal(value);
+    case NumberFormat.HEXADECIMAL_WORD:
+      return formatHexadecimal(value & 0xffff, 4);
+    case NumberFormat.HEXADECIMAL_BYTE:
+      return formatHexadecimal(value & 0xff, 2);
+    // Binary:
+    case NumberFormat.BINARY:
+      return formatBinary(value);
+    case NumberFormat.BINARY_WORD:
+      return formatBinary(value & 0xffff, 16);
+    case NumberFormat.BINARY_BYTE:
+      return formatBinary(value & 0xff, 8);
+    // Decimal:
+    case NumberFormat.DECIMAL:
+      return formatDecimal(value);
+    case NumberFormat.DECIMAL_WORD:
+      return formatDecimal(value & 0xffff);
+    case NumberFormat.DECIMAL_BYTE:
+      return formatDecimal(value & 0xff);
+    default:
+      return formatDecimal(value);
   }
 }
 

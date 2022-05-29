@@ -9,7 +9,11 @@ import {
 import { basename } from "path";
 import { parse, eval as expEval } from "expression-eval";
 
-import { customRegisterAddresses } from "./customRegisters";
+import {
+  customRegisterAddresses,
+  customRegisterNames,
+  CUSTOM_BASE,
+} from "./customRegisters";
 import {
   disassemble,
   disassembleCopper,
@@ -35,6 +39,7 @@ export enum ScopeType {
   Symbols,
   StatusRegister,
   Expression,
+  Custom,
 }
 
 export interface ScopeReference {
@@ -155,6 +160,11 @@ class Program {
       new Scope(
         "Symbols",
         this.scopes.create({ type: ScopeType.Symbols, frameId }),
+        true
+      ),
+      new Scope(
+        "Custom",
+        this.scopes.create({ type: ScopeType.Custom, frameId }),
         true
       ),
     ];
@@ -432,6 +442,8 @@ class Program {
         return this.getSegmentVariables();
       case ScopeType.Symbols:
         return this.getSymbolVariables();
+      case ScopeType.Custom:
+        return this.getCustomVariables(frameId);
     }
     throw new Error("Invalid reference");
   }
@@ -507,21 +519,232 @@ class Program {
       }));
   }
 
+  private async getCustomVariables(
+    frameId: number
+  ): Promise<DebugProtocol.Variable[]> {
+    // Read memory starting at $dff000 and chunk into words
+    await this.gdb.waitConnected();
+    const memory = await this.gdb.getMemory(CUSTOM_BASE, 0x1fe);
+    const chunks = chunk(memory.toString(), 4);
+
+    // Unwanted / duplicate registers to skip
+    const ignorenames = [
+      "RESERVED",
+      // Duplicate {REGNAME}R/{REGNAME}W - Just show the read value
+      "HHPOSW",
+      "VHPOSW",
+      "VPOSW",
+      // Duplicate {REGNAME}/{REGNAME}R - emulator is able to read from the actual register
+      "ADKCONR",
+      "DMACONR",
+      "DSKDATR",
+      "INTENAR",
+      "POTGOR",
+      "SERDATR",
+    ];
+
+    // Build key/value map of all custom register variables
+    const values = chunks.reduce<Record<string, string>>(
+      (acc, value, index) => {
+        const address = index * 2 + CUSTOM_BASE;
+        const name = customRegisterNames[address];
+        if (name && !ignorenames.includes(name)) {
+          acc[name] = value;
+        }
+        return acc;
+      },
+      {}
+    );
+
+    // Convert to variable objects
+    const variables: Record<string, DebugProtocol.Variable> = {};
+    for (let key in values) {
+      const address = customRegisterAddresses[key];
+      if (!address) continue;
+
+      const memoryReference = address.toString(16);
+      let value: string | undefined;
+
+      const isHigh = key.endsWith("H");
+      const isLow = key.endsWith("L");
+      const lowKey = key.replace(/H$/, "L");
+      const highKey = key.replace(/L$/, "H");
+
+      if (isHigh && values[lowKey]) {
+        // Combine high/low words into single longword value
+        const num = parseInt(values[key] + values[lowKey], 16);
+        key = key.replace(/H$/, "");
+        value = this.formatVariable(key, num, NumberFormat.HEXADECIMAL);
+      } else if (!(isLow && values[highKey])) {
+        // Ignore keys for low register which will have been combined
+        const num = parseInt(values[key], 16);
+        const format = key.match(/[FL]WM$/)
+          ? NumberFormat.BINARY_WORD // Binary for masks
+          : NumberFormat.HEXADECIMAL_WORD;
+        value = this.formatVariable(key, num, format);
+      }
+
+      if (value) {
+        variables[key] = {
+          name: key,
+          value,
+          type: "register",
+          variablesReference: 0,
+          memoryReference,
+        };
+      }
+    }
+
+    // Simple registers with no nesting
+    const singleRegs: DebugProtocol.Variable[] = Object.keys(variables)
+      .filter(
+        (key) => !key.match(/^((AUD|BPL|BPLCON|COLOR|SPR)[0-9]|BLT[A-D])/)
+      )
+      .map((name) => variables[name]);
+
+    // Group numbered registers/sets as arrays with their own variablesReference:
+
+    // Get all variables starting with a prefix and unprefix the name property
+    const getPrefixed = (prefix: RegExp, replace: string | RegExp = prefix) =>
+      Object.keys(variables)
+        .filter((key) => key.match(prefix))
+        .map((name) => ({
+          ...variables[name],
+          name: name.replace(replace, ""),
+        }));
+
+    // COLORXX
+    const colors = getPrefixed(/^COLOR\d/, "COLOR");
+    const colorsScope = this.scopes.create({ type: ScopeType.Custom, frameId });
+    this.referencedVariables.set(colorsScope, colors);
+
+    // BPLCONX
+    const bplCons = getPrefixed(/^BPLCON\d/, "BPLCON");
+    const bplConScope = this.scopes.create({ type: ScopeType.Custom, frameId });
+    this.referencedVariables.set(bplConScope, bplCons);
+
+    // BLTX
+    const blt: DebugProtocol.Variable[] = [];
+    for (const i of ["A", "B", "C", "D"]) {
+      const vars = getPrefixed(new RegExp("BLT" + i));
+      const scope = this.scopes.create({ type: ScopeType.Custom, frameId });
+      this.referencedVariables.set(scope, vars);
+      blt.push({
+        name: i,
+        type: "array",
+        value: "Channel " + i,
+        variablesReference: scope,
+      });
+    }
+    const bltScope = this.scopes.create({ type: ScopeType.Custom, frameId });
+    this.referencedVariables.set(bltScope, blt);
+
+    // AUDX
+    const aud: DebugProtocol.Variable[] = [];
+    for (let i = 0; i < 4; i++) {
+      const vars = getPrefixed(new RegExp("AUD" + i));
+      const scope = this.scopes.create({ type: ScopeType.Custom, frameId });
+      this.referencedVariables.set(scope, vars);
+      aud.push({
+        name: i.toString(),
+        type: "array",
+        value: "Channel " + i,
+        variablesReference: scope,
+      });
+    }
+    const audScope = this.scopes.create({ type: ScopeType.Custom, frameId });
+    this.referencedVariables.set(audScope, aud);
+
+    // BPLX
+    const bpl: DebugProtocol.Variable[] = [];
+    for (let i = 1; i < 9; i++) {
+      const vars = getPrefixed(new RegExp("BPL" + i));
+      const scope = this.scopes.create({ type: ScopeType.Custom, frameId });
+      this.referencedVariables.set(scope, vars);
+      bpl.push({
+        name: i.toString(),
+        type: "array",
+        value: "Bitplane " + i,
+        variablesReference: scope,
+      });
+    }
+    const bplScope = this.scopes.create({ type: ScopeType.Custom, frameId });
+    this.referencedVariables.set(bplScope, bpl);
+
+    // SPRX
+    const spr: DebugProtocol.Variable[] = [];
+    for (let i = 0; i < 4; i++) {
+      const vars = getPrefixed(new RegExp("SPR" + i));
+      const scope = this.scopes.create({ type: ScopeType.Custom, frameId });
+      this.referencedVariables.set(scope, vars);
+      spr.push({
+        name: i.toString(),
+        type: "array",
+        value: "Sprite " + i,
+        variablesReference: scope,
+      });
+    }
+    const sprScope = this.scopes.create({ type: ScopeType.Custom, frameId });
+    this.referencedVariables.set(sprScope, spr);
+
+    return [
+      ...singleRegs,
+      // Base variables for groups
+      {
+        name: "COLORXX",
+        type: "array",
+        value: "Colors",
+        variablesReference: colorsScope,
+      },
+      {
+        name: "AUDX",
+        type: "array",
+        value: "Audio channels",
+        variablesReference: audScope,
+      },
+      {
+        name: "BPLCONX",
+        type: "array",
+        value: "Bitplane control",
+        variablesReference: bplConScope,
+      },
+      {
+        name: "BLTX",
+        type: "array",
+        value: "Blitter channels",
+        variablesReference: bltScope,
+      },
+      {
+        name: "BPLX",
+        type: "array",
+        value: "Bitplanes",
+        variablesReference: bplScope,
+      },
+      {
+        name: "SPRX",
+        type: "array",
+        value: "Sprites",
+        variablesReference: sprScope,
+      },
+    ].sort((a, b) => (a.name > b.name ? 1 : -1));
+  }
+
   /**
    * Set the value of a variable
    *
    * Only registers are supported.
    */
-  public setVariable(
+  public async setVariable(
     variablesReference: number,
     name: string,
     value: string
   ): Promise<string> {
     const scopeRef = this.scopes.get(variablesReference);
-    if (scopeRef?.type !== ScopeType.Registers) {
-      throw new Error("This variable cannot be set");
+    switch (scopeRef?.type) {
+      case ScopeType.Registers:
+        return this.gdb.setRegister(name, value);
     }
-    return this.gdb.setRegister(name, value);
+    throw new Error("This variable cannot be set");
   }
 
   // Variable formatting:
