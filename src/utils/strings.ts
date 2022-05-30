@@ -4,16 +4,11 @@
  * @param n Array of check elements
  */
 export function chunk(str: string, n: number): string[] {
-  const ret = [];
-  const maxCount = str.length - n - 1;
-  let i;
-  for (i = 0; i < maxCount; i += n) {
-    ret.push(str.substring(i, n + i));
+  const out: string[] = [];
+  for (let i = 0; i < str.length; i += n) {
+    out.push(str.substring(i, i + n));
   }
-  if (str.length - i > 0) {
-    ret.push(str.substring(i));
-  }
-  return ret;
+  return out;
 }
 
 /**
@@ -113,7 +108,7 @@ export function asciiToHex(asciiString: string): string {
 export function hexToBytes(hex: string): Array<number> {
   const bytes = new Array<number>();
   for (let c = 0; c < hex.length; c += 2) {
-    bytes.push(parseInt(hex.substr(c, 2), 16));
+    bytes.push(parseInt(hex.substring(c, c + 2), 16));
   }
   return bytes;
 }
@@ -169,8 +164,9 @@ export function compareStringsLowerCase(
   }
 }
 
-export function formatHexadecimal(address: number, pad = 8) {
-  return "0x" + address.toString(16).padStart(pad, "0");
+export function formatHexadecimal(value: number, pad = 8) {
+  const prefix = value < 0 ? "-0x" : "0x";
+  return prefix + Math.abs(value).toString(16).padStart(pad, "0");
 }
 
 export function formatBinary(value: number, pad = 32): string {
@@ -190,12 +186,15 @@ export enum NumberFormat {
   BINARY,
   HEXADECIMAL,
   DECIMAL_WORD,
+  DECIMAL_WORD_SIGNED,
   DECIMAL_BYTE,
+  DECIMAL_BYTE_SIGNED,
   BINARY_WORD,
   BINARY_BYTE,
   HEXADECIMAL_WORD,
+  HEXADECIMAL_WORD_SIGNED,
   HEXADECIMAL_BYTE,
-  // TODO: signed/unsigned
+  HEXADECIMAL_BYTE_SIGNED,
 }
 
 export function formatNumber(
@@ -203,13 +202,6 @@ export function formatNumber(
   displayFormat = NumberFormat.DECIMAL
 ): string {
   switch (displayFormat) {
-    // Hex:
-    case NumberFormat.HEXADECIMAL:
-      return formatHexadecimal(value);
-    case NumberFormat.HEXADECIMAL_WORD:
-      return formatHexadecimal(value & 0xffff, 4);
-    case NumberFormat.HEXADECIMAL_BYTE:
-      return formatHexadecimal(value & 0xff, 2);
     // Binary:
     case NumberFormat.BINARY:
       return formatBinary(value);
@@ -217,13 +209,36 @@ export function formatNumber(
       return formatBinary(value & 0xffff, 16);
     case NumberFormat.BINARY_BYTE:
       return formatBinary(value & 0xff, 8);
+    // Hex:
+    case NumberFormat.HEXADECIMAL:
+      return formatHexadecimal(value);
+    case NumberFormat.HEXADECIMAL_WORD:
+      return formatHexadecimal(value & 0xffff, 4);
+    case NumberFormat.HEXADECIMAL_WORD_SIGNED: {
+      const v = value & 0xffff;
+      return formatHexadecimal(v >= 0x8000 ? v - 0x10000 : v, 4);
+    }
+    case NumberFormat.HEXADECIMAL_BYTE:
+      return formatHexadecimal(value & 0xff, 2);
+    case NumberFormat.HEXADECIMAL_BYTE_SIGNED: {
+      const v = value & 0xff;
+      return formatHexadecimal(v >= 0x80 ? v - 0x100 : v, 2);
+    }
     // Decimal:
     case NumberFormat.DECIMAL:
       return formatDecimal(value);
     case NumberFormat.DECIMAL_WORD:
       return formatDecimal(value & 0xffff);
+    case NumberFormat.DECIMAL_WORD_SIGNED: {
+      const v = value & 0xffff;
+      return formatDecimal(v >= 0x8000 ? v - 0x10000 : v);
+    }
     case NumberFormat.DECIMAL_BYTE:
       return formatDecimal(value & 0xff);
+    case NumberFormat.DECIMAL_BYTE_SIGNED: {
+      const v = value & 0xff;
+      return formatDecimal(v >= 0x80 ? v - 0x100 : v);
+    }
     default:
       return formatDecimal(value);
   }
