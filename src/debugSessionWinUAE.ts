@@ -14,6 +14,7 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
     const thread = this.gdb.getCurrentCpuThread();
     if (thread) {
       if (stopOnEntry) {
+        this.stoppedThreads[0] = true;
         await this.gdb.stepIn(thread);
         await this.breakpoints.sendAllPendingBreakpoints();
       } else {
