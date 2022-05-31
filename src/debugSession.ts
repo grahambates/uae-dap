@@ -108,11 +108,15 @@ export class FsUAEDebugSession extends DebugSession {
     this.setDebuggerColumnsStartAt1(false);
 
     this.emulator = new Emulator();
-    this.gdb = new GdbProxy();
+    this.gdb = this.createGdbProxy();
     this.gdb.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
     this.initProxy();
     this.breakpoints = new BreakpointManager(this.gdb);
     this.breakpoints.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
+  }
+
+  protected createGdbProxy(): GdbProxy {
+    return new GdbProxy();
   }
 
   /**

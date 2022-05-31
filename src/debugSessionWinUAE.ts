@@ -6,7 +6,7 @@ import { ScopeType } from "./program";
 
 export class WinUAEDebugSession extends FsUAEDebugSession {
   protected createGdbProxy(): GdbProxy {
-    return new GdbProxyWinUAE(undefined);
+    return new GdbProxyWinUAE();
   }
 
   protected async startProgram(_: string, stopOnEntry: boolean): Promise<void> {
