@@ -1,5 +1,6 @@
 import { FileInfo } from "../src/fileInfo";
 import * as Path from "path";
+import { normalize } from "../src/utils/files";
 
 const FIXTURES_DIR = Path.join(__dirname, "fixtures");
 const pathReplacements = {
@@ -25,7 +26,7 @@ describe("File info", function () {
   it("Should resolve the line number", async function () {
     const di = await FileInfo.create(programFilename, pathReplacements);
     await expect(di.findLineAtLocation(0, 4)).resolves.toEqual({
-      filename: FIXTURES_DIR + Path.sep + "gencop.s",
+      filename: normalize(FIXTURES_DIR + Path.sep + "gencop.s"),
       lineNumber: 33,
       lineText:
         "              clr.l      d0                      ; les registres sont des long - il faut les nettoyer avec un .l",
@@ -45,7 +46,7 @@ describe("File info", function () {
     );
     const di = await FileInfo.create(programFilename, {}, [FIXTURES_DIR]);
     await expect(di.findLineAtLocation(0, 1024)).resolves.toEqual({
-      filename: FIXTURES_DIR + Path.sep + "hello.c",
+      filename: normalize(FIXTURES_DIR + Path.sep + "hello.c"),
       lineNumber: 9,
       lineText: '        printf("10 * %d = %d\\n", i, mul_by_ten(i));',
     });

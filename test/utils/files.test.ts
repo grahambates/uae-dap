@@ -12,8 +12,9 @@ describe("files", () => {
       expect(areSameSourceFileNames("b", "b")).toBe(true);
     });
 
-    it("returns false for different case", () => {
-      expect(areSameSourceFileNames("/b/c", "/b/C")).toBe(false);
+    it("returns platform appropriate value for different case", () => {
+      const isCaseSensitive = process.platform === "win32";
+      expect(areSameSourceFileNames("/b/c", "/b/C")).toBe(isCaseSensitive);
     });
 
     it("returns true for relative vs absolute", () => {
