@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2022-05-31
+
+### Added
+
+- Custom registers in scope
+- Additional number formats
+
+### Fixed
+
+- WinUAE support
+
 ## [0.4.0] - 2022-05-28
 
 ### Changed
