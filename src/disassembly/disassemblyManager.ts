@@ -157,13 +157,7 @@ export class DisassemblyManager {
     offset: number | undefined,
     isCopper: boolean
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    let address: number | undefined;
-    if (isCopper && (addressExpression === "1" || addressExpression === "2")) {
-      // Retrieve the copper address
-      address = await this.getCopperAddress(parseInt(addressExpression));
-    } else {
-      address = await this.program.evaluate(addressExpression);
-    }
+    let address = await this.evaluateAddress(addressExpression, isCopper);
     if (address === undefined) {
       throw new Error("Unable to resolve address expression void returned");
     }
@@ -207,7 +201,10 @@ export class DisassemblyManager {
       } else {
         // Path from outside segments
         if (dAsmFile.memoryReference && dAsmFile.instructionCount) {
-          const address = await this.program.evaluate(dAsmFile.memoryReference);
+          const address = await this.evaluateAddress(
+            dAsmFile.memoryReference,
+            dAsmFile.copper
+          );
           instructions = await this.disassembleAddress(
             address,
             dAsmFile.instructionCount,
@@ -247,6 +244,15 @@ export class DisassemblyManager {
       );
     }
     return index + 1;
+  }
+
+  private evaluateAddress(addressExpression: string, isCopper?: boolean) {
+    if (isCopper && (addressExpression === "1" || addressExpression === "2")) {
+      // Retrieve the copper address
+      return this.getCopperAddress(parseInt(addressExpression));
+    } else {
+      return this.program.evaluate(addressExpression);
+    }
   }
 
   private async getCopperAddress(copperIndex: number): Promise<number> {
