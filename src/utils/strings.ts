@@ -247,3 +247,8 @@ export function formatNumber(
 export function splitLines(value: string): string[] {
   return value.split(/\r?\n/g);
 }
+
+export function bitValue(num: number, hi: number, lo = hi): number {
+  const mask = (((-1 << (hi - lo + 1)) ^ -1) << lo) >>> 0;
+  return (num & mask) >> lo;
+}

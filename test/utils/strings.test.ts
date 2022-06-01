@@ -8,6 +8,7 @@ import {
   hexUTF8StringToUTF8,
   hexToBytes,
   chunk,
+  bitValue,
 } from "../../src/utils/strings";
 
 describe("strings", () => {
@@ -165,6 +166,13 @@ describe("strings", () => {
     it("formats a positive value as signed decimal byte", () => {
       const result = formatNumber(0x7f, NumberFormat.DECIMAL_BYTE_SIGNED);
       expect(result).toBe("127");
+    });
+  });
+
+  describe("bitValue", () => {
+    it("gets a value from specified bit range", () => {
+      const result = bitValue(0b0001100, 3, 2);
+      expect(result).toBe(3);
     });
   });
 });

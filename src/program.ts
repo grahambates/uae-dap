@@ -24,6 +24,7 @@ import {
 import { GdbProxy, GdbSegment, GdbStackPosition, GdbThread } from "./gdb";
 import { FileInfo, LineInfo, SegmentLocation } from "./fileInfo";
 import {
+  bitValue,
   chunk,
   compareStringsLowerCase,
   formatAddress,
@@ -556,7 +557,217 @@ class Program {
       {}
     );
 
-    // Convert to variable objects
+    // Fields for registers which contain values in specific bytes ranges:
+    const fields: Record<string, number> = {
+      ADKCON: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      BEAMCON0: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      BLTSIZE: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      BPLCON0: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      BPLCON1: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      BPLCON2: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      BPLCON3: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      BPLCON4: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      CLXCON: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      CLXCON2: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      COPCON: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      DDFSTRT: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      DDFSTOP: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      DIWSTRT: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      DIWSTOP: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      DMACON: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      INTENA: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR0POS: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR0CTL: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR1POS: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR1CTL: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR2POS: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR2CTL: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR3POS: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR3CTL: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR4POS: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR4CTL: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR5POS: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR5CTL: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR6POS: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR6CTL: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR7POS: this.scopes.create({ type: ScopeType.Custom, frameId }),
+      SPR7CTL: this.scopes.create({ type: ScopeType.Custom, frameId }),
+    };
+
+    this.referencedVariables.set(fields.ADKCON, [
+      this.byteReg(values.ADKCON, "PRECOMP", 14, 13),
+      this.boolReg(values.ADKCON, "MFMPREC", 12),
+      this.boolReg(values.ADKCON, "UARTBRK", 11),
+      this.boolReg(values.ADKCON, "WORDSYNC", 10),
+      this.boolReg(values.ADKCON, "MSBSYNC", 9),
+      this.boolReg(values.ADKCON, "FAST", 8),
+      this.boolReg(values.ADKCON, "USE3PN", 7),
+      this.boolReg(values.ADKCON, "USE2P3", 6),
+      this.boolReg(values.ADKCON, "USE1P2", 5),
+      this.boolReg(values.ADKCON, "USE0P1", 4),
+      this.boolReg(values.ADKCON, "USE3VN", 3),
+      this.boolReg(values.ADKCON, "USE2V3", 2),
+      this.boolReg(values.ADKCON, "USE1V2", 1),
+      this.boolReg(values.ADKCON, "USE0V1", 0),
+    ]);
+    this.referencedVariables.set(fields.BEAMCON0, [
+      this.boolReg(values.BEAMCON0, "HARDDIS", 14),
+      this.boolReg(values.BEAMCON0, "LPENDIS", 13),
+      this.boolReg(values.BEAMCON0, "VARVBEN", 12),
+      this.boolReg(values.BEAMCON0, "LOLDIS", 11),
+      this.boolReg(values.BEAMCON0, "CSCBEN", 10),
+      this.boolReg(values.BEAMCON0, "VARVSYEN", 9),
+      this.boolReg(values.BEAMCON0, "VARHSYEN", 8),
+      this.boolReg(values.BEAMCON0, "VARBEAMEN", 7),
+      this.boolReg(values.BEAMCON0, "DUAL", 6),
+      this.boolReg(values.BEAMCON0, "PAL", 5),
+      this.boolReg(values.BEAMCON0, "VARCSYEN", 4),
+      this.boolReg(values.BEAMCON0, "CSYTRUE", 2),
+      this.boolReg(values.BEAMCON0, "VSYTRUE", 1),
+      this.boolReg(values.BEAMCON0, "HSYTRUE", 0),
+    ]);
+    this.referencedVariables.set(fields.BLTSIZE, [
+      this.wordReg(values.BLTSIZE, "H", 15, 6),
+      this.byteReg(values.BLTSIZE, "W", 5, 0),
+    ]);
+    this.referencedVariables.set(fields.BPLCON0, [
+      this.boolReg(values.BPLCON0, "HIRES", 15),
+      this.byteReg(values.BPLCON0, "BPU", 14, 12),
+      this.boolReg(values.BPLCON0, "HOMOD", 11),
+      this.boolReg(values.BPLCON0, "DBLPF", 10),
+      this.boolReg(values.BPLCON0, "COLOR", 9),
+      this.boolReg(values.BPLCON0, "GAUD", 8),
+      this.boolReg(values.BPLCON0, "UHRES", 7),
+      this.boolReg(values.BPLCON0, "SHRES", 6),
+      this.boolReg(values.BPLCON0, "BYPASS", 5),
+      this.boolReg(values.BPLCON0, "BPU2", 4), // TODO: combine?
+      this.boolReg(values.BPLCON0, "LPEN", 3),
+      this.boolReg(values.BPLCON0, "LACE", 2),
+      this.boolReg(values.BPLCON0, "ERSY", 1),
+      this.boolReg(values.BPLCON0, "ECSENA", 0),
+    ]);
+    this.referencedVariables.set(fields.BPLCON1, [
+      // TODO: upper bytes
+      this.byteReg(values.BPLCON1, "PF2H", 7, 4),
+      this.byteReg(values.BPLCON1, "PF1H", 3, 0),
+    ]);
+    this.referencedVariables.set(fields.BPLCON2, [
+      this.byteReg(values.BPLCON2, "ZDBPSEL0", 14, 12),
+      this.boolReg(values.BPLCON2, "ZDBPEN", 11),
+      this.boolReg(values.BPLCON2, "ZDCTEN", 10),
+      this.boolReg(values.BPLCON2, "KILLEHB", 9),
+      this.boolReg(values.BPLCON2, "RDRAM", 8),
+      this.boolReg(values.BPLCON2, "SOGEN", 7),
+      this.boolReg(values.BPLCON2, "PF2PRI", 6),
+      this.byteReg(values.BPLCON2, "PF2P", 4, 3),
+      this.byteReg(values.BPLCON2, "PF1P", 2, 0),
+    ]);
+    this.referencedVariables.set(fields.BPLCON3, [
+      this.byteReg(values.BPLCON3, "BANK", 15, 13),
+      this.byteReg(values.BPLCON3, "PF2OF", 12, 10),
+      this.boolReg(values.BPLCON3, "LOCT", 9),
+      this.byteReg(values.BPLCON3, "SPRES", 7, 6),
+      this.boolReg(values.BPLCON3, "BRDRBLNK", 5),
+      this.boolReg(values.BPLCON3, "BRDNTRAN", 4),
+      this.boolReg(values.BPLCON3, "ZDCLKEN", 2),
+      this.boolReg(values.BPLCON3, "BRDSPRT", 1),
+      this.boolReg(values.BPLCON3, "EXTBLKEN", 0),
+    ]);
+    this.referencedVariables.set(fields.BPLCON4, [
+      this.byteReg(values.BPLCON4, "BPLAM", 15, 8),
+      this.byteReg(values.BPLCON4, "ESPRM", 7, 4), // << 4
+      this.byteReg(values.BPLCON4, "OSPRM", 3, 0),
+    ]);
+    this.referencedVariables.set(fields.CLXCON, [
+      this.boolReg(values.CLXCON, "ENSP7", 15),
+      this.boolReg(values.CLXCON, "ENSP5", 14),
+      this.boolReg(values.CLXCON, "ENSP3", 13),
+      this.boolReg(values.CLXCON, "ENSP1", 12),
+      this.boolReg(values.CLXCON, "ENBP6", 11),
+      this.boolReg(values.CLXCON, "ENBP5", 10),
+      this.boolReg(values.CLXCON, "ENBP4", 9),
+      this.boolReg(values.CLXCON, "ENBP3", 8),
+      this.boolReg(values.CLXCON, "ENBP2", 7),
+      this.boolReg(values.CLXCON, "ENBP1", 6),
+      this.boolReg(values.CLXCON, "MVBP6", 5),
+      this.boolReg(values.CLXCON, "MVBP5", 4),
+      this.boolReg(values.CLXCON, "MVBP4", 3),
+      this.boolReg(values.CLXCON, "MVBP3", 2),
+      this.boolReg(values.CLXCON, "MVBP2", 1),
+      this.boolReg(values.CLXCON, "MVBP1", 0),
+    ]);
+    this.referencedVariables.set(fields.CLXCON2, [
+      this.boolReg(values.CLXCON2, "ENBP8", 7),
+      this.boolReg(values.CLXCON2, "ENBP7", 6),
+      this.boolReg(values.CLXCON2, "MVBP8", 1),
+      this.boolReg(values.CLXCON2, "MVBP7", 0),
+    ]);
+    this.referencedVariables.set(fields.COPCON, [
+      this.boolReg(values.COPCON, "CDANG", 1),
+    ]);
+    this.referencedVariables.set(fields.DDFSTRT, [
+      this.wordReg(values.DDFSTRT, "H", 8, 0),
+    ]);
+    this.referencedVariables.set(fields.DDFSTRT, [
+      this.wordReg(values.DDFSTOP, "H", 8, 0),
+    ]);
+    this.referencedVariables.set(fields.DIWSTRT, [
+      this.byteReg(values.DIWSTRT, "V", 15, 8),
+      this.byteReg(values.DIWSTRT, "H", 7, 0), // << 2
+    ]);
+    this.referencedVariables.set(fields.DIWSTOP, [
+      this.byteReg(values.DIWSTOP, "V", 15, 8),
+      this.byteReg(values.DIWSTOP, "H", 7, 0), // << 2
+    ]);
+    this.referencedVariables.set(fields.DMACON, [
+      this.boolReg(values.DMACON, "BBUSY", 14),
+      this.boolReg(values.DMACON, "BZERO", 13),
+      this.boolReg(values.DMACON, "BLTPRI", 10),
+      this.boolReg(values.DMACON, "DMAEN", 9),
+      this.boolReg(values.DMACON, "BPLEN", 8),
+      this.boolReg(values.DMACON, "COPEN", 7),
+      this.boolReg(values.DMACON, "BLTEN", 6),
+      this.boolReg(values.DMACON, "SPREN", 5),
+      this.boolReg(values.DMACON, "DSKEN", 4),
+      this.boolReg(values.DMACON, "AUD3EN", 3),
+      this.boolReg(values.DMACON, "AUD2EN", 2),
+      this.boolReg(values.DMACON, "AUD1EN", 1),
+      this.boolReg(values.DMACON, "AUD0EN", 0),
+    ]);
+    this.referencedVariables.set(fields.INTENA, [
+      this.boolReg(values.INTENA, "INTEN", 14),
+      this.boolReg(values.INTENA, "EXTER", 13),
+      this.boolReg(values.INTENA, "DSKSYN", 12),
+      this.boolReg(values.INTENA, "RBF", 11),
+      this.boolReg(values.INTENA, "AUD3", 10),
+      this.boolReg(values.INTENA, "AUD2", 9),
+      this.boolReg(values.INTENA, "AUD1", 8),
+      this.boolReg(values.INTENA, "AUD0", 7),
+      this.boolReg(values.INTENA, "BLIT", 6),
+      this.boolReg(values.INTENA, "VERTB", 5),
+      this.boolReg(values.INTENA, "COPER", 4),
+      this.boolReg(values.INTENA, "PORTS", 3),
+      this.boolReg(values.INTENA, "SOFT", 2),
+      this.boolReg(values.INTENA, "DSKBLK", 1),
+      this.boolReg(values.INTENA, "TBE", 0),
+    ]);
+    for (let i = 0; i < 8; i++) {
+      const pos = `SPR${i}POS`;
+      this.referencedVariables.set(fields[pos], [
+        this.byteReg(values[pos], "SV", 15, 8),
+        this.byteReg(values[pos], "SH", 7, 0), // << 1
+      ]);
+      const ctl = `SPR${i}CTL`;
+      this.referencedVariables.set(fields[ctl], [
+        this.byteReg(values[ctl], "EV", 15, 8),
+        this.boolReg(values[ctl], "ATT", 7),
+        this.boolReg(values[ctl], "SV8", 2),
+        this.boolReg(values[ctl], "EV8", 1),
+        this.boolReg(values[ctl], "SH0", 0),
+      ]);
+    }
+
+    // Convert values to variable objects
     const variables: Record<string, DebugProtocol.Variable> = {};
     for (let key in values) {
       const address = customRegisterAddresses[key];
@@ -564,6 +775,9 @@ class Program {
 
       const memoryReference = address.toString(16);
       let value: string | undefined;
+
+      // Add fields if defined
+      const variablesReference = fields[key] ?? 0;
 
       const isHigh = key.endsWith("H");
       const isLow = key.endsWith("L");
@@ -588,8 +802,8 @@ class Program {
         variables[key] = {
           name: key,
           value,
-          type: "register",
-          variablesReference: 0,
+          type: variablesReference ? "array" : "register",
+          variablesReference,
           memoryReference,
         };
       }
@@ -673,7 +887,7 @@ class Program {
 
     // SPRX
     const spr: DebugProtocol.Variable[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       const vars = getPrefixed(new RegExp("SPR" + i));
       const scope = this.scopes.create({ type: ScopeType.Custom, frameId });
       this.referencedVariables.set(scope, vars);
@@ -1103,6 +1317,57 @@ class Program {
     lineNumber: number
   ): Promise<SegmentLocation | null> {
     return this.fileInfo.findLocationForLine(filename, lineNumber);
+  }
+
+  // Helpers to build variables from byte ranges:
+
+  private boolReg(
+    value: string,
+    name: string,
+    bit: number
+  ): DebugProtocol.Variable {
+    return {
+      name,
+      type: "register",
+      value: bitValue(parseInt(value, 16), bit) ? "1" : "0",
+      variablesReference: 0,
+    };
+  }
+
+  private byteReg(
+    value: string,
+    name: string,
+    hi: number,
+    lo: number
+  ): DebugProtocol.Variable {
+    return {
+      name,
+      type: "register",
+      value: this.formatVariable(
+        name,
+        bitValue(parseInt(value, 16), hi, lo),
+        NumberFormat.HEXADECIMAL_BYTE
+      ),
+      variablesReference: 0,
+    };
+  }
+
+  private wordReg(
+    value: string,
+    name: string,
+    hi: number,
+    lo: number
+  ): DebugProtocol.Variable {
+    return {
+      name,
+      type: "register",
+      value: this.formatVariable(
+        name,
+        bitValue(parseInt(value, 16), hi, lo),
+        NumberFormat.HEXADECIMAL_WORD
+      ),
+      variablesReference: 0,
+    };
   }
 }
 
