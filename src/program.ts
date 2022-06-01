@@ -485,13 +485,23 @@ class Program {
     // All other registers returned
     return registers
       .filter(({ name }) => !name.startsWith("SR_"))
-      .map(({ name, value }) => ({
-        name,
-        type: "register",
-        value: this.formatVariable(name, value),
-        variablesReference: name.startsWith("sr") ? srScope : 0, // Link SR to its properties
-        memoryReference: value.toString(),
-      }));
+      .map(({ name, value }) => {
+        let formatted = this.formatVariable(name, value);
+        // Add offset to address registers
+        if (name.startsWith("a") || name === "pc") {
+          const offset = this.symbolOffset(value);
+          if (offset) {
+            formatted += " " + offset;
+          }
+        }
+        return {
+          name,
+          type: "register",
+          value: formatted,
+          variablesReference: name.startsWith("sr") ? srScope : 0, // Link SR to its properties
+          memoryReference: value.toString(),
+        };
+      });
   }
 
   private getSegmentVariables(): DebugProtocol.Variable[] {
@@ -1368,6 +1378,30 @@ class Program {
       ),
       variablesReference: 0,
     };
+  }
+
+  /**
+   * Get symbol name and offset for address
+   */
+  private symbolOffset(address: number): string | null {
+    let symbolName;
+    let symbolAddress;
+    for (const [name, value] of this.symbols.entries()) {
+      if (value > address) break;
+      symbolName = name;
+      symbolAddress = value;
+    }
+    if (!symbolName || !symbolAddress) {
+      return null;
+    }
+    const offset = address - symbolAddress;
+    if (offset > 1024) {
+      return null;
+    }
+    if (offset > 0) {
+      symbolName += "+" + offset;
+    }
+    return symbolName;
   }
 }
 
