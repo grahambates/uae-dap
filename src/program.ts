@@ -964,9 +964,11 @@ class Program {
     value: string
   ): Promise<string> {
     const scopeRef = this.scopes.get(variablesReference);
+    const numValue = await this.evaluate(value);
     switch (scopeRef?.type) {
       case ScopeType.Registers:
-        return this.gdb.setRegister(name, value);
+        await this.gdb.setRegister(name, numValue.toString(16));
+        return this.formatVariable(name, numValue);
     }
     throw new Error("This variable cannot be set");
   }
@@ -981,7 +983,7 @@ class Program {
     value: number,
     defaultFormat: NumberFormat = NumberFormat.HEXADECIMAL
   ): string {
-    const format = this.variableFormatterMap.get(variableName) || defaultFormat;
+    const format = this.variableFormatterMap.get(variableName) ?? defaultFormat;
     return formatNumber(value, format);
   }
 
