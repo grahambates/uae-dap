@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Null coalesce for variable format
+- Missing type export and variable formats
+- Return formatted value for set variable
 
 ## [0.5.1] - 2022-06-01
 

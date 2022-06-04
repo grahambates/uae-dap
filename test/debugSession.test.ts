@@ -748,13 +748,13 @@ describe("Node Debug Adapter", () => {
     it("should set a variable value", async () => {
       const responseScopes: DebugProtocol.ScopesResponse =
         await dc.scopesRequest({ frameId: 0 });
-      when(gdbProxy.setRegister(anything(), anything())).thenResolve("af");
+      when(gdbProxy.setRegister(anything(), anything())).thenResolve("0xaf");
       const response = await dc.setVariableRequest({
         name: "example",
-        value: "af",
+        value: "0xaf",
         variablesReference: responseScopes.body.scopes[0].variablesReference,
       });
-      expect(response.body.value).toEqual("af");
+      expect(response.body.value).toEqual("0x000000af");
     });
   });
 
