@@ -491,7 +491,7 @@ class Program {
         if (name.startsWith("a") || name === "pc") {
           const offset = this.symbolOffset(value);
           if (offset) {
-            formatted += " " + offset;
+            formatted += ` (${offset})`;
           }
         }
         return {

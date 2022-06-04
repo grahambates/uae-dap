@@ -58,7 +58,7 @@ export interface LaunchRequestArguments
 
 export interface VariableDisplayFormatRequest {
   /** info of the variable */
-  variableInfo: { variable: { name: string; value: string } };
+  variableInfo: { variable: DebugProtocol.Variable };
   /** Requested format */
   variableDisplayFormat: NumberFormat;
 }
