@@ -15,9 +15,20 @@ import promiseRetry from "promise-retry";
 import * as fs from "fs/promises";
 import { mkdir } from "temp";
 
-import { GdbProxy, GdbHaltStatus, GdbThread } from "./gdb";
+import {
+  GdbProxy,
+  GdbHaltStatus,
+  GdbThread,
+  isSourceBreakpoint,
+  isDataBreakpoint,
+} from "./gdb";
 import { BreakpointManager } from "./breakpoints";
-import { base64ToHex, hexToBase64, NumberFormat } from "./utils/strings";
+import {
+  base64ToHex,
+  hexToBase64,
+  NumberFormat,
+  replaceAsync,
+} from "./utils/strings";
 import { Emulator } from "./emulator";
 import Program, { MemoryFormat, SourceConstantResolver } from "./program";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
@@ -153,10 +164,60 @@ export class FsUAEDebugSession extends DebugSession {
         this.sendStoppedEvent(threadId, "pause", false);
       }
     });
-    this.gdb.on("stopOnBreakpoint", (threadId) => {
-      // Only send breakpoint evens for running threads
-      if (!this.stoppedThreads[threadId]) {
+    this.gdb.on("stopOnBreakpoint", async (threadId) => {
+      // Only send breakpoint events for running threads
+      if (this.stoppedThreads[threadId]) {
+        return;
+      }
+      // Should we send a stop message to the client?
+      // May want to cancel for conditional or log breakpoints
+      let stop = true;
+
+      // Check for conditional or log breakpoints:
+
+      // Find the breakpoint that was hit
+      // first need to get the source line from the stack trace
+      const thread = await this.getThread(threadId);
+      const positions = await this.gdb.stack(thread);
+      assertIsDefined(this.program);
+      const [fr] = await this.program.getStackTrace(thread, positions);
+      // get the breakpoint at this source location:
+      const bp = this.breakpoints.findSourceBreakpoint(fr?.source, fr?.line);
+
+      if (bp && (isSourceBreakpoint(bp) || isDataBreakpoint(bp))) {
+        if (bp.logMessage) {
+          // Interpolate variables
+          const message = await replaceAsync(
+            bp.logMessage,
+            /\{[^}]+\}/g,
+            (match) => {
+              assertIsDefined(this.program);
+              return this.program
+                .evaluate(match.substring(1, match.length - 1), fr.id)
+                .then((v) => String(v))
+                .catch(() => "#error");
+            }
+          );
+          this.output(message + "\n");
+          stop = false;
+        } else if (bp.condition) {
+          const result = await this.program.evaluate(bp.condition, fr.id);
+          stop = !!result;
+        } else if (bp.hitCondition) {
+          const result = await this.program.evaluate(bp.hitCondition, fr.id);
+          if (++bp.hitCount === result) {
+            this.breakpoints.removeBreakpoint(bp);
+          } else {
+            stop = false;
+          }
+        }
+      }
+
+      // Send stop event or resume execution
+      if (stop) {
         this.sendStoppedEvent(threadId, "breakpoint", false);
+      } else {
+        this.gdb.continueExecution(thread);
       }
     });
     this.gdb.on("stopOnException", (_, threadId) => {
@@ -221,7 +282,9 @@ export class FsUAEDebugSession extends DebugSession {
     response.body = {
       ...response.body,
       supportsCompletionsRequest: true,
-      supportsConditionalBreakpoints: false,
+      supportsConditionalBreakpoints: true,
+      supportsHitConditionalBreakpoints: true,
+      supportsLogPoints: true,
       supportsConfigurationDoneRequest: false,
       supportsDataBreakpoints: true,
       supportsDisassembleRequest: true,
@@ -335,7 +398,7 @@ export class FsUAEDebugSession extends DebugSession {
       );
 
       // Load the program
-      this.output(`Starting program: ${program}`);
+      this.output(`Starting program: ${program}\n`);
       this.startProgram(program, stopOnEntry);
 
       this.sendResponse(response);
@@ -449,8 +512,8 @@ export class FsUAEDebugSession extends DebugSession {
       // set and verify breakpoint locations
       const breakpoints = args.breakpoints
         ? await Promise.all(
-            args.breakpoints.map(async ({ line }) => {
-              const bp = this.breakpoints.createBreakpoint(args.source, line);
+            args.breakpoints.map(async (reqBp) => {
+              const bp = this.breakpoints.createBreakpoint(args.source, reqBp);
               await this.breakpoints.setBreakpoint(bp);
               return bp;
             })
@@ -795,9 +858,9 @@ export class FsUAEDebugSession extends DebugSession {
     this.sendEvent(<DebugProtocol.StoppedEvent>{
       event: "stopped",
       body: {
-        reason: reason,
-        threadId: threadId,
-        preserveFocusHint: preserveFocusHint,
+        reason,
+        threadId,
+        preserveFocusHint,
         allThreadsStopped: true,
       },
     });

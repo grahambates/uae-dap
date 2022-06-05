@@ -45,18 +45,19 @@ function getRegistersString(): string {
 }
 
 function createBreakpoint(
-  breakpointId: number,
+  id: number,
   segmentId: number | undefined,
   offset: number,
   exceptionMask?: number
 ): GdbBreakpoint {
-  return {
-    id: breakpointId,
-    segmentId: segmentId,
-    offset: offset,
-    exceptionMask: exceptionMask,
+  return <GdbBreakpoint>{
+    id,
+    segmentId,
+    offset,
+    exceptionMask,
     verified: false,
-    breakpointType: GdbBreakpointType.SOURCE,
+    type: GdbBreakpointType.SOURCE,
+    hitCount: 0,
   };
 }
 

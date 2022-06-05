@@ -24,6 +24,7 @@ import {
   GdbAmigaSysThreadIdFsUAE,
   GdbBreakpoint,
   GdbBreakpointType,
+  isExceptionBreakpoint,
 } from "../src/gdb";
 import { BreakpointManager } from "../src/breakpoints";
 import { Emulator } from "../src/emulator";
@@ -141,7 +142,9 @@ describe("Node Debug Adapter", () => {
         expect(body?.supportsEvaluateForHovers).toBe(true);
         expect(body?.supportsStepBack).toBe(false);
         expect(body?.supportsRestartFrame).toBe(false);
-        expect(body?.supportsConditionalBreakpoints).toBe(false);
+        expect(body?.supportsConditionalBreakpoints).toBe(true);
+        expect(body?.supportsLogPoints).toBe(true);
+        expect(body?.supportsHitConditionalBreakpoints).toBe(true);
         expect(body?.supportsSetVariable).toBe(true);
       });
     });
@@ -777,7 +780,7 @@ describe("Node Debug Adapter", () => {
       });
       when(gdbProxy.setBreakpoint(anything())).thenCall(
         async (brp: GdbBreakpoint) => {
-          if (brp.exceptionMask === undefined) {
+          if (!isExceptionBreakpoint(brp)) {
             brp.verified = true;
             const cb = callbacks.get("breakpointValidated");
             if (cb) {
@@ -828,11 +831,12 @@ describe("Node Debug Adapter", () => {
       expect(response.success).toBeTruthy();
       const [bp] = capture(gdbProxy.removeBreakpoint).last();
       expect(bp).toEqual({
-        breakpointType: GdbBreakpointType.EXCEPTION,
+        type: GdbBreakpointType.EXCEPTION,
         exceptionMask: BreakpointManager.DEFAULT_EXCEPTION_MASK,
         id: 1,
         verified: false,
         offset: 0,
+        hitCount: 0,
       });
     });
   });

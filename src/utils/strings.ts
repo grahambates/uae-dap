@@ -260,3 +260,22 @@ export function bitValue(num: number, hi: number, lo = hi): number {
   const mask = (((-1 << (hi - lo + 1)) ^ -1) << lo) >>> 0;
   return (num & mask) >> lo;
 }
+
+/**
+ * String replace with async callback
+ */
+export async function replaceAsync(
+  str: string,
+  regex: RegExp,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  asyncFn: (match: string, ...args: any[]) => Promise<string>
+) {
+  const promises: Promise<string>[] = [];
+  str.replace(regex, (match, ...args) => {
+    const promise = asyncFn(match, ...args);
+    promises.push(promise);
+    return match;
+  });
+  const data = await Promise.all(promises);
+  return str.replace(regex, () => data.shift() as string);
+}

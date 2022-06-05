@@ -5,9 +5,18 @@ import {
   GdbBreakpoint,
   GdbBreakpointType,
   GdbBreakpointAccessType,
+  isSourceBreakpoint,
+  isExceptionBreakpoint,
+  GdbBreakpointException,
+  GdbBreakpointData,
+  GdbBreakpointInstruction,
+  GdbBreakpointTemporary,
+  isDataBreakpoint,
+  isInstructionBreakpoint,
 } from "./gdb";
 import Program from "./program";
 import { isDisassembledFile } from "./disassembly";
+import { normalize } from "./utils/files";
 
 export interface BreakpointStorage {
   getSize(id: string): number | undefined;
@@ -92,54 +101,52 @@ export class BreakpointManager {
    * @returns Added immediately?
    */
   public async setBreakpoint(bp: GdbBreakpoint): Promise<boolean> {
-    if (!this.gdbProxy.isConnected()) {
-      this.addPendingBreakpoint(bp);
-      return false;
-    }
-    const isData = bp.breakpointType === GdbBreakpointType.DATA;
-    const isInstruction = bp.breakpointType === GdbBreakpointType.INSTRUCTION;
-    const hasMask = bp.exceptionMask !== undefined;
-
     try {
-      if (bp.source && bp.line !== undefined && bp.id !== undefined) {
+      if (!this.gdbProxy.isConnected() || !this.program) {
+        throw new Error();
+      }
+      // Resolve source location
+      if (isSourceBreakpoint(bp)) {
         bp.verified = false;
         const path = bp.source.path ?? "";
 
-        if (!this.program) {
-          throw new Error("Program is not running");
-        }
-
-        if (!isDisassembledFile(path)) {
-          if (await this.addLocation(bp, path, bp.line)) {
-            await this.gdbProxy.setBreakpoint(bp);
-            this.breakpoints.push(bp);
-          } else {
-            throw new Error("Segment offset not resolved");
-          }
-        } else {
-          const name = bp.source.name ?? "";
-          const address = await this.program.getAddressForFileEditorLine(
-            name,
+        if (isDisassembledFile(path)) {
+          // Disassembly source
+          bp.offset = await this.program.getAddressForFileEditorLine(
+            bp.source.name ?? "",
             bp.line
           );
           bp.segmentId = undefined;
-          bp.offset = address;
-          await this.gdbProxy.setBreakpoint(bp);
-          this.breakpoints.push(bp);
+        } else {
+          // Regular source
+          const location = await this.program.findLocationForLine(
+            path,
+            bp.line
+          );
+          if (!location) {
+            throw new Error("Segment offset not resolved");
+          }
+          bp.segmentId = location.segmentId;
+          bp.offset = location.offset;
         }
-      } else if (hasMask || isData || isInstruction) {
-        await this.gdbProxy.setBreakpoint(bp);
-        if (!hasMask) {
-          this.breakpoints.push(bp);
-        }
-      } else {
+      } else if (
+        !isExceptionBreakpoint(bp) &&
+        !isDataBreakpoint(bp) &&
+        !isInstructionBreakpoint(bp)
+      ) {
         throw new Error("Breakpoint info incomplete");
       }
+
+      await this.gdbProxy.setBreakpoint(bp);
+      if (!isExceptionBreakpoint(bp)) {
+        this.breakpoints.push(bp);
+      }
+      return true;
     } catch (error) {
+      // Add as pending if any error encountered
       this.addPendingBreakpoint(bp, error instanceof Error ? error : undefined);
       return false;
     }
-    return true;
   }
 
   // Pending breakpoints:
@@ -158,6 +165,19 @@ export class BreakpointManager {
       breakpoint.message = err.message;
     }
     this.pendingBreakpoints.push(breakpoint);
+  }
+
+  /**
+   * Find the breakpoint corresponding to a source line
+   */
+  public findSourceBreakpoint(source?: DebugProtocol.Source, line?: number) {
+    return this.breakpoints.find(
+      (bp) =>
+        bp.source &&
+        source &&
+        this.isSameSource(bp.source, source) &&
+        bp.line === line
+    );
   }
 
   /**
@@ -204,41 +224,44 @@ export class BreakpointManager {
    */
   public createBreakpoint(
     source: DebugProtocol.Source,
-    line: number
+    reqBp: DebugProtocol.SourceBreakpoint
   ): GdbBreakpoint {
     return {
-      breakpointType: GdbBreakpointType.SOURCE,
+      ...reqBp,
+      type: GdbBreakpointType.SOURCE,
       id: this.nextBreakpointId++,
-      line,
       source,
       verified: false,
       offset: 0,
+      hitCount: 0,
     };
   }
 
   /**
    * Create a new temporary breakpoint object
    */
-  public createTemporaryBreakpoint(address: number): GdbBreakpoint {
+  public createTemporaryBreakpoint(address: number): GdbBreakpointTemporary {
     return {
-      breakpointType: GdbBreakpointType.TEMPORARY,
+      type: GdbBreakpointType.TEMPORARY,
       id: this.nextBreakpointId++,
       offset: address,
-      temporary: true,
       verified: false,
+      hitCount: 0,
     };
   }
 
   /**
    * Create a new instruction breakpoint object
    */
-  public createInstructionBreakpoint(address: number): GdbBreakpoint {
+  public createInstructionBreakpoint(
+    address: number
+  ): GdbBreakpointInstruction {
     return {
-      breakpointType: GdbBreakpointType.INSTRUCTION,
+      type: GdbBreakpointType.INSTRUCTION,
       id: this.nextBreakpointId++,
       offset: address,
-      temporary: false,
       verified: false,
+      hitCount: 0,
     };
   }
 
@@ -250,26 +273,29 @@ export class BreakpointManager {
     size: number,
     accessType: DebugProtocol.DataBreakpointAccessType = "readWrite",
     message?: string
-  ): GdbBreakpoint {
+  ): GdbBreakpointData {
     return {
-      breakpointType: GdbBreakpointType.DATA,
+      type: GdbBreakpointType.DATA,
       id: this.nextBreakpointId++,
       offset,
       verified: false,
-      size: size,
+      size,
       accessType: accessTypes[accessType],
       message,
       defaultMessage: message,
+      dataId: "",
+      hitCount: 0,
     };
   }
 
-  public createExceptionBreakpoint(): GdbBreakpoint {
+  public createExceptionBreakpoint(): GdbBreakpointException {
     return {
-      breakpointType: GdbBreakpointType.EXCEPTION,
+      type: GdbBreakpointType.EXCEPTION,
       id: this.nextBreakpointId++,
       exceptionMask: this.exceptionMask,
       verified: false,
       offset: 0,
+      hitCount: 0,
     };
   }
 
@@ -291,6 +317,21 @@ export class BreakpointManager {
     const breakpoint = this.createExceptionBreakpoint();
     try {
       await this.gdbProxy.removeBreakpoint(breakpoint);
+    } finally {
+      this.releaseLock();
+    }
+  }
+
+  /**
+   * Ask to remove a breakpoint
+   */
+  public async removeBreakpoint(breakpoint: GdbBreakpoint): Promise<void> {
+    await this.acquireLock();
+    try {
+      await this.gdbProxy.removeBreakpoint(breakpoint);
+      this.breakpoints = this.breakpoints.filter(
+        (bp) => bp.id !== breakpoint.id
+      );
     } finally {
       this.releaseLock();
     }
@@ -328,7 +369,7 @@ export class BreakpointManager {
     await this.acquireLock();
 
     for (const bp of this.breakpoints) {
-      const isCorrectType = bp.breakpointType === type;
+      const isCorrectType = bp.type === type;
       const isSameSource =
         source && bp.source && this.isSameSource(bp.source, source);
 
@@ -402,7 +443,9 @@ export class BreakpointManager {
     other: DebugProtocol.Source
   ): boolean {
     return (
-      (source.path !== undefined && source.path === other.path) ||
+      (source.path !== undefined &&
+        other.path !== undefined &&
+        normalize(source.path) === normalize(other.path)) ||
       (source.name !== undefined &&
         isDisassembledFile(source.name) &&
         source.name === other.name)

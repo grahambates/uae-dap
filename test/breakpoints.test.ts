@@ -50,12 +50,13 @@ describe("Breakpoint Manager", () => {
       };
       const bp: GdbBreakpoint = {
         id: 1,
-        source: source,
+        source,
         line: sourceLine,
-        breakpointType: GdbBreakpointType.SOURCE,
+        type: GdbBreakpointType.SOURCE,
         offset: 0,
         verified: false,
         defaultMessage: "",
+        hitCount: 0,
       };
       const segmentId = 1;
       const offset = 2;

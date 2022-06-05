@@ -41,21 +41,17 @@ export enum GdbSignal {
 /** Interface for a breakpoint */
 export interface GdbBreakpoint extends DebugProtocol.Breakpoint {
   /**Type of breakpoint */
-  breakpointType: GdbBreakpointType;
+  type: GdbBreakpointType;
   /** Id for the segment if undefined it is an absolute offset*/
   segmentId?: number;
   /** Offset relative to the segment*/
   offset: number;
-  /** exception mask : if present it is an exception breakpoint */
-  exceptionMask?: number;
-  /** if true it a temporary breakpoint */
-  temporary?: boolean;
-  /** Size of the memory watched */
-  size?: number;
-  /** The access type of the data. */
-  accessType?: GdbBreakpointAccessType;
   /** default message for the breakpoint */
   defaultMessage?: string;
+  condition?: string;
+  hitCondition?: string;
+  hitCount: number;
+  logMessage?: string;
 }
 
 /**
@@ -76,6 +72,64 @@ export enum GdbBreakpointAccessType {
   READ = "read",
   WRITE = "write",
   READWRITE = "readWrite",
+}
+
+export interface GdbBreakpointSource
+  extends GdbBreakpoint,
+    DebugProtocol.SourceBreakpoint {
+  type: GdbBreakpointType.SOURCE;
+  source: DebugProtocol.Source;
+  line: number;
+}
+
+export interface GdbBreakpointData
+  extends GdbBreakpoint,
+    DebugProtocol.DataBreakpoint {
+  type: GdbBreakpointType.DATA;
+  /** Size of the memory watched */
+  size?: number;
+  /** The access type of the data. */
+  accessType?: GdbBreakpointAccessType;
+}
+
+export interface GdbBreakpointException extends GdbBreakpoint {
+  type: GdbBreakpointType.EXCEPTION;
+  /** exception mask : if present it is an exception breakpoint */
+  exceptionMask: number;
+}
+
+export interface GdbBreakpointInstruction extends GdbBreakpoint {
+  type: GdbBreakpointType.INSTRUCTION;
+}
+
+export interface GdbBreakpointTemporary extends GdbBreakpoint {
+  type: GdbBreakpointType.TEMPORARY;
+}
+
+export function isSourceBreakpoint(
+  bp: GdbBreakpoint
+): bp is GdbBreakpointSource {
+  return (
+    bp.source !== undefined && bp.line !== undefined && bp.id !== undefined
+  );
+}
+export function isDataBreakpoint(bp: GdbBreakpoint): bp is GdbBreakpointData {
+  return bp.type === GdbBreakpointType.DATA;
+}
+export function isInstructionBreakpoint(
+  bp: GdbBreakpoint
+): bp is GdbBreakpointInstruction {
+  return bp.type === GdbBreakpointType.INSTRUCTION;
+}
+export function isExceptionBreakpoint(
+  bp: GdbBreakpoint
+): bp is GdbBreakpointException {
+  return (bp as GdbBreakpointException).exceptionMask !== undefined;
+}
+export function isTemporaryBreakpoint(
+  bp: GdbBreakpoint
+): bp is GdbBreakpointTemporary {
+  return bp.type === GdbBreakpointType.TEMPORARY;
 }
 
 /** StackFrame position */
@@ -573,7 +627,6 @@ export class GdbProxy {
   public async setBreakpoint(breakpoint: GdbBreakpoint): Promise<void> {
     const segmentId = breakpoint.segmentId;
     const offset = breakpoint.offset;
-    const exceptionMask = breakpoint.exceptionMask;
     if (!this.socket.writable) {
       throw new Error("The Gdb connection is not opened");
     } else {
@@ -583,27 +636,26 @@ export class GdbProxy {
         segmentId >= this.segments.length
       ) {
         throw new Error("Invalid breakpoint segment id: " + segmentId);
-      } else if (offset >= 0 || exceptionMask) {
-        let message: string;
-        if (exceptionMask) {
-          const expMskHex = GdbProxy.formatNumber(exceptionMask);
-          const expMskHexSz = GdbProxy.formatNumber(expMskHex.length);
-          message = "Z1,0,0;X" + expMskHexSz + "," + expMskHex;
-        } else {
-          let segStr = "";
-          if (segmentId !== undefined && segmentId >= 0) {
-            segStr = "," + GdbProxy.formatNumber(segmentId);
-          }
-          message = "Z0," + GdbProxy.formatNumber(offset) + segStr;
+      }
+      let message: string;
+      if (isExceptionBreakpoint(breakpoint)) {
+        const expMskHex = GdbProxy.formatNumber(breakpoint.exceptionMask);
+        const expMskHexSz = GdbProxy.formatNumber(expMskHex.length);
+        message = "Z1,0,0;X" + expMskHexSz + "," + expMskHex;
+      } else if (offset >= 0) {
+        let segStr = "";
+        if (segmentId !== undefined && segmentId >= 0) {
+          segStr = "," + GdbProxy.formatNumber(segmentId);
         }
-        await this.waitConnected();
-        await this.sendPacketString(message, GdbPacketType.OK);
-        breakpoint.verified = true;
-        breakpoint.message = breakpoint.defaultMessage;
-        this.sendEvent("breakpointValidated", breakpoint);
+        message = "Z0," + GdbProxy.formatNumber(offset) + segStr;
       } else {
         throw new Error("Invalid breakpoint offset " + offset);
       }
+      await this.waitConnected();
+      await this.sendPacketString(message, GdbPacketType.OK);
+      breakpoint.verified = true;
+      breakpoint.message = breakpoint.defaultMessage;
+      this.sendEvent("breakpointValidated", breakpoint);
     }
   }
 
@@ -623,7 +675,6 @@ export class GdbProxy {
   public async removeBreakpoint(breakpoint: GdbBreakpoint): Promise<void> {
     const segmentId = breakpoint.segmentId;
     const offset = breakpoint.offset;
-    const exceptionMask = breakpoint.exceptionMask;
     let message: string | undefined = undefined;
     if (
       this.segments &&
@@ -637,8 +688,8 @@ export class GdbProxy {
         GdbProxy.formatNumber(segmentId);
     } else if (offset > 0) {
       message = "z0," + GdbProxy.formatNumber(offset);
-    } else if (exceptionMask !== undefined) {
-      message = "z1," + GdbProxy.formatNumber(exceptionMask);
+    } else if (isExceptionBreakpoint(breakpoint)) {
+      message = "z1," + GdbProxy.formatNumber(breakpoint.exceptionMask);
     } else {
       throw new Error(
         "No segments are defined or segmentId is invalid, is the debugger connected?"
