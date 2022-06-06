@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Conditional breakpoints
 - Logpoints
 
+### Fixed
+
+- Better handling of stop on entry with WinUAE. Avoids race condition ands sends correct 'reason' property.
+
 ## [0.5.2] - 2022-06-04
 
 ### Fixed
