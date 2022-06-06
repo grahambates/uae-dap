@@ -74,6 +74,11 @@ export interface VariableDisplayFormatRequest {
   variableDisplayFormat: NumberFormat;
 }
 
+export interface DisassembledFileContentsRequest {
+  /** path of dbgasm file */
+  path: string;
+}
+
 export const defaultMemoryFormats = {
   watch: {
     length: 104,
@@ -445,18 +450,18 @@ export class FsUAEDebugSession extends DebugSession {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     args: any
   ) {
-    if (command === "disassembleInner") {
-      return this.disassembleRequest(response, args);
-    }
+    assertIsDefined(this.program);
     if (command === "disassembledFileContents") {
-      assertIsDefined(this.program);
-      const content = await this.program.getDisassembledFileContents(args.path);
+      const fileReq: DisassembledFileContentsRequest = args;
+      const content = await this.program.getDisassembledFileContents(
+        fileReq.path
+      );
       response.body = { content };
       return this.sendResponse(response);
     }
     if (command === "modifyVariableFormat") {
       const variableReq: VariableDisplayFormatRequest = args;
-      this.program?.setVariableFormat(
+      this.program.setVariableFormat(
         variableReq.variableInfo.variable.name,
         variableReq.variableDisplayFormat
       );
