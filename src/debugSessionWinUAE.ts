@@ -63,7 +63,7 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
     args: DebugProtocol.DataBreakpointInfoArguments
   ): Promise<void> {
     this.handleAsyncRequest(response, async () => {
-      if (!args.variablesReference || args.name) {
+      if (!args.variablesReference || !args.name) {
         return;
       }
       this.ensureProgramLoaded(this.program);

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Better handling of stop on entry with WinUAE. Avoids race condition ands sends correct 'reason' property.
+- Data breakpoint info request was broken.
 
 ## [0.5.2] - 2022-06-04
 
