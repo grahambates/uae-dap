@@ -201,13 +201,14 @@ class Program {
           p.offset
         );
         if (line) {
-          let address = formatAddress(p.pc);
-          const inst = line.lineText?.split(";")[0];
-          if (inst) {
-            address += ": " + inst.trim().replace(/\s\s+/g, " ");
-          }
+          const label = this.symbolName(p.pc);
           const source = new Source(basename(line.filename), line.filename);
-          sf = new StackFrame(p.index, address, source, line.lineNumber, 1);
+          sf = new StackFrame(
+            p.index,
+            label ?? "__MAIN__",
+            source,
+            line.lineNumber
+          );
           sf.instructionPointerReference = formatHexadecimal(p.pc);
         }
       }
@@ -216,7 +217,11 @@ class Program {
       if (!sf) {
         sf = await this.disassemblyManager.getStackFrame(p, thread);
       }
-      stackFrames.push(sf);
+      // Only include frames with a source, but make sure we have at least one frame
+      // Others are likely to be ROM system calls
+      if (sf.source || !stackFrames.length) {
+        stackFrames.push(sf);
+      }
     }
 
     return stackFrames;
@@ -1380,6 +1385,18 @@ class Program {
       ),
       variablesReference: 0,
     };
+  }
+
+  /**
+   * Get symbol name for address
+   */
+  private symbolName(address: number): string | undefined {
+    let symbolName;
+    for (const [name, value] of this.symbols.entries()) {
+      if (value > address) break;
+      symbolName = name;
+    }
+    return symbolName;
   }
 
   /**

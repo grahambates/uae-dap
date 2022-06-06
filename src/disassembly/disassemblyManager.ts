@@ -126,7 +126,10 @@ export class DisassemblyManager {
       dAsmFile.memoryReference = "$" + newAddress.toString(16);
     }
 
-    const sf = new StackFrame(stackFrameIndex, stackFrameLabel);
+    const sf = new StackFrame(
+      stackFrameIndex,
+      stackFrameLabel.replace(/\s+/g, " ")
+    );
     sf.instructionPointerReference = formatHexadecimal(address);
 
     if (lineNumber >= 0 && isCopper) {
@@ -134,7 +137,6 @@ export class DisassemblyManager {
       const uri = `disassembly:${filename.replace("#", "%23")}`;
       sf.source = new Source(filename, uri);
       sf.line = lineNumber;
-      sf.column = 1;
     }
 
     return sf;
