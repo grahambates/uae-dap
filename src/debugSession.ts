@@ -450,9 +450,9 @@ export class FsUAEDebugSession extends DebugSession {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     args: any
   ) {
-    assertIsDefined(this.program);
     if (command === "disassembledFileContents") {
       const fileReq: DisassembledFileContentsRequest = args;
+      assertIsDefined(this.program);
       const content = await this.program.getDisassembledFileContents(
         fileReq.path
       );
@@ -461,6 +461,7 @@ export class FsUAEDebugSession extends DebugSession {
     }
     if (command === "modifyVariableFormat") {
       const variableReq: VariableDisplayFormatRequest = args;
+      assertIsDefined(this.program);
       this.program.setVariableFormat(
         variableReq.variableInfo.variable.name,
         variableReq.variableDisplayFormat

@@ -131,7 +131,7 @@ describe("Node Debug Adapter", () => {
 
   describe("basic", () => {
     it("unknown request should produce error", async () => {
-      await expect(() => dc.send("illegal_request")).rejects.toThrow();
+      await expect(dc.send("illegal_request")).rejects.toThrow();
     });
   });
 
@@ -438,7 +438,7 @@ describe("Node Debug Adapter", () => {
       const stackFrames = response.body.stackFrames;
       expect(stackFrames[0].id).toEqual(-1);
       expect(stackFrames[0].line).toEqual(32);
-      expect(stackFrames[0].name).toEqual("$0: move.l 4.w,a6");
+      expect(stackFrames[0].name).toEqual("__MAIN__");
 
       const src = stackFrames[0].source;
       expect(src).not.toBeUndefined();
@@ -448,9 +448,6 @@ describe("Node Debug Adapter", () => {
       expect(
         src?.path?.toUpperCase().endsWith(pathToTest.toUpperCase())
       ).toEqual(true);
-      expect(stackFrames[1].id).toEqual(1);
-      expect(stackFrames[1].line).toEqual(0);
-      expect(stackFrames[1].name).toEqual("$a: ori.b	#$0, d0");
 
       const {
         body: { scopes },
