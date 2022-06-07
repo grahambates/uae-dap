@@ -1,4 +1,4 @@
-import { customRegisterNames, CUSTOM_BASE } from "../customRegisters";
+import { customRegisterNames, CUSTOM_BASE } from "../hardware";
 
 /** Type of copper instruction */
 export enum CopperInstructionType {

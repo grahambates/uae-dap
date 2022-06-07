@@ -13,7 +13,8 @@ import {
   customRegisterAddresses,
   customRegisterNames,
   CUSTOM_BASE,
-} from "./customRegisters";
+  interrupts,
+} from "./hardware";
 import {
   disassemble,
   disassembleCopper,
@@ -41,6 +42,7 @@ export enum ScopeType {
   StatusRegister,
   Expression,
   Custom,
+  Interrupts,
 }
 
 export interface ScopeReference {
@@ -166,6 +168,11 @@ class Program {
       new Scope(
         "Custom",
         this.scopes.create({ type: ScopeType.Custom, frameId }),
+        true
+      ),
+      new Scope(
+        "Interrupts",
+        this.scopes.create({ type: ScopeType.Interrupts, frameId }),
         true
       ),
     ];
@@ -463,6 +470,8 @@ class Program {
         return this.getSymbolVariables();
       case ScopeType.Custom:
         return this.getCustomVariables(frameId);
+      case ScopeType.Interrupts:
+        return this.getInterruptVariables();
     }
     throw new Error("Invalid reference");
   }
@@ -546,6 +555,35 @@ class Program {
         variablesReference: 0,
         memoryReference: value.toString(),
       }));
+  }
+
+  private async getInterruptVariables(): Promise<DebugProtocol.Variable[]> {
+    await this.gdb.waitConnected();
+    const memory = await this.gdb.getMemory(0, 0xc0);
+    const chunks = chunk(memory.toString(), 8).map((chunk) =>
+      parseInt(chunk, 16)
+    );
+
+    return interrupts
+      .map((name, i) => {
+        if (!name) return;
+        let value = this.formatVariable(
+          name,
+          chunks[i],
+          NumberFormat.HEXADECIMAL
+        );
+        const offset = this.symbolOffset(chunks[i]);
+        if (offset) {
+          value += ` (${offset})`;
+        }
+        return {
+          name: "0x" + (i * 4).toString(16).padStart(2, "0") + " " + name,
+          value,
+          variablesReference: 0,
+          memoryReference: formatHexadecimal(i * 4),
+        };
+      })
+      .filter(Boolean) as DebugProtocol.Variable[];
   }
 
   private async getCustomVariables(

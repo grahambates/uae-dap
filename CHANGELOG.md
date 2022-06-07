@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Interrupt addresses in variables list
+
 ### Changed
 
 - Symbol names in stack trace
