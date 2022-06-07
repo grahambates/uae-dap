@@ -10,10 +10,9 @@ import {
   logger,
 } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
+import { LogLevel } from "@vscode/debugadapter/lib/logger";
 import { basename } from "path";
 import promiseRetry from "promise-retry";
-import * as fs from "fs/promises";
-import { mkdir } from "temp";
 
 import {
   GdbProxy,
@@ -32,8 +31,8 @@ import {
 import { Emulator } from "./emulator";
 import Program, { MemoryFormat, SourceConstantResolver } from "./program";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
-import { LogLevel } from "@vscode/debugadapter/lib/logger";
 import { FileInfo } from "./fileInfo";
+import { isDisassembledFile } from "./disassembly";
 
 export interface LaunchRequestArguments
   extends DebugProtocol.LaunchRequestArguments {
@@ -108,10 +107,6 @@ export class FsUAEDebugSession extends DebugSession {
   protected trace = false;
   /** Track which threads are stopped to avoid invalid events */
   protected stoppedThreads: boolean[] = [false, false];
-  /** Should we create real files on the filesystem for .dbgasm URIs? */
-  protected createDbgasmFiles = true;
-  /** Temporary directory for dbgasm files */
-  protected tmpDir?: string;
 
   /**
    * Creates a new debug adapter that is used for one debug session.
@@ -444,6 +439,21 @@ export class FsUAEDebugSession extends DebugSession {
     this.output(text);
   }
 
+  protected sourceRequest(
+    response: DebugProtocol.SourceResponse,
+    args: DebugProtocol.SourceArguments
+  ): void {
+    this.handleAsyncRequest(response, async () => {
+      const content = await this.program?.getDisassembledFileContentsByRef(
+        args.sourceReference
+      );
+      if (!content) {
+        throw new Error("Source not found");
+      }
+      response.body = { content };
+    });
+  }
+
   protected async customRequest(
     command: string,
     response: DebugProtocol.Response,
@@ -453,7 +463,7 @@ export class FsUAEDebugSession extends DebugSession {
     if (command === "disassembledFileContents") {
       const fileReq: DisassembledFileContentsRequest = args;
       assertIsDefined(this.program);
-      const content = await this.program.getDisassembledFileContents(
+      const content = await this.program.getDisassembledFileContentsByPath(
         fileReq.path
       );
       response.body = { content };
@@ -572,25 +582,8 @@ export class FsUAEDebugSession extends DebugSession {
    * Process a Source object before returning in to the client
    */
   protected async processSource(source?: DebugProtocol.Source) {
+    // Ensure path is in correct format for client
     if (source?.path) {
-      // Materialise disassembled files to filesystem if required
-      if (
-        source.path.endsWith(".dbgasm") &&
-        this.createDbgasmFiles &&
-        !this.testMode
-      ) {
-        if (!this.tmpDir) {
-          this.tmpDir = await mkdir({ prefix: "uae-dap" });
-        }
-        source.path = this.tmpDir + "/" + source.name;
-
-        assertIsDefined(this.program);
-        const content = await this.program.getDisassembledFileContents(
-          source.path
-        );
-        await fs.writeFile(source.path, content);
-      }
-      // Ensure path is in correct format for client
       source.path = this.convertDebuggerPathToClient(source.path);
     }
   }

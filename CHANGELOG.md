@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Symbol names in stack trace
+- Uses source references for disassembled sources, rather than writing to temp files
 
 ## [0.6.0] - 2022-06-06
 

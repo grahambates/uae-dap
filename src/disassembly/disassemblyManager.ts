@@ -1,4 +1,4 @@
-import { StackFrame, Source } from "@vscode/debugadapter";
+import { StackFrame, Source, Handles } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 
 import { disassemble } from "./cpuDisassembler";
@@ -18,6 +18,7 @@ export interface DisassembledLine {
 }
 
 export class DisassemblyManager {
+  private sourceHandles = new Handles<DisassembledFile>();
   protected lineCache = new Map<number, DisassembledLine>();
 
   public constructor(private gdb: GdbProxy, private program: Program) {}
@@ -67,40 +68,25 @@ export class DisassemblyManager {
     stackPosition: GdbStackPosition,
     thread: GdbThread
   ): Promise<StackFrame> {
-    const stackFrameIndex = stackPosition.index;
     const address = stackPosition.pc;
-    const { text: stackFrameLabel, isCopper } = await this.disassembleLine(
-      address,
-      thread
-    );
+    const { text, isCopper } = await this.disassembleLine(address, thread);
 
     const dAsmFile: DisassembledFile = {
       copper: isCopper,
-      stackFrameIndex,
+      stackFrameIndex: stackPosition.index,
       instructionCount: 500,
     };
 
-    let lineNumber = 1;
+    let label = text.replace(/\s+/g, " ");
+    let line = 1;
+
     // is the pc on a opened segment ?
     const [segmentId, offset] = this.gdb.toRelativeOffset(address);
     if (segmentId >= 0 && !isCopper) {
-      // We have a segment
       dAsmFile.segmentId = segmentId;
-      let returnedLineNumber;
-      try {
-        returnedLineNumber = await this.getLineNumberInDisassembledSegment(
-          segmentId,
-          offset
-        );
-      } catch (err) {
-        // Nothing to do
-        lineNumber = -1;
-      }
-      if (returnedLineNumber || returnedLineNumber === 0) {
-        lineNumber = returnedLineNumber;
-      }
+      line = await this.getLineNumberInDisassembledSegment(segmentId, offset);
     } else {
-      let newAddress = address;
+      dAsmFile.memoryReference = "$" + address.toString(16);
       if (isCopper) {
         // Search for selected copper list
         const cop1Addr = await this.getCopperAddress(1);
@@ -116,30 +102,33 @@ export class DisassemblyManager {
           lineInCop1 >= 0 &&
           (lineInCop2 === -1 || lineInCop1 <= lineInCop2)
         ) {
-          newAddress = cop1Addr;
-          lineNumber = lineInCop1;
+          dAsmFile.memoryReference = "1";
+          line = lineInCop1;
+          label = "cop1";
         } else if (lineInCop2 >= 0) {
-          newAddress = cop2Addr;
-          lineNumber = lineInCop2;
+          dAsmFile.memoryReference = "2";
+          line = lineInCop2;
+          label = "cop2";
         }
+        dAsmFile.instructionCount = line + 499;
       }
-      dAsmFile.memoryReference = "$" + newAddress.toString(16);
     }
 
-    const sf = new StackFrame(
-      stackFrameIndex,
-      stackFrameLabel.replace(/\s+/g, " ")
-    );
+    const sf = new StackFrame(stackPosition.index, label);
     sf.instructionPointerReference = formatHexadecimal(address);
 
-    if (lineNumber >= 0 && isCopper) {
+    if (isCopper) {
       const filename = disassembledFileToPath(dAsmFile);
-      const uri = `disassembly:${filename.replace("#", "%23")}`;
-      sf.source = new Source(filename, uri);
-      sf.line = lineNumber;
+      sf.source = new Source(filename, filename);
+      sf.source.sourceReference = this.sourceHandles.create(dAsmFile);
+      sf.line = line;
     }
 
     return sf;
+  }
+
+  public getSourceByReference(ref: number): DisassembledFile | undefined {
+    return this.sourceHandles.get(ref);
   }
 
   public async disassembleSegment(
@@ -240,11 +229,6 @@ export class DisassemblyManager {
     const index = instructions.findIndex(
       (instr) => parseInt(instr.address) === offset
     );
-    if (index === -1) {
-      throw new Error(
-        `Cannot retrieve line for segment ${segmentId}, offset ${offset}: line not found`
-      );
-    }
     return index + 1;
   }
 

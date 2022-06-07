@@ -361,26 +361,39 @@ class Program {
   }
 
   /**
+   * Get disassembled file contents by source reference
+   */
+  public async getDisassembledFileContentsByRef(
+    ref: number
+  ): Promise<string | undefined> {
+    const dAsmFile = this.disassemblyManager.getSourceByReference(ref);
+    if (dAsmFile) {
+      return this.getDisassembledFileContents(dAsmFile);
+    }
+  }
+
+  /**
    * Get disassembled content for a .dgasm file path
    *
    * The filename contains tokens for the disassemble options
    */
-  public async getDisassembledFileContents(path: string): Promise<string> {
+  public async getDisassembledFileContentsByPath(
+    path: string
+  ): Promise<string> {
     const dAsmFile = disassembledFileFromPath(path);
-    const {
-      memoryReference = "",
-      segmentId,
-      stackFrameIndex,
-      instructionCount = 100,
-      copper,
-    } = dAsmFile;
+    return this.getDisassembledFileContents(dAsmFile);
+  }
 
+  /**
+   * Get text content for a disassembled source file
+   */
+  public async getDisassembledFileContents(
+    dAsmFile: DisassembledFile
+  ): Promise<string> {
     const instructions = await this.disassemble({
-      memoryReference,
-      instructionCount,
-      segmentId,
-      stackFrameIndex,
-      copper,
+      memoryReference: "",
+      instructionCount: 100,
+      ...dAsmFile,
     });
     return instructions.map((v) => `${v.address}: ${v.instruction}`).join("\n");
   }

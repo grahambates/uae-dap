@@ -539,12 +539,12 @@ describe("Node Debug Adapter", () => {
       const stackFrames = response.body.stackFrames;
       expect(stackFrames[0].id).toEqual(-1);
       expect(stackFrames[0].line).toEqual(5);
-      expect(stackFrames[0].name).toEqual("$5860: dc.w $0180,$056c");
+      expect(stackFrames[0].name).toEqual("cop1");
 
       const src = stackFrames[0].source;
       expect(src).not.toBeUndefined();
       expect(src?.name).not.toBeUndefined();
-      expect(src?.name).toEqual("copper_$5850__500.dbgasm");
+      expect(src?.name).toEqual("copper_1__504.dbgasm");
     });
   });
 
