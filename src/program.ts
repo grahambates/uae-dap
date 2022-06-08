@@ -13,7 +13,7 @@ import {
   customRegisterAddresses,
   customRegisterNames,
   CUSTOM_BASE,
-  interrupts,
+  vectors,
 } from "./hardware";
 import {
   disassemble,
@@ -42,7 +42,7 @@ export enum ScopeType {
   StatusRegister,
   Expression,
   Custom,
-  Interrupts,
+  Vectors,
 }
 
 export interface ScopeReference {
@@ -171,8 +171,8 @@ class Program {
         true
       ),
       new Scope(
-        "Interrupts",
-        this.scopes.create({ type: ScopeType.Interrupts, frameId }),
+        "Vectors",
+        this.scopes.create({ type: ScopeType.Vectors, frameId }),
         true
       ),
     ];
@@ -470,8 +470,8 @@ class Program {
         return this.getSymbolVariables();
       case ScopeType.Custom:
         return this.getCustomVariables(frameId);
-      case ScopeType.Interrupts:
-        return this.getInterruptVariables();
+      case ScopeType.Vectors:
+        return this.getVectorVariables();
     }
     throw new Error("Invalid reference");
   }
@@ -557,14 +557,14 @@ class Program {
       }));
   }
 
-  private async getInterruptVariables(): Promise<DebugProtocol.Variable[]> {
+  private async getVectorVariables(): Promise<DebugProtocol.Variable[]> {
     await this.gdb.waitConnected();
     const memory = await this.gdb.getMemory(0, 0xc0);
     const chunks = chunk(memory.toString(), 8).map((chunk) =>
       parseInt(chunk, 16)
     );
 
-    return interrupts
+    return vectors
       .map((name, i) => {
         if (!name) return;
         let value = this.formatVariable(
@@ -580,7 +580,7 @@ class Program {
           name: "0x" + (i * 4).toString(16).padStart(2, "0") + " " + name,
           value,
           variablesReference: 0,
-          memoryReference: formatHexadecimal(i * 4),
+          memoryReference: (i * 4).toString(16),
         };
       })
       .filter(Boolean) as DebugProtocol.Variable[];
@@ -1025,8 +1025,51 @@ class Program {
       case ScopeType.Registers:
         await this.gdb.setRegister(name, numValue.toString(16));
         return this.formatVariable(name, numValue);
+
+      case ScopeType.Vectors: {
+        const [addr] = name.split(" ");
+        await this.gdb.setMemory(
+          parseInt(addr, 16),
+          numValue.toString(16).padStart(8, "0")
+        );
+        return this.formatVariable(name, numValue, NumberFormat.HEXADECIMAL);
+      }
+
+      case ScopeType.Custom: {
+        // Find address of register:
+        // Check global register list. May need a a suffix for high word if combined.
+        let address =
+          customRegisterAddresses[name] || customRegisterAddresses[name + "H"];
+        // Check fields in scope for memoryReference
+        if (!address) {
+          const v = this.referencedVariables
+            .get(variablesReference)
+            ?.find((n) => n.name === name);
+          if (v?.memoryReference) {
+            address = parseInt(v.memoryReference, 16);
+          } else {
+            throw new Error("Address not found");
+          }
+        }
+
+        // Check size to write - longword for combined pointer addresses
+        const isLong = name.endsWith("PT") || name.endsWith("LC");
+        const size = isLong ? 8 : 4;
+        const format = isLong
+          ? NumberFormat.HEXADECIMAL
+          : NumberFormat.HEXADECIMAL_WORD;
+
+        await this.gdb.setMemory(
+          address,
+          numValue.toString(16).padStart(size, "0")
+        );
+
+        return this.formatVariable(name, numValue, format);
+      }
+
+      default:
+        throw new Error("This variable cannot be set");
     }
-    throw new Error("This variable cannot be set");
   }
 
   // Variable formatting:
@@ -1208,7 +1251,7 @@ class Program {
     }
     const address = await this.evaluate(groups.addr, frameId);
     await this.gdb.setMemory(address, groups.data);
-    return this.readMemoryAsVariables(address, groups.data.length);
+    return this.readMemoryAsVariables(address, groups.data.length / 2);
   }
 
   private async readMemoryExpression(
