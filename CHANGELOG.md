@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Interrupt addresses in variables list
 - Source constants in variable list
+- Size/Sign fields for register variables
 
 ### Changed
 

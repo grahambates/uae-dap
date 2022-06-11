@@ -465,7 +465,7 @@ describe("Node Debug Adapter", () => {
       expect(variables[0].name).toEqual("d0");
       expect(variables[0].type).toEqual("register");
       expect(variables[0].value).toEqual("0x00000001");
-      expect(variables[0].variablesReference).toEqual(0);
+      expect(variables[0].variablesReference).not.toEqual(0);
       expect(variables[1].name).toEqual("a0");
       expect(variables[2].name).toEqual("sr");
       expect(variables[2].variablesReference).not.toEqual(0);

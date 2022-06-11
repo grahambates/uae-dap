@@ -529,11 +529,88 @@ class Program {
             formatted += ` (${offset})`;
           }
         }
+
+        let variablesReference = 0;
+
+        if (name.startsWith("sr")) {
+          // Reference to stack register fields
+          variablesReference = srScope;
+        } else if (name !== "pc") {
+          // Size / sign variants as fields
+          const fields: DebugProtocol.Variable[] = [
+            {
+              name: "b",
+              type: "register",
+              value: this.formatVariable(
+                name + ".b",
+                value,
+                NumberFormat.HEXADECIMAL_BYTE
+              ),
+              variablesReference: 0,
+            },
+            {
+              name: "bs",
+              type: "register",
+              value: this.formatVariable(
+                name + ".bs",
+                value,
+                NumberFormat.HEXADECIMAL_BYTE_SIGNED
+              ),
+              variablesReference: 0,
+            },
+            {
+              name: "w",
+              type: "register",
+              value: this.formatVariable(
+                name + ".w",
+                value,
+                NumberFormat.HEXADECIMAL_WORD
+              ),
+              variablesReference: 0,
+            },
+            {
+              name: "ws",
+              type: "register",
+              value: this.formatVariable(
+                name + ".ws",
+                value,
+                NumberFormat.HEXADECIMAL_WORD_SIGNED
+              ),
+              variablesReference: 0,
+            },
+            {
+              name: "l",
+              type: "register",
+              value: this.formatVariable(
+                name + ".l",
+                value,
+                NumberFormat.HEXADECIMAL
+              ),
+              variablesReference: 0,
+            },
+            {
+              name: "ls",
+              type: "register",
+              value: this.formatVariable(
+                name + ".ls",
+                value,
+                NumberFormat.HEXADECIMAL_SIGNED
+              ),
+              variablesReference: 0,
+            },
+          ];
+          variablesReference = this.scopes.create({
+            type: ScopeType.Registers,
+            frameId,
+          });
+          this.referencedVariables.set(variablesReference, fields);
+        }
+
         return {
           name,
           type: "register",
           value: formatted,
-          variablesReference: name.startsWith("sr") ? srScope : 0, // Link SR to its properties
+          variablesReference,
           memoryReference: value.toString(),
         };
       });
