@@ -15,7 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Symbol names in stack trace
 - Uses source references for disassembled sources, rather than writing to temp files
-- Improved memory expressions
+- Improved memory expressions - supports size and sign options
+- Logpoint expressions formatted in hexadecimal for consistency
+
+### Fixed
+
+- Support memory read in logpoint expressions
 
 ## [0.6.0] - 2022-06-06
 
