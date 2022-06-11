@@ -24,6 +24,7 @@ import {
 import { BreakpointManager } from "./breakpoints";
 import {
   base64ToHex,
+  formatHexadecimal,
   hexToBase64,
   NumberFormat,
   replaceAsync,
@@ -193,7 +194,7 @@ export class FsUAEDebugSession extends DebugSession {
               assertIsDefined(this.program);
               return this.program
                 .evaluate(match.substring(1, match.length - 1), fr.id)
-                .then((v) => String(v))
+                .then((v) => formatHexadecimal(v, 0))
                 .catch(() => "#error");
             }
           );
