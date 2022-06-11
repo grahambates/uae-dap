@@ -184,70 +184,20 @@ export function formatDecimal(value: number): string {
 export enum NumberFormat {
   BINARY,
   DECIMAL,
-  DECIMAL_SIGNED,
-  DECIMAL_WORD,
-  DECIMAL_WORD_SIGNED,
-  DECIMAL_BYTE,
-  DECIMAL_BYTE_SIGNED,
-  BINARY_WORD,
-  BINARY_BYTE,
   HEXADECIMAL,
-  HEXADECIMAL_SIGNED,
-  HEXADECIMAL_WORD,
-  HEXADECIMAL_WORD_SIGNED,
-  HEXADECIMAL_BYTE,
-  HEXADECIMAL_BYTE_SIGNED,
 }
 
 export function formatNumber(
   value: number,
-  displayFormat = NumberFormat.DECIMAL
+  displayFormat = NumberFormat.DECIMAL,
+  minBytes = 0
 ): string {
   switch (displayFormat) {
-    // Binary:
     case NumberFormat.BINARY:
-      return formatBinary(value);
-    case NumberFormat.BINARY_WORD:
-      return formatBinary(value & 0xffff, 16);
-    case NumberFormat.BINARY_BYTE:
-      return formatBinary(value & 0xff, 8);
-    // Hex:
+      return formatBinary(value, minBytes * 8);
     case NumberFormat.HEXADECIMAL:
-      return formatHexadecimal(value);
-    case NumberFormat.HEXADECIMAL_SIGNED:
-      return formatHexadecimal(
-        value >= 0x8000000 ? value - 0x100000000 : value
-      );
-    case NumberFormat.HEXADECIMAL_WORD:
-      return formatHexadecimal(value & 0xffff, 4);
-    case NumberFormat.HEXADECIMAL_WORD_SIGNED: {
-      const v = value & 0xffff;
-      return formatHexadecimal(v >= 0x8000 ? v - 0x10000 : v, 4);
-    }
-    case NumberFormat.HEXADECIMAL_BYTE:
-      return formatHexadecimal(value & 0xff, 2);
-    case NumberFormat.HEXADECIMAL_BYTE_SIGNED: {
-      const v = value & 0xff;
-      return formatHexadecimal(v >= 0x80 ? v - 0x100 : v, 2);
-    }
-    // Decimal:
+      return formatHexadecimal(value, minBytes * 2);
     case NumberFormat.DECIMAL:
-      return formatDecimal(value);
-    case NumberFormat.DECIMAL_SIGNED:
-      return formatDecimal(value >= 0x8000000 ? value - 0x100000000 : value);
-    case NumberFormat.DECIMAL_WORD:
-      return formatDecimal(value & 0xffff);
-    case NumberFormat.DECIMAL_WORD_SIGNED: {
-      const v = value & 0xffff;
-      return formatDecimal(v >= 0x8000 ? v - 0x10000 : v);
-    }
-    case NumberFormat.DECIMAL_BYTE:
-      return formatDecimal(value & 0xff);
-    case NumberFormat.DECIMAL_BYTE_SIGNED: {
-      const v = value & 0xff;
-      return formatDecimal(v >= 0x80 ? v - 0x100 : v);
-    }
-    default:
       return formatDecimal(value);
   }
 }

@@ -541,7 +541,12 @@ class Program {
     return registers
       .filter(({ name }) => !name.startsWith("SR_"))
       .map(({ name, value }) => {
-        let formatted = this.formatVariable(name, value);
+        let formatted = this.formatVariable(
+          name,
+          value,
+          NumberFormat.HEXADECIMAL,
+          4
+        );
         // Add offset to address registers
         if (name.startsWith("a") || name === "pc") {
           const offset = this.symbolOffset(value);
@@ -556,16 +561,17 @@ class Program {
           // Reference to stack register fields
           variablesReference = srScope;
         } else if (name !== "pc") {
-          const fields = this.registerFields(value);
           // Size / sign variants as fields
+          const fields = this.registerFields(value);
           const fieldVars: DebugProtocol.Variable[] = [
             {
               name: "b",
               type: "register",
               value: this.formatVariable(
-                name + ".b",
+                "b",
                 fields.b,
-                NumberFormat.HEXADECIMAL_BYTE
+                NumberFormat.HEXADECIMAL,
+                1
               ),
               variablesReference: 0,
             },
@@ -573,9 +579,10 @@ class Program {
               name: "bs",
               type: "register",
               value: this.formatVariable(
-                name + ".bs",
+                "bs",
                 fields.bs,
-                NumberFormat.HEXADECIMAL_BYTE_SIGNED
+                NumberFormat.HEXADECIMAL,
+                1
               ),
               variablesReference: 0,
             },
@@ -583,9 +590,10 @@ class Program {
               name: "w",
               type: "register",
               value: this.formatVariable(
-                name + ".w",
+                "w",
                 fields.w,
-                NumberFormat.HEXADECIMAL_WORD
+                NumberFormat.HEXADECIMAL,
+                2
               ),
               variablesReference: 0,
             },
@@ -593,9 +601,10 @@ class Program {
               name: "ws",
               type: "register",
               value: this.formatVariable(
-                name + ".ws",
+                "ws",
                 fields.ws,
-                NumberFormat.HEXADECIMAL_WORD_SIGNED
+                NumberFormat.HEXADECIMAL,
+                2
               ),
               variablesReference: 0,
             },
@@ -603,9 +612,10 @@ class Program {
               name: "l",
               type: "register",
               value: this.formatVariable(
-                name + ".l",
+                "l",
                 fields.l,
-                NumberFormat.HEXADECIMAL
+                NumberFormat.HEXADECIMAL,
+                4
               ),
               variablesReference: 0,
             },
@@ -613,9 +623,10 @@ class Program {
               name: "ls",
               type: "register",
               value: this.formatVariable(
-                name + ".ls",
+                "ls",
                 fields.ls,
-                NumberFormat.HEXADECIMAL_SIGNED
+                NumberFormat.HEXADECIMAL,
+                4
               ),
               variablesReference: 0,
             },
@@ -644,7 +655,12 @@ class Program {
       return {
         name,
         type: "segment",
-        value: `${this.formatVariable(name, s.address)} {size:${s.size}}`,
+        value: `${this.formatVariable(
+          name,
+          s.address,
+          NumberFormat.HEXADECIMAL,
+          4
+        )} {size:${s.size}}`,
         variablesReference: 0,
         memoryReference: s.address.toString(),
       };
@@ -657,7 +673,7 @@ class Program {
       .map(([name, value]) => ({
         name,
         type: "symbol",
-        value: this.formatVariable(name, value),
+        value: this.formatVariable(name, value, NumberFormat.HEXADECIMAL, 4),
         variablesReference: 0,
         memoryReference: value.toString(),
       }));
@@ -676,7 +692,8 @@ class Program {
         let value = this.formatVariable(
           name,
           chunks[i],
-          NumberFormat.HEXADECIMAL
+          NumberFormat.HEXADECIMAL,
+          4
         );
         const offset = this.symbolOffset(chunks[i]);
         if (offset) {
@@ -971,14 +988,14 @@ class Program {
         // Combine high/low words into single longword value
         const num = parseInt(values[key] + values[lowKey], 16);
         key = key.replace(/H$/, "");
-        value = this.formatVariable(key, num, NumberFormat.HEXADECIMAL);
+        value = this.formatVariable(key, num, NumberFormat.HEXADECIMAL, 4);
       } else if (!(isLow && values[highKey])) {
         // Ignore keys for low register which will have been combined
         const num = parseInt(values[key], 16);
         const format = key.match(/[FL]WM$/)
-          ? NumberFormat.BINARY_WORD // Binary for masks
-          : NumberFormat.HEXADECIMAL_WORD;
-        value = this.formatVariable(key, num, format);
+          ? NumberFormat.BINARY // Binary for masks
+          : NumberFormat.HEXADECIMAL;
+        value = this.formatVariable(key, num, format, 2);
       }
 
       if (value) {
@@ -1141,7 +1158,7 @@ class Program {
     switch (scopeRef?.type) {
       case ScopeType.Registers:
         await this.gdb.setRegister(name, numValue.toString(16));
-        return this.formatVariable(name, numValue);
+        return this.formatVariable(name, numValue, NumberFormat.HEXADECIMAL, 4);
 
       case ScopeType.Vectors: {
         const [addr] = name.split(" ");
@@ -1149,7 +1166,7 @@ class Program {
           parseInt(addr, 16),
           numValue.toString(16).padStart(8, "0")
         );
-        return this.formatVariable(name, numValue, NumberFormat.HEXADECIMAL);
+        return this.formatVariable(name, numValue, NumberFormat.HEXADECIMAL, 4);
       }
 
       case ScopeType.Custom: {
@@ -1172,16 +1189,18 @@ class Program {
         // Check size to write - longword for combined pointer addresses
         const isLong = name.endsWith("PT") || name.endsWith("LC");
         const size = isLong ? 8 : 4;
-        const format = isLong
-          ? NumberFormat.HEXADECIMAL
-          : NumberFormat.HEXADECIMAL_WORD;
 
         await this.gdb.setMemory(
           address,
           numValue.toString(16).padStart(size, "0")
         );
 
-        return this.formatVariable(name, numValue, format);
+        return this.formatVariable(
+          name,
+          numValue,
+          NumberFormat.HEXADECIMAL,
+          size
+        );
       }
 
       default:
@@ -1197,10 +1216,11 @@ class Program {
   public formatVariable(
     variableName: string,
     value: number,
-    defaultFormat: NumberFormat = NumberFormat.HEXADECIMAL
+    defaultFormat: NumberFormat = NumberFormat.HEXADECIMAL,
+    minBytes = 0
   ): string {
     const format = this.variableFormatterMap.get(variableName) ?? defaultFormat;
-    return formatNumber(value, format);
+    return formatNumber(value, format, minBytes);
   }
 
   /**
@@ -1249,7 +1269,12 @@ class Program {
             rowLength
           );
         } else {
-          result = this.formatVariable(expression, address);
+          result = this.formatVariable(
+            expression,
+            address,
+            NumberFormat.HEXADECIMAL,
+            4
+          );
         }
         break;
       }
@@ -1272,7 +1297,11 @@ class Program {
       // Evaluate
       default: {
         const address = await this.evaluate(expression, frameId);
-        result = formatHexadecimal(address, 0);
+        result = this.formatVariable(
+          expression,
+          address,
+          NumberFormat.HEXADECIMAL
+        );
       }
     }
 
@@ -1609,7 +1638,8 @@ class Program {
       value: this.formatVariable(
         name,
         bitValue(parseInt(value, 16), hi, lo),
-        NumberFormat.HEXADECIMAL_BYTE
+        NumberFormat.HEXADECIMAL,
+        1
       ),
       variablesReference: 0,
     };
@@ -1627,7 +1657,8 @@ class Program {
       value: this.formatVariable(
         name,
         bitValue(parseInt(value, 16), hi, lo),
-        NumberFormat.HEXADECIMAL_WORD
+        NumberFormat.HEXADECIMAL,
+        2
       ),
       variablesReference: 0,
     };

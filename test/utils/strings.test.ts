@@ -80,92 +80,19 @@ describe("strings", () => {
   });
 
   describe("formatNumber", () => {
-    // Binary
     it("formats as binary", () => {
-      const result = formatNumber(1024, NumberFormat.BINARY);
+      const result = formatNumber(1024, NumberFormat.BINARY, 4);
       expect(result).toBe("0b00000000000000000000010000000000");
     });
 
-    it("formats as binary word", () => {
-      const result = formatNumber(1024, NumberFormat.BINARY_WORD);
-      expect(result).toBe("0b0000010000000000");
-    });
-
-    it("formats as binary byte", () => {
-      const result = formatNumber(64, NumberFormat.BINARY_BYTE);
-      expect(result).toBe("0b01000000");
-    });
-
-    // Hexadecimal
     it("formats as hexidecimal", () => {
-      const result = formatNumber(1024, NumberFormat.HEXADECIMAL);
+      const result = formatNumber(1024, NumberFormat.HEXADECIMAL, 4);
       expect(result).toBe("0x00000400");
     });
 
-    it("formats as hexidecimal word", () => {
-      const result = formatNumber(1024, NumberFormat.HEXADECIMAL_WORD);
-      expect(result).toBe("0x0400");
-    });
-
-    it("formats a negative value as signed hexidecimal word", () => {
-      const result = formatNumber(0x8000, NumberFormat.HEXADECIMAL_WORD_SIGNED);
-      expect(result).toBe("-0x8000");
-    });
-
-    it("formats a positive value as signed hexidecimal word", () => {
-      const result = formatNumber(0x7fff, NumberFormat.HEXADECIMAL_WORD_SIGNED);
-      expect(result).toBe("0x7fff");
-    });
-
-    it("formats as hexidecimal byte", () => {
-      const result = formatNumber(64, NumberFormat.HEXADECIMAL_BYTE);
-      expect(result).toBe("0x40");
-    });
-
-    it("formats a negative value as signed hexadecimal byte", () => {
-      const result = formatNumber(0x80, NumberFormat.HEXADECIMAL_BYTE_SIGNED);
-      expect(result).toBe("-0x80");
-    });
-
-    it("formats a positive value as signed hexadecimal byte", () => {
-      const result = formatNumber(0x7f, NumberFormat.HEXADECIMAL_BYTE_SIGNED);
-      expect(result).toBe("0x7f");
-    });
-
-    // Decimal
     it("formats as decimal", () => {
       const result = formatNumber(1024, NumberFormat.DECIMAL);
       expect(result).toBe("1024");
-    });
-
-    it("formats as decimal word", () => {
-      const result = formatNumber(0x01000400, NumberFormat.DECIMAL_WORD);
-      expect(result).toBe("1024");
-    });
-
-    it("formats a negative value as signed decimal word", () => {
-      const result = formatNumber(0x8000, NumberFormat.DECIMAL_WORD_SIGNED);
-      expect(result).toBe("-32768");
-    });
-
-    it("formats a positive value as signed decimal word", () => {
-      const result = formatNumber(0x7fff, NumberFormat.DECIMAL_WORD_SIGNED);
-      expect(result).toBe("32767");
-    });
-
-    it("formats as decimal byte", () => {
-      const result = formatNumber(0x01000410, NumberFormat.DECIMAL_BYTE);
-      expect(result).toBe("16");
-    });
-
-    it("formats a negative value as signed decimal byte", () => {
-      const result = formatNumber(0x80, NumberFormat.DECIMAL_BYTE_SIGNED);
-      expect(result).toBe("-128");
-    });
-
-    it("formats a positive value as signed decimal byte", () => {
-      const result = formatNumber(0x7f, NumberFormat.DECIMAL_BYTE_SIGNED);
-      expect(result).toBe("127");
     });
   });
 
