@@ -32,7 +32,6 @@ import { Emulator } from "./emulator";
 import Program, { MemoryFormat, SourceConstantResolver } from "./program";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
 import { FileInfo } from "./fileInfo";
-import { isDisassembledFile } from "./disassembly";
 
 export interface LaunchRequestArguments
   extends DebugProtocol.LaunchRequestArguments {
@@ -189,7 +188,7 @@ export class FsUAEDebugSession extends DebugSession {
           // Interpolate variables
           const message = await replaceAsync(
             bp.logMessage,
-            /\{[^}]+\}/g,
+            /\{((#\{((#\{[^}]*\})|[^}])*\})|[^}])*\}/g, // Up to two levels of nesting
             (match) => {
               assertIsDefined(this.program);
               return this.program

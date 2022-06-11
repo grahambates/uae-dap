@@ -1155,7 +1155,7 @@ class Program {
       // Evaluate
       default: {
         const address = await this.evaluate(expression, frameId);
-        result = formatHexadecimal(address);
+        result = formatHexadecimal(address, 0);
       }
     }
 
@@ -1219,16 +1219,48 @@ class Program {
 
     const variables = await this.getVariables(frameIndex);
 
-    // Replace all variables
-    const matches = expression.matchAll(/([$#])\{([^}]+)\}/gi);
-    for (const [fullStr, prefix, variableName] of matches) {
-      let value = variables[variableName];
-      if (value) {
-        if (prefix === "#") {
-          value = await this.getMemory(value);
+    // Replace inner expressions:
+    //
+    // ${expression} is replaced with the result of the expression
+    // This is pretty much redundant - retained for backwards compatiblity
+    //
+    // #{expression} is replaced with the value at memory address of {expression}
+    const matches = expression.matchAll(
+      /(?<prefix>[$#])\{(?<innerExp>[^},]+)(,(?<length>[bwl\d])?(?<sign>[us])?)?\}/gi
+    );
+    for (const match of matches) {
+      const { prefix, innerExp, length, sign } = match.groups ?? {};
+      let value = await this.evaluate(innerExp, frameIndex);
+
+      // Memory read:
+      if (prefix === "#") {
+        // Options:
+        //
+        // Additional options can be specified following a comma after the expression.
+        //
+        // Length of memory to read can be specified:
+        // Either as a named size:
+        // #{exp,w}
+        // or number of bytes:
+        // #{exp,2}
+        let bytes = 4; // Defaults to longword
+        if (length) {
+          const sizes = { b: 1, w: 2, l: 4 };
+          bytes =
+            sizes[length.toLowerCase() as keyof typeof sizes] ||
+            parseInt(length, 10);
         }
-        exp = exp.replace(fullStr, value.toString());
+        value = await this.getMemory(value, bytes);
+        // It can also include a suffix to indicate whether the resulting value is signed
+        // e.g. #{exp,ws} or #{exp,2s}
+        const signed = sign === "s" || sign === "S"; // Default to unsigned
+        if (signed) {
+          value -= Math.pow(2, bytes * 8);
+        }
       }
+
+      // Substitute result in original expression
+      exp = exp.replace(match[0], value.toString());
     }
 
     // Evaluate expression
