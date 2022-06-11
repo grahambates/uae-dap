@@ -416,16 +416,22 @@ class Program {
   /**
    * Get object containing all variables and constants
    */
-  public async getVariables(frameId?: number): Promise<Record<string, number>> {
+  public async getVariables(
+    frameId?: number
+  ): Promise<Record<string, number | Record<string, number>>> {
     await this.gdb.waitConnected();
     const registers = await this.gdb.registers(frameId || null);
-    const registerEntries = registers.reduce<Record<string, number>>(
-      (acc, v) => {
-        acc[v.name] = v.value;
-        return acc;
-      },
-      {}
-    );
+    const registerEntries = registers.reduce<
+      Record<string, number | Record<string, number>>
+    >((acc, v) => {
+      acc[v.name] = v.value;
+      // Store size/sign fields in prefixed object
+      // The prefix will be stripped out later when evaluating the expression
+      if (v.name.match(/^[ad]/i)) {
+        acc["__OBJ__" + v.name] = this.registerFields(v.value);
+      }
+      return acc;
+    }, {});
     const sourceConstants = await this.getSourceConstants();
 
     return {
@@ -433,7 +439,21 @@ class Program {
       ...customRegisterAddresses,
       ...sourceConstants,
       ...registerEntries,
+      example: {
+        b: 1,
+        w: 2,
+      },
     };
+  }
+
+  private registerFields(value: number) {
+    const b = value & 0xff;
+    const bs = b >= 0x80 ? b - 0x100 : b;
+    const w = value & 0xffff;
+    const ws = w >= 0x8000 ? w - 0x10000 : w;
+    const l = value & 0xffffffff;
+    const ls = l >= 0x80000000 ? l - 0x100000000 : l;
+    return { b, bs, w, ws, l, ls };
   }
 
   /**
@@ -536,14 +556,15 @@ class Program {
           // Reference to stack register fields
           variablesReference = srScope;
         } else if (name !== "pc") {
+          const fields = this.registerFields(value);
           // Size / sign variants as fields
-          const fields: DebugProtocol.Variable[] = [
+          const fieldVars: DebugProtocol.Variable[] = [
             {
               name: "b",
               type: "register",
               value: this.formatVariable(
                 name + ".b",
-                value,
+                fields.b,
                 NumberFormat.HEXADECIMAL_BYTE
               ),
               variablesReference: 0,
@@ -553,7 +574,7 @@ class Program {
               type: "register",
               value: this.formatVariable(
                 name + ".bs",
-                value,
+                fields.bs,
                 NumberFormat.HEXADECIMAL_BYTE_SIGNED
               ),
               variablesReference: 0,
@@ -563,7 +584,7 @@ class Program {
               type: "register",
               value: this.formatVariable(
                 name + ".w",
-                value,
+                fields.w,
                 NumberFormat.HEXADECIMAL_WORD
               ),
               variablesReference: 0,
@@ -573,7 +594,7 @@ class Program {
               type: "register",
               value: this.formatVariable(
                 name + ".ws",
-                value,
+                fields.ws,
                 NumberFormat.HEXADECIMAL_WORD_SIGNED
               ),
               variablesReference: 0,
@@ -583,7 +604,7 @@ class Program {
               type: "register",
               value: this.formatVariable(
                 name + ".l",
-                value,
+                fields.l,
                 NumberFormat.HEXADECIMAL
               ),
               variablesReference: 0,
@@ -593,7 +614,7 @@ class Program {
               type: "register",
               value: this.formatVariable(
                 name + ".ls",
-                value,
+                fields.ls,
                 NumberFormat.HEXADECIMAL_SIGNED
               ),
               variablesReference: 0,
@@ -603,7 +624,7 @@ class Program {
             type: ScopeType.Registers,
             frameId,
           });
-          this.referencedVariables.set(variablesReference, fields);
+          this.referencedVariables.set(variablesReference, fieldVars);
         }
 
         return {
@@ -1312,6 +1333,9 @@ class Program {
     if (exp.match(/^[0-9]+$/i)) {
       return parseInt(exp, 10);
     }
+
+    // Add prefix when referencing register fields
+    exp = exp.replace(/([ad][0-7]+)\./i, "__OBJ__$1.");
 
     const variables = await this.getVariables(frameIndex);
 

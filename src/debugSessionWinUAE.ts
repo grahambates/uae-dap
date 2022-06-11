@@ -72,17 +72,19 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
         const variableName = args.name;
         const vars = await this.program.getVariables();
         const value = vars[variableName];
-        const displayValue = this.program.formatVariable(variableName, value);
+        if (typeof value === "number") {
+          const displayValue = this.program.formatVariable(variableName, value);
 
-        const isRegister = type === ScopeType.Registers;
-        const dataId = `${variableName}(${displayValue})`;
+          const isRegister = type === ScopeType.Registers;
+          const dataId = `${variableName}(${displayValue})`;
 
-        response.body = {
-          dataId,
-          description: isRegister ? `${displayValue}` : dataId,
-          accessTypes: ["read", "write", "readWrite"],
-          canPersist: true,
-        };
+          response.body = {
+            dataId,
+            description: isRegister ? `${displayValue}` : dataId,
+            accessTypes: ["read", "write", "readWrite"],
+            canPersist: true,
+          };
+        }
       }
     });
   }
