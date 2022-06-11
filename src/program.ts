@@ -43,6 +43,7 @@ export enum ScopeType {
   Expression,
   Custom,
   Vectors,
+  SourceConstants,
 }
 
 export interface ScopeReference {
@@ -173,6 +174,11 @@ class Program {
       new Scope(
         "Vectors",
         this.scopes.create({ type: ScopeType.Vectors, frameId }),
+        true
+      ),
+      new Scope(
+        "Constants",
+        this.scopes.create({ type: ScopeType.SourceConstants, frameId }),
         true
       ),
     ];
@@ -472,6 +478,8 @@ class Program {
         return this.getCustomVariables(frameId);
       case ScopeType.Vectors:
         return this.getVectorVariables();
+      case ScopeType.SourceConstants:
+        return this.getSourceConstantVariables();
     }
     throw new Error("Invalid reference");
   }
@@ -584,6 +592,17 @@ class Program {
         };
       })
       .filter(Boolean) as DebugProtocol.Variable[];
+  }
+
+  private async getSourceConstantVariables(): Promise<
+    DebugProtocol.Variable[]
+  > {
+    const consts = await this.getSourceConstants();
+    return Object.keys(consts).map((name) => ({
+      name,
+      value: this.formatVariable(name, consts[name], NumberFormat.HEXADECIMAL),
+      variablesReference: 0,
+    }));
   }
 
   private async getCustomVariables(
