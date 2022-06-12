@@ -453,8 +453,8 @@ describe("Node Debug Adapter", () => {
         body: { scopes },
       } = await dc.scopesRequest({ frameId: 0 });
       expect(scopes[0].name).toEqual("Registers");
-      expect(scopes[1].name).toEqual("Segments");
-      expect(scopes[2].name).toEqual("Symbols");
+      expect(scopes[1].name).toEqual("Symbols");
+      expect(scopes[2].name).toEqual("Constants");
 
       const {
         body: { variables },
@@ -485,7 +485,7 @@ describe("Node Debug Adapter", () => {
       const {
         body: { variables: segments },
       } = await dc.variablesRequest({
-        variablesReference: scopes[1].variablesReference,
+        variablesReference: scopes[3].variablesReference,
       });
       expect(segments[0].name).toEqual("Segment #0");
       expect(segments[0].type).toEqual("segment");
@@ -495,7 +495,7 @@ describe("Node Debug Adapter", () => {
       const {
         body: { variables: symbols },
       } = await dc.variablesRequest({
-        variablesReference: scopes[2].variablesReference,
+        variablesReference: scopes[1].variablesReference,
       });
       expect(symbols[0].name).toEqual("checkmouse");
       expect(symbols[0].type).toEqual("symbol");

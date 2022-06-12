@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Uses source references for disassembled sources, rather than writing to temp files
 - Improved memory expressions - supports size and sign options
 - Logpoint expressions formatted in hexadecimal for consistency
+- Nicer syntax for expressions and commands, updated help text
 
 ### Fixed
 

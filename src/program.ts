@@ -157,13 +157,18 @@ class Program {
         false
       ),
       new Scope(
-        "Segments",
-        this.scopes.create({ type: ScopeType.Segments, frameId }),
+        "Symbols",
+        this.scopes.create({ type: ScopeType.Symbols, frameId }),
         true
       ),
       new Scope(
-        "Symbols",
-        this.scopes.create({ type: ScopeType.Symbols, frameId }),
+        "Constants",
+        this.scopes.create({ type: ScopeType.SourceConstants, frameId }),
+        true
+      ),
+      new Scope(
+        "Segments",
+        this.scopes.create({ type: ScopeType.Segments, frameId }),
         true
       ),
       new Scope(
@@ -174,11 +179,6 @@ class Program {
       new Scope(
         "Vectors",
         this.scopes.create({ type: ScopeType.Vectors, frameId }),
-        true
-      ),
-      new Scope(
-        "Constants",
-        this.scopes.create({ type: ScopeType.SourceConstants, frameId }),
         true
       ),
     ];
@@ -1155,6 +1155,9 @@ class Program {
   ): Promise<string> {
     const scopeRef = this.scopes.get(variablesReference);
     const numValue = await this.evaluate(value);
+    if (typeof numValue !== "number") {
+      throw new Error("Value is not numeric");
+    }
     switch (scopeRef?.type) {
       case ScopeType.Registers:
         await this.gdb.setRegister(name, numValue.toString(16));
@@ -1215,10 +1218,14 @@ class Program {
    */
   public formatVariable(
     variableName: string,
-    value: number,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    value: any,
     defaultFormat: NumberFormat = NumberFormat.HEXADECIMAL,
     minBytes = 0
   ): string {
+    if (typeof value !== "number") {
+      return String(value);
+    }
     const format = this.variableFormatterMap.get(variableName) ?? defaultFormat;
     return formatNumber(value, format, minBytes);
   }
@@ -1241,11 +1248,14 @@ class Program {
     expression,
     frameId,
     context,
-  }: DebugProtocol.EvaluateArguments): Promise<{
-    result: string;
-    type?: string;
-    variablesReference: number;
-  }> {
+  }: DebugProtocol.EvaluateArguments): Promise<
+    | {
+        result: string;
+        type?: string;
+        variablesReference: number;
+      }
+    | undefined
+  > {
     await this.gdb.waitConnected();
     let variables: DebugProtocol.Variable[] | undefined;
     let result: string | undefined;
@@ -1254,14 +1264,48 @@ class Program {
 
     // Find expression type:
     const isRegister = expression.match(/^([ad][0-7]|pc|sr)$/i) !== null;
-    const isMemRead = expression.match(/^m\s/) !== null;
-    const isMemWrite = expression.match(/^M\s/) !== null;
     const isSymbol = this.symbols.has(expression);
 
-    switch (true) {
-      case isRegister: {
-        const [address] = await this.gdb.getRegister(expression, frameId);
-        if (expression.startsWith("a") && context === "watch") {
+    const commandMatch = expression.match(/([mdch?])(\s|$)/i);
+    const command = commandMatch?.[1];
+
+    switch (command) {
+      case "m":
+        variables = await this.dumpMemoryCommand(expression, frameId);
+        break;
+      case "M":
+        variables = await this.writeMemoryCommand(expression, frameId);
+        break;
+      case "d":
+        variables = await this.disassembleCommand(expression, frameId);
+        break;
+      case "c":
+        variables = await this.disassembleCopperCommand(expression, frameId);
+        break;
+      case "h":
+      case "H":
+      case "?":
+        return;
+      default:
+        if (isRegister) {
+          const [address] = await this.gdb.getRegister(expression, frameId);
+          if (expression.startsWith("a") && context === "watch") {
+            variables = await this.readMemoryAsVariables(
+              address,
+              length,
+              wordLength,
+              rowLength
+            );
+          } else {
+            result = this.formatVariable(
+              expression,
+              address,
+              NumberFormat.HEXADECIMAL,
+              4
+            );
+          }
+        } else if (isSymbol && (context === "watch" || context === "hover")) {
+          const address = <number>this.symbols.get(expression);
           variables = await this.readMemoryAsVariables(
             address,
             length,
@@ -1269,40 +1313,14 @@ class Program {
             rowLength
           );
         } else {
+          // Evaluate
+          const value = await this.evaluate(expression, frameId);
           result = this.formatVariable(
             expression,
-            address,
-            NumberFormat.HEXADECIMAL,
-            4
+            value,
+            NumberFormat.HEXADECIMAL
           );
         }
-        break;
-      }
-      case isMemWrite:
-        variables = await this.writeMemoryExpression(expression, frameId);
-        break;
-      case isMemRead:
-        variables = await this.readMemoryExpression(expression, frameId);
-        break;
-      case isSymbol: {
-        const address = <number>this.symbols.get(expression);
-        variables = await this.readMemoryAsVariables(
-          address,
-          length,
-          wordLength,
-          rowLength
-        );
-        break;
-      }
-      // Evaluate
-      default: {
-        const address = await this.evaluate(expression, frameId);
-        result = this.formatVariable(
-          expression,
-          address,
-          NumberFormat.HEXADECIMAL
-        );
-      }
     }
 
     // Build response for either single value or array
@@ -1345,10 +1363,8 @@ class Program {
   /**
    * Evaluate simple expression to numeric value
    */
-  public async evaluate(
-    expression: string,
-    frameIndex?: number
-  ): Promise<number> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public async evaluate(expression: string, frameIndex?: number): Promise<any> {
     // Convert all numbers to decimal:
     let exp = expression
       // Hex
@@ -1366,61 +1382,52 @@ class Program {
     // Add prefix when referencing register fields
     exp = exp.replace(/([ad][0-7]+)\./i, "__OBJ__$1.");
 
+    // ${expression} is replaced with expressio for backwards compatiblity
+    exp = exp.replace(/\$\{([^}]+)\}/, "$1");
+
     const variables = await this.getVariables(frameIndex);
 
-    // Replace inner expressions:
-    //
-    // ${expression} is replaced with the result of the expression
-    // This is pretty much redundant - retained for backwards compatiblity
-    //
-    // #{expression} is replaced with the value at memory address of {expression}
-    const matches = expression.matchAll(
-      /(?<prefix>[$#])\{(?<innerExp>[^},]+)(,(?<length>[bwl\d])?(?<sign>[us])?)?\}/gi
-    );
-    for (const match of matches) {
-      const { prefix, innerExp, length, sign } = match.groups ?? {};
-      let value = await this.evaluate(innerExp, frameIndex);
+    // Memory references:
+    // Numeric value at memory address
 
-      // Memory read:
-      if (prefix === "#") {
-        // Options:
-        //
-        // Additional options can be specified following a comma after the expression.
-        //
-        // Length of memory to read can be specified:
-        // Either as a named size:
-        // #{exp,w}
-        // or number of bytes:
-        // #{exp,2}
-        let bytes = 4; // Defaults to longword
-        if (length) {
-          const sizes = { b: 1, w: 2, l: 4 };
-          bytes =
-            sizes[length.toLowerCase() as keyof typeof sizes] ||
-            parseInt(length, 10);
-        }
-        value = await this.getMemory(value, bytes);
-        // It can also include a suffix to indicate whether the resulting value is signed
-        // e.g. #{exp,ws} or #{exp,2s}
-        const signed = sign === "s" || sign === "S"; // Default to unsigned
-        if (signed) {
-          value -= Math.pow(2, bytes * 8);
-        }
+    // Legacy syntax:
+    // #{expression}
+    const legacyMemMatches = expression.matchAll(/#\{(?<address>[^},]+)\}/gi);
+    for (const match of legacyMemMatches) {
+      const { address } = match.groups ?? {};
+      const addressNum = await this.evaluate(address, frameIndex);
+      if (typeof addressNum !== "number") {
+        throw new Error("address is not numeric");
       }
+      const value = await this.getMemory(addressNum);
+      exp = exp.replace(match[0], value.toString());
+    }
 
-      // Substitute result in original expression
+    // @(expression[,size=4])
+    // @s(expression[,size=4]) - signed
+    const memMatches = expression.matchAll(
+      /@(?<sign>[su])?\((?<address>[^),]+)(,\s*(?<length>\d))?\)/gi
+    );
+
+    for (const match of memMatches) {
+      const { address, length, sign } = match.groups ?? {};
+      const addressNum = await this.evaluate(address, frameIndex);
+      if (typeof addressNum !== "number") {
+        throw new Error("address is not numeric");
+      }
+      const lengthNum = length ? parseInt(length) : 4;
+      let value = await this.getMemory(addressNum, lengthNum);
+      if (sign === "s" || sign === "S") {
+        value -= Math.pow(2, lengthNum * 8);
+      }
       exp = exp.replace(match[0], value.toString());
     }
 
     // Evaluate expression
-    const result = expEval(parse(exp), variables);
-    if (isNaN(result)) {
-      throw new Error("Unable to evaluate expression: " + exp);
-    }
-    return Math.round(result);
+    return expEval(parse(exp), variables);
   }
 
-  private async writeMemoryExpression(
+  private async writeMemoryCommand(
     expression: string,
     frameId?: number
   ): Promise<DebugProtocol.Variable[]> {
@@ -1428,14 +1435,17 @@ class Program {
       /M\s*(?<addr>[{}$#0-9a-z_]+)\s*=\s*(?<data>[0-9a-z_]+)/i.exec(expression);
     const groups = matches?.groups;
     if (!groups) {
-      throw new Error("Expression not recognized");
+      throw new Error("Expected syntax: M address=bytes");
     }
     const address = await this.evaluate(groups.addr, frameId);
+    if (typeof address !== "number") {
+      throw new Error("address is not numeric");
+    }
     await this.gdb.setMemory(address, groups.data);
     return this.readMemoryAsVariables(address, groups.data.length / 2);
   }
 
-  private async readMemoryExpression(
+  private async dumpMemoryCommand(
     expression: string,
     frameId?: number
   ): Promise<DebugProtocol.Variable[]> {
@@ -1446,21 +1456,35 @@ class Program {
       );
     const groups = matches?.groups;
     if (!groups) {
-      throw new Error("Expression not recognized");
+      throw new Error(
+        "Expected syntax: m address[,size=16,wordSizeInBytes=4,rowSizeInWords=4][,ab]"
+      );
     }
 
     // Evaluate match groups:
     // All of these parameters can contain expressions
     const address = await this.evaluate(groups.address, frameId);
+    if (typeof address !== "number") {
+      throw new Error("address is not numeric");
+    }
     const length = groups.length
       ? await this.evaluate(groups.length, frameId)
       : 16;
+    if (typeof length !== "number") {
+      throw new Error("length is not numeric");
+    }
     const wordLength = groups.wordLength
       ? await this.evaluate(groups.wordLength, frameId)
       : 4;
+    if (typeof wordLength !== "number") {
+      throw new Error("wordLength is not numeric");
+    }
     const rowLength = groups.rowLength
       ? await this.evaluate(groups.rowLength, frameId)
       : 4;
+    if (typeof rowLength !== "number") {
+      throw new Error("rowLength is not numeric");
+    }
     const mode = groups.mode ?? "ab";
 
     if (mode === "d") {
@@ -1476,6 +1500,54 @@ class Program {
         mode
       );
     }
+  }
+
+  private async disassembleCommand(
+    expression: string,
+    frameId?: number
+  ): Promise<DebugProtocol.Variable[]> {
+    const matches = /d\s*(?<address>[^,]+)(,\s*(?<length>[^,]+))?/i.exec(
+      expression
+    );
+    const groups = matches?.groups;
+    if (!groups) {
+      throw new Error("Expected syntax: d address[,size=16]");
+    }
+    const address = await this.evaluate(groups.address, frameId);
+    if (typeof address !== "number") {
+      throw new Error("address is not numeric");
+    }
+    const length = groups.length
+      ? await this.evaluate(groups.length, frameId)
+      : 16;
+    if (typeof length !== "number") {
+      throw new Error("length is not numeric");
+    }
+    return this.disassembleAsVariables(address, length);
+  }
+
+  private async disassembleCopperCommand(
+    expression: string,
+    frameId?: number
+  ): Promise<DebugProtocol.Variable[]> {
+    const matches = /c\s*(?<address>[^,]+)(,\s*(?<length>[^,]+))?/i.exec(
+      expression
+    );
+    const groups = matches?.groups;
+    if (!groups) {
+      throw new Error("Expected syntax: c address[,size=16]");
+    }
+    const address = await this.evaluate(groups.address, frameId);
+    if (typeof address !== "number") {
+      throw new Error("address is not numeric");
+    }
+    const length = groups.length
+      ? await this.evaluate(groups.length, frameId)
+      : 16;
+    if (typeof length !== "number") {
+      throw new Error("length is not numeric");
+    }
+    return this.disassembleCopperAsVariables(address, length);
   }
 
   private async readMemoryAsVariables(

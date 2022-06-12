@@ -420,21 +420,42 @@ export class FsUAEDebugSession extends DebugSession {
 
   protected sendHelpText() {
     const text = `Commands:
-    Memory dump:
-        m address|\${register|symbol}|#{symbol},size[, wordSizeInBytes, rowSizeInWords][,ab]
-        			a: show ascii output, b: show bytes output
-            example: m $5c50,10,2,4
-    Disassembled Memory dump:
-        m address|\${register|symbol}|#{symbol},size,d
-            example: m \${pc},10,d
-    Disassembled Copper Memory dump:
-        m address|\${register|symbol}|#{symbol},size,c
-            example: m \${copperlist},16,c
-    Memory set:
-        M address|\${register|symbol}|#{symbol}=bytes
-            example: M $5c50=0ff534
-    \${symbol} gives the address of symbol
-    #{symbol} gives the pointed value from the symbols
+  Memory dump:
+    m address[,size=16,wordSizeInBytes=4,rowSizeInWords=4][,ab]
+      a: show ascii output, b: show bytes output (default: both)
+      examples: m $5c50,10              Dump 10 bytes of memory starting at $5c50
+                m a0,DATA_SIZE,2,4,a    DATA_SIZE bytes in rows of 4 words from
+  Disassemble:
+    d address[,size=16]
+      example: d pc,10                  Disassemble 10 bytes of memory starting
+  Disassemble copper:
+    c address[,size=16]
+      example: c copperlist,16          Disassemble 16 bytes of memory as copper
+  Memory set:
+    M address=bytes
+      bytes should be an unprefixed hexadecimal literal
+      example: M $5c50=0ff534           Write 3 byte value to memory address $5c50
+  * All parameters can be expressions unless specified.
+
+Expressions:
+  Expression syntax can be evaluated here in the console, as well as in watch, conditional breakpoints and logpoints.
+  Uses a JavaScript-like syntax and can reference variables from the Registers, Symbols and Constants groups.
+
+  Numeric literals can use either JavaScript or ASM style base prefixes:
+    decimal (default), hex (0x or $), octal (0o or @) or binary (ob or %)
+  Operators:
+    Arithmetic: + - / * ** % ++ --
+    Bitwise:    & | ~ ^ << >>
+    Comparison: < <= > >= == !=
+    Logical:    && || !
+    Ternary:    ? :
+  Memory references:
+    Allow you to include values from memory in expressions. They read from an address, like a pointer.
+    @(address[,size=4]) reads numeric value at address, which can be an expression.
+      size: number of bytes to read
+    @s(address[,size=4]) as above but signed
+      examples: @($100)     Unsigned longword value at address $100
+                @s(a0,2)    Signed word value at address in register a0
 `;
     this.output(text);
   }
@@ -740,7 +761,12 @@ export class FsUAEDebugSession extends DebugSession {
   ) {
     this.handleAsyncRequest(response, async () => {
       assertIsDefined(this.program);
-      response.body = await this.program.evaluateExpression(args);
+      const body = await this.program.evaluateExpression(args);
+      if (body) {
+        response.body = body;
+      } else {
+        this.sendHelpText();
+      }
     });
   }
 
