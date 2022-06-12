@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2022-06-12
+
 ### Added
 
 - Interrupt addresses in variables list
@@ -20,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved memory expressions - supports size and sign options
 - Logpoint expressions formatted in hexadecimal for consistency
 - Nicer syntax for expressions and commands, updated help text
+- Better completions in REPL
 
 ### Fixed
 
