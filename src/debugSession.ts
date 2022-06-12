@@ -433,29 +433,31 @@ export class FsUAEDebugSession extends DebugSession {
       example: c copperlist,16          Disassemble 16 bytes of memory as copper
   Memory set:
     M address=bytes
-      bytes should be an unprefixed hexadecimal literal
+      bytes: unprefixed hexadecimal literal
       example: M $5c50=0ff534           Write 3 byte value to memory address $5c50
   * All parameters can be expressions unless specified.
 
 Expressions:
   Expression syntax can be evaluated here in the console, as well as in watch, conditional breakpoints and logpoints.
-  Uses a JavaScript-like syntax and can reference variables from the Registers, Symbols and Constants groups.
+  It uses a JavaScript-like syntax and can reference variables from the Registers, Symbols and Constants groups.
 
   Numeric literals can use either JavaScript or ASM style base prefixes:
     decimal (default), hex (0x or $), octal (0o or @) or binary (ob or %)
-  Operators:
+  Operators supported:
     Arithmetic: + - / * ** % ++ --
     Bitwise:    & | ~ ^ << >>
     Comparison: < <= > >= == !=
     Logical:    && || !
     Ternary:    ? :
   Memory references:
-    Allow you to include values from memory in expressions. They read from an address, like a pointer.
-    @(address[,size=4]) reads numeric value at address, which can be an expression.
-      size: number of bytes to read
-    @s(address[,size=4]) as above but signed
-      examples: @($100)     Unsigned longword value at address $100
-                @s(a0,2)    Signed word value at address in register a0
+    Allow you to reference values from memory. Reads a numeric value from an address, which can be an expression.
+    Read unsigned:
+      @(address[,size=4])
+        size: number of bytes to read
+        example: @($100)               Unsigned longword value at address $100
+    Read signed:
+      @s(address[,size=4])
+        example: @s(a0,2)              Signed word value at address in register a0
 `;
     this.output(text);
   }
@@ -765,6 +767,7 @@ Expressions:
       if (body) {
         response.body = body;
       } else {
+        response.body = { result: "", variablesReference: 0 };
         this.sendHelpText();
       }
     });
@@ -821,12 +824,11 @@ Expressions:
   ) {
     this.handleAsyncRequest(response, async () => {
       assertIsDefined(this.program);
-      const vars = await this.program.getVariables(args.frameId);
-      response.body = {
-        targets: Object.keys(vars)
-          .filter((key) => key.startsWith(args.text))
-          .map((label) => ({ label })),
-      };
+      const targets = await this.program.getCompletions(
+        args.text,
+        args.frameId
+      );
+      response.body = { targets };
     });
   }
 

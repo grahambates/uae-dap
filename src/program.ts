@@ -435,15 +435,56 @@ class Program {
     const sourceConstants = await this.getSourceConstants();
 
     return {
-      ...Object.fromEntries(this.symbols),
       ...customRegisterAddresses,
+      ...Object.fromEntries(this.symbols),
       ...sourceConstants,
       ...registerEntries,
-      example: {
-        b: 1,
-        w: 2,
-      },
     };
+  }
+
+  public async getCompletions(
+    text: string,
+    frameId?: number
+  ): Promise<DebugProtocol.CompletionItem[]> {
+    await this.gdb.waitConnected();
+    const words = text.split(/[^\w.]/);
+    const lastWord = words.pop();
+    if (!lastWord) {
+      return [];
+    }
+
+    if (lastWord?.includes(".")) {
+      const parts = lastWord.split(".");
+      const vars: DebugProtocol.CompletionItem[] = [
+        { label: "b", detail: "Byte value" },
+        { label: "bs", detail: "Byte value signed" },
+        { label: "w", detail: "Word value" },
+        { label: "ws", detail: "Word value signed" },
+        { label: "l", detail: "Longword value" },
+        { label: "ls", detail: "LongWord value signed" },
+      ];
+      return vars.filter((v) => v.label.startsWith(parts[1]));
+    }
+
+    const registers = await this.gdb.registers(frameId || null);
+    const sourceConstants = await this.getSourceConstants();
+
+    const vars: DebugProtocol.CompletionItem[] = [
+      ...Object.values(customRegisterNames).map((label) => ({
+        label,
+        detail: "Custom",
+      })),
+      ...Object.keys(this.symbols).map((label) => ({
+        label,
+        detail: "Symbol",
+      })),
+      ...Object.keys(sourceConstants).map((label) => ({
+        label,
+        detail: "Constant",
+      })),
+      ...registers.map((reg) => ({ label: reg.name, detail: "Register" })),
+    ];
+    return vars.filter((v) => v.label.startsWith(lastWord));
   }
 
   private registerFields(value: number) {
