@@ -1459,7 +1459,10 @@ class Program {
       const lengthNum = length ? parseInt(length) : 4;
       let value = await this.getMemory(addressNum, lengthNum);
       if (sign === "s" || sign === "S") {
-        value -= Math.pow(2, lengthNum * 8);
+        const range = Math.pow(2, lengthNum * 8);
+        if (value >= range / 2) {
+          value -= range;
+        }
       }
       exp = exp.replace(match[0], value.toString());
     }

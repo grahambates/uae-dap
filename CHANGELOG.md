@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Signed memory references were always negative!
+
 ## [0.7.1] - 2022-06-13
 
 ### Fixed
