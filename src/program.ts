@@ -1433,7 +1433,7 @@ class Program {
 
     // Legacy syntax:
     // #{expression}
-    const legacyMemMatches = expression.matchAll(/#\{(?<address>[^},]+)\}/gi);
+    const legacyMemMatches = exp.matchAll(/#\{(?<address>[^},]+)\}/gi);
     for (const match of legacyMemMatches) {
       const { address } = match.groups ?? {};
       const addressNum = await this.evaluate(address, frameIndex);
@@ -1446,7 +1446,7 @@ class Program {
 
     // @(expression[,size=4])
     // @s(expression[,size=4]) - signed
-    const memMatches = expression.matchAll(
+    const memMatches = exp.matchAll(
       /@(?<sign>[su])?\((?<address>[^),]+)(,\s*(?<length>\d))?\)/gi
     );
 
