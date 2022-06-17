@@ -16,9 +16,9 @@ export interface Hunk {
   allocSize: number;
   /** Relocation information */
   reloc32: RelocInfo32[];
-  /** Symbols defined in this hunk if exported */
+  /** Symbols defined in this hunk (if exported) */
   symbols: SourceSymbol[];
-  /** Offsets of source file / lines if exoprted in Line Debug data */
+  /** Offsets of source files / lines (if exported in Line Debug data) */
   lineDebugInfo: DebugInfo[];
   /** Size of code/data binary in this hunk or to allocate in case of BSS */
   dataSize?: number;
@@ -96,8 +96,8 @@ export function parseHunks(contents: Buffer): Hunk[] {
     );
   }
 
-  return parseHeader(reader).map((alloc, index) =>
-    createHunk(alloc, index, reader)
+  return parseHeader(reader).map((hunkInfo, index) =>
+    createHunk(hunkInfo, index, reader)
   );
 }
 
