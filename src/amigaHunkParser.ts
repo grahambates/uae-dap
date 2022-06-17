@@ -61,7 +61,7 @@ export interface DebugInfo {
   lines: SourceLine[];
 }
 
-type Allocation = { memType: MemoryType; size: number };
+type Allocation = { memType: MemoryType; allocSize: number };
 
 const BlockTypes = {
   CODE: 0x3e9,
@@ -96,28 +96,9 @@ export function parseHunks(contents: Buffer): Hunk[] {
     );
   }
 
-  // Build table from header block to get sizes/types
-  const hunkTable = parseHeader(reader);
-
-  // Populate the hunks array
-  const hunks: Hunk[] = [];
-  for (let i = 0; i < hunkTable.length; i++) {
-    // Create a minimal object with the data we have so far
-    const hunk: Hunk = {
-      index: i,
-      fileOffset: reader.offset(),
-      memType: hunkTable[i].memType,
-      hunkType: HunkType.CODE, // Placeholder for valid type
-      allocSize: hunkTable[i].size,
-      symbols: [],
-      reloc32: [],
-      lineDebugInfo: [],
-    };
-    // Populate object with block data from reader
-    fillHunk(hunk, reader);
-    hunks.push(hunk);
-  }
-  return hunks;
+  return parseHeader(reader).map((alloc, index) =>
+    createHunk(alloc, index, reader)
+  );
 }
 
 /**
@@ -160,16 +141,30 @@ function parseHeader(reader: BufferReader): Allocation[] {
     }
     hunkTable.push({
       memType,
-      size: (hunkSize & 0x0fffffff) * 4, // Mask upper bytes containing memory type
+      allocSize: (hunkSize & 0x0fffffff) * 4, // Mask upper bytes containing memory type
     });
   }
   return hunkTable;
 }
 
-/**
- * Populate the skeleton hunk object with data from the reader
- */
-function fillHunk(hunk: Hunk, reader: BufferReader) {
+function createHunk(
+  { memType, allocSize }: Allocation,
+  index: number,
+  reader: BufferReader
+): Hunk {
+  // Create a minimal object with the info we have:
+  const hunk: Hunk = {
+    index,
+    fileOffset: reader.offset(),
+    memType,
+    hunkType: HunkType.CODE, // Placeholder for valid type
+    allocSize,
+    symbols: [],
+    reloc32: [],
+    lineDebugInfo: [],
+  };
+
+  // Populate with block data from the reader:
   let blockType = reader.readLong();
   while (blockType !== BlockTypes.END) {
     switch (blockType) {
@@ -223,6 +218,7 @@ function fillHunk(hunk: Hunk, reader: BufferReader) {
     }
     blockType = reader.readLong();
   }
+  return hunk;
 }
 
 function parseSymbols(reader: BufferReader): SourceSymbol[] {
@@ -263,7 +259,7 @@ function parseDebug(reader: BufferReader): DebugInfo | null {
   const baseOffset = reader.readLong();
   const debugTag = reader.readString(4);
 
-  // We only support debug line as debug format currently so skip if not found
+  // We only support debug line as debug format currently so skip others
   if (debugTag !== "LINE") {
     reader.skip((numLongs - 2) * 4);
     return null;
