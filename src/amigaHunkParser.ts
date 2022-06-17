@@ -192,6 +192,7 @@ class BufferReader {
 }
 
 function fillHunk(hunk: Hunk, reader: BufferReader) {
+  console.log(hunk);
   let blockType = reader.readLong();
   while (blockType !== BlockTypes.END) {
     switch (blockType) {
