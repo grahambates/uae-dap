@@ -223,7 +223,7 @@ export class FsUaeEmulator extends EventEmitter implements Emulator {
 
   async setExpectionBreakpoint(mask: number): Promise<void> {
     // il [<mask>]           Exception breakpoint.
-    await this.executeCommand(`i ${mask.toString(16)}`);
+    await this.executeCommand(`il ${mask.toString(16)}`);
   }
 
   // Watchpoints:
