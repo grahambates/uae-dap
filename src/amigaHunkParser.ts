@@ -21,7 +21,7 @@ export interface Hunk {
   /** Offsets of source file / lines if exoprted in Line Debug data */
   lineDebugInfo: DebugInfo[];
   /** Size of code/data binary in this hunk or to allocate in case of BSS */
-  dataSize: number;
+  dataSize?: number;
   /** Byte offset of code/data binary relative to this hunk */
   dataOffset?: number;
   /** code/data binary */
@@ -61,15 +61,17 @@ export interface DebugInfo {
   lines: SourceLine[];
 }
 
+type Allocation = { memType: MemoryType; size: number };
+
 const BlockTypes = {
-  CODE: 1001,
-  DATA: 1002,
-  BSS: 1003,
-  RELOC32: 1004,
-  SYMBOL: 1008,
-  DEBUG: 1009,
-  END: 1010,
-  HEADER: 1011, // 0x3f3
+  CODE: 0x3e9,
+  DATA: 0x3ea,
+  BSS: 0x3eb,
+  RELOC32: 0x3ec,
+  SYMBOL: 0x3f0,
+  DEBUG: 0x3f1,
+  END: 0x3f2,
+  HEADER: 0x3f3,
 };
 
 /**
@@ -94,12 +96,40 @@ export function parseHunks(contents: Buffer): Hunk[] {
     );
   }
 
-  // Read header data:
+  // Build table from header block to get sizes/types
+  const hunkTable = parseHeader(reader);
+
+  // Populate the hunks array
+  const hunks: Hunk[] = [];
+  for (let i = 0; i < hunkTable.length; i++) {
+    // Create a minimal object with the data we have so far
+    const hunk: Hunk = {
+      index: i,
+      fileOffset: reader.offset(),
+      memType: hunkTable[i].memType,
+      hunkType: HunkType.CODE, // Placeholder for valid type
+      allocSize: hunkTable[i].size,
+      symbols: [],
+      reloc32: [],
+      lineDebugInfo: [],
+    };
+    // Populate object with block data from reader
+    fillHunk(hunk, reader);
+    hunks.push(hunk);
+  }
+  return hunks;
+}
+
+/**
+ * Parse header block to build hunk table, containing the size and memory type for each hunk
+ */
+function parseHeader(reader: BufferReader): Allocation[] {
+  // HUNK_HEADER:
   // strings   A number of resident library names.
   // uint32    Table size. The highest hunk number plus one.
   // uint32 F  First hunk. The first hunk that should be used in loading.
   // uint32 L  Last hunk. The last hunk that should be used in loading.
-  // uint32 * (L-F+1) 		A list of hunk sizes.
+  // uint32 * (L-F+1)     A list of hunk sizes.
   reader.skip(4); // Skip header/string section
   const tableSize = reader.readLong();
   const firstHunk = reader.readLong();
@@ -110,37 +140,175 @@ export function parseHunks(contents: Buffer): Hunk[] {
     throw new Error("Not a valid hunk file : Invalid sizes for hunks");
   }
 
-  // Build hunk table:
-  // This contains the size and memory type for each hunk
+  const hunkTable: Allocation[] = [];
   const hunkCount = lastHunk - firstHunk + 1;
-  const hunkTable: { memType: MemoryType; size: number }[] = [];
   for (let i = 0; i < hunkCount; i++) {
+    //  The hunk size of each block is expected to indicate in its two highest bits which flags to pass to AllocMem.
+    // Bit 31   Bit 30  Description
+    // 0        0       The hunk can be loaded into whatever memory is available, with a preference for fast memory.
+    // 1        0       The hunk should be loaded into fast memory or the process should fail.
+    // 0        1       The hunk should be loaded into chip memory or the process should fail.
+    //                  TODO: not supported
+    // 1        1       Indicates an additional following longword containing the specific flags, of which bit 30 gets cleared before use.
     const hunkSize = reader.readLong();
+    let memType = MemoryType.ANY;
+    const masked = hunkSize & 0xf0000000; // Mask lower bytes containing size
+    if (masked === 1 << 30) {
+      memType = MemoryType.CHIP;
+    } else if (masked === 1 << 31) {
+      memType = MemoryType.FAST;
+    }
     hunkTable.push({
-      memType: getMemoryType(hunkSize),
-      size: getSize(hunkSize),
+      memType,
+      size: (hunkSize & 0x0fffffff) * 4, // Mask upper bytes containing memory type
     });
   }
+  return hunkTable;
+}
 
-  // Build hunks array:
-  const hunks: Hunk[] = [];
-  for (let i = 0; i < hunkCount; i++) {
-    const hunk: Hunk = {
-      index: i,
-      fileOffset: reader.offset(),
-      memType: hunkTable[i].memType,
-      hunkType: HunkType.CODE, // Placeholder
-      allocSize: hunkTable[i].size,
-      dataSize: 0, // Placeholder
-      symbols: [],
-      reloc32: [],
-      lineDebugInfo: [],
-    };
-    // Read hunk data to populate object
-    fillHunk(hunk, reader);
-    hunks.push(hunk);
+/**
+ * Populate the skeleton hunk object with data from the reader
+ */
+function fillHunk(hunk: Hunk, reader: BufferReader) {
+  let blockType = reader.readLong();
+  while (blockType !== BlockTypes.END) {
+    switch (blockType) {
+      // Initial hunk blocks:
+      // These define the type and content of the hunk
+      case BlockTypes.CODE:
+        // uint32   N   The number of longwords of code.
+        // uint32 * N   Machine code.
+        hunk.hunkType = HunkType.CODE;
+        hunk.dataSize = reader.readLong() * 4;
+        hunk.dataOffset = reader.offset();
+        hunk.data = reader.readBytes(hunk.dataSize);
+        break;
+      case BlockTypes.DATA:
+        // uint32   N   The number of longwords of data.
+        // uint32 * N   Data.
+        hunk.hunkType = HunkType.DATA;
+        hunk.dataSize = reader.readLong() * 4;
+        hunk.dataOffset = reader.offset();
+        hunk.data = reader.readBytes(hunk.dataSize);
+        break;
+      case BlockTypes.BSS:
+        // uint32     The number of longwords of zeroed memory to allocate.
+        hunk.hunkType = HunkType.BSS;
+        hunk.allocSize = reader.readLong() * 4; // Is this always the same as in hunk table?
+        break;
+
+      // Additional hunk blocks:
+      // These provide additional properties
+      case BlockTypes.DEBUG: {
+        const info = parseDebug(reader);
+        if (info) {
+          hunk.lineDebugInfo.push(info);
+        }
+        break;
+      }
+      case BlockTypes.RELOC32:
+        hunk.reloc32.push(...parseReloc32(reader));
+        break;
+      case BlockTypes.SYMBOL:
+        hunk.symbols.push(...parseSymbols(reader));
+        break;
+
+      // Skip all other block types
+      default:
+        reader.skip(reader.readLong() * 4);
+        break;
+    }
+    if (reader.finished()) {
+      break;
+    }
+    blockType = reader.readLong();
   }
-  return hunks;
+}
+
+function parseSymbols(reader: BufferReader): SourceSymbol[] {
+  const symbols: SourceSymbol[] = [];
+  // HUNK_SYMBOL [0x3F0]
+  // string     The name of the current symbol. A zero size indicates the immediate end of this block.
+  // uint32     The offset of the current symbol from the start of the hunk.
+  let numLongs = reader.readLong();
+  while (numLongs > 0) {
+    // String:
+    // uint32   N   The number of uint32s that compose the string.
+    // uint32 * N   Each uint32 is composed of four characters, with the exception of the last uint32.
+    //              Extra space at the end of the last uint32 is filled with the 0 byte.
+    symbols.push({
+      name: reader.readString(numLongs * 4),
+      offset: reader.readLong(),
+    });
+    numLongs = reader.readLong();
+  }
+  // Sort symbols by offset ?
+  if (symbols.length > 0) {
+    symbols.sort(function (a, b) {
+      return a.offset > b.offset ? 1 : b.offset > a.offset ? -1 : 0;
+    });
+  }
+  return symbols;
+}
+
+function parseDebug(reader: BufferReader): DebugInfo | null {
+  // "LINE" - Generic debug hunk format
+  // uint32 N      The number of longwords following in the given hunk. If this value is zero,
+  //               then it indicates the immediate end of this block.
+  // uint32        The base offset within the source file.
+  // char[4]        "LINE"
+  // string        The source file name.
+  // line_info[M]  The table of line offsets within the local code, data or bss section.
+  const numLongs = reader.readLong();
+  const baseOffset = reader.readLong();
+  const debugTag = reader.readString(4);
+
+  // We only support debug line as debug format currently so skip if not found
+  if (debugTag !== "LINE") {
+    reader.skip((numLongs - 2) * 4);
+    return null;
+  }
+
+  // String:
+  // uint32   N   The number of uint32s that compose the string.
+  // uint32 * N   Each uint32 is composed of four characters, with the exception of the last uint32.
+  //              Extra space at the end of the last uint32 is filled with the 0 byte.
+  const numNameLongs = reader.readLong();
+  const sourceFilename = reader.readString(numNameLongs * 4);
+
+  const numLines = (numLongs - numNameLongs - 3) / 2; // 3 longs + name already read, 2 per item
+  const lines: SourceLine[] = [];
+
+  for (let i = 0; i < numLines; i++) {
+    // line_info:
+    // uint32     Line number.
+    // uint32     Offset of line from base offset.
+    lines.push({
+      line: reader.readLong() & 0xffffff, // mask for SAS/C extra info
+      offset: baseOffset + reader.readLong(),
+    });
+  }
+  return { sourceFilename, lines, baseOffset };
+}
+
+function parseReloc32(reader: BufferReader): RelocInfo32[] {
+  // HUNK_RELOC32 [0x3EC]:
+  // uint32   N   The number of offsets for a given hunk.
+  //              If this value is zero, then it indicates the immediate end of this block.
+  // uint32       The number of the hunk the offsets are to point into.
+  // uint32 * N   Offsets in the current CODE or DATA hunk to relocate.
+  const relocs: RelocInfo32[] = [];
+  let count = reader.readLong();
+  while (count !== 0) {
+    const target = reader.readLong();
+    const offsets: number[] = [];
+    for (let i = 0; i < count; i++) {
+      offsets.push(reader.readLong());
+    }
+    relocs.push({ target, offsets });
+    count = reader.readLong();
+  }
+  return relocs;
 }
 
 /**
@@ -189,165 +357,4 @@ class BufferReader {
   public offset(): number {
     return this.pos;
   }
-}
-
-function fillHunk(hunk: Hunk, reader: BufferReader) {
-  console.log(hunk);
-  let blockType = reader.readLong();
-  while (blockType !== BlockTypes.END) {
-    switch (blockType) {
-      case BlockTypes.CODE:
-        // uint32 	N 	The number of longwords of code.
-        // uint32 * N 		Machine code.
-        hunk.hunkType = HunkType.CODE;
-        hunk.dataSize = getSize(reader.readLong());
-        hunk.dataOffset = reader.offset();
-        hunk.data = reader.readBytes(hunk.dataSize);
-        break;
-      case BlockTypes.DATA:
-        // uint32 	N 	The number of longwords of data.
-        // uint32 * N 		Data.
-        hunk.hunkType = HunkType.DATA;
-        hunk.dataSize = getSize(reader.readLong());
-        hunk.dataOffset = reader.offset();
-        hunk.data = reader.readBytes(hunk.dataSize);
-        break;
-      case BlockTypes.BSS:
-        // uint32 		The number of longwords of zeroed memory to allocate.
-        hunk.hunkType = HunkType.BSS;
-        hunk.dataSize = getSize(reader.readLong());
-        break;
-      case BlockTypes.DEBUG: {
-        const info = parseDebug(reader);
-        if (info) {
-          hunk.lineDebugInfo.push(info);
-        }
-        break;
-      }
-      case BlockTypes.RELOC32:
-        hunk.reloc32.push(parseReloc32(reader));
-        break;
-      case BlockTypes.SYMBOL:
-        hunk.symbols.push(...parseSymbols(reader));
-        break;
-      default:
-        reader.skip(getSize(reader.readLong()));
-        break;
-    }
-    if (reader.finished()) {
-      break;
-    }
-    blockType = reader.readLong();
-  }
-}
-
-/**
- * Gets allocation size from hunkSize and converts to bytes
- */
-function getSize(hunkSize: number): number {
-  // Mask upper bytes containing memory type
-  return (hunkSize & 0x0fffffff) * 4;
-}
-
-/**
- * The hunk size of each block is expected to indicate in its two highest bits which flags to pass to AllocMem.
- */
-function getMemoryType(hunkSize: number): MemoryType {
-  // Bit 31 	Bit 30 	Description
-  // 0 	      0 	    The hunk can be loaded into whatever memory is available, with a preference for fast memory.
-  // 1        0 	    The hunk should be loaded into fast memory or the process should fail.
-  // 0 	      1     	The hunk should be loaded into chip memory or the process should fail.
-  // 1 	      1     	Indicates an additional following longword containing the specific flags, of which bit 30 gets cleared before use.
-  //                  TODO: not supported
-
-  // Mask lower bytes containing szie
-  const memT = hunkSize & 0xf0000000;
-  if (memT === 1 << 30) {
-    return MemoryType.CHIP;
-  } else if (memT === 1 << 31) {
-    return MemoryType.FAST;
-  } else {
-    return MemoryType.ANY;
-  }
-}
-
-function parseSymbols(reader: BufferReader): SourceSymbol[] {
-  const symbols: SourceSymbol[] = [];
-  // HUNK_SYMBOL [0x3F0]
-  // string 		The name of the current symbol. A zero size indicates the immediate end of this block.
-  // uint32 		The offset of the current symbol from the start of the hunk.
-  let numLongs = reader.readLong();
-  while (numLongs > 0) {
-    // String:
-    // uint32 	N 	The number of uint32s that compose the string.
-    // uint32 * N   Each uint32 is composed of four characters, with the exception of the last uint32.
-    //              Extra space at the end of the last uint32 is filled with the 0 byte.
-    symbols.push({
-      name: reader.readString(numLongs * 4),
-      offset: reader.readLong(),
-    });
-    numLongs = reader.readLong();
-  }
-  // Sort symbols by offset ?
-  if (symbols.length > 0) {
-    symbols.sort(function (a, b) {
-      return a.offset > b.offset ? 1 : b.offset > a.offset ? -1 : 0;
-    });
-  }
-  return symbols;
-}
-
-function parseDebug(reader: BufferReader): DebugInfo | null {
-  // "LINE" - Generic debug hunk format
-  // uint32 N      The number of longwords following in the given hunk. If this value is zero,
-  //               then it indicates the immediate end of this block.
-  // uint32 		   The base offset within the source file.
-  // char[4] 		   "LINE"
-  // string 		   The source file name.
-  // line_info[M]  The table of line offsets within the local code, data or bss section.
-  const numLongs = reader.readLong();
-  const baseOffset = reader.readLong();
-  const debugTag = reader.readString(4);
-
-  // We only support debug line as debug format currently so skip if not found
-  if (debugTag !== "LINE") {
-    reader.skip((numLongs - 2) * 4);
-    return null;
-  }
-
-  // String:
-  // uint32 	N 	The number of uint32s that compose the string.
-  // uint32 * N   Each uint32 is composed of four characters, with the exception of the last uint32.
-  //              Extra space at the end of the last uint32 is filled with the 0 byte.
-  const numNameLongs = reader.readLong();
-  const sourceFilename = reader.readString(numNameLongs * 4);
-
-  const numLines = (numLongs - numNameLongs - 3) / 2; // 3 longs + name already read, 2 per item
-  const lines: SourceLine[] = [];
-
-  for (let i = 0; i < numLines; i++) {
-    // line_info:
-    // uint32 		Line number.
-    // uint32 		Offset of line from base offset.
-    lines.push({
-      line: reader.readLong() & 0xffffff, // mask for SAS/C extra info
-      offset: baseOffset + reader.readLong(),
-    });
-  }
-  return { sourceFilename, lines, baseOffset };
-}
-
-function parseReloc32(reader: BufferReader): RelocInfo32 {
-  // HUNK_RELOC32 [0x3EC]:
-  // uint32 	N 	The number of offsets for a given hunk.
-  //              If this value is zero, then it indicates the immediate end of this block.
-  // uint32 		  The number of the hunk the offsets are to point into.
-  // uint32 * N   Offsets in the current CODE or DATA hunk to relocate.
-  const count = reader.readLong();
-  const target = reader.readLong();
-  const offsets: number[] = [];
-  for (let i = 0; i < count; i++) {
-    offsets.push(reader.readLong());
-  }
-  return { target, offsets };
 }

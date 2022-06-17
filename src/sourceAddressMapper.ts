@@ -5,6 +5,12 @@ export interface FileLocation {
   line: number;
 }
 
+/**
+ * Source address mapper
+ *
+ * Once we know the addresses of the segments in RAM, this allows us to translate between source locations and memory
+ * addresses using hunk data
+ */
 export class SourceAddressMapper {
   private locationMap = new Map<string, Map<number, number>>();
   private addressMap = new Map<number, FileLocation>();
@@ -36,6 +42,7 @@ export class SourceAddressMapper {
   }
 
   addressToLocation(address: number): FileLocation | undefined {
+    // TODO: non-exact match between lines
     return this.addressMap.get(address);
   }
 
