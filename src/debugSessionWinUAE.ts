@@ -24,19 +24,6 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
     }
   }
 
-  protected async nextRequest(
-    response: DebugProtocol.NextResponse,
-    args: DebugProtocol.NextArguments
-  ): Promise<void> {
-    this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      const [frame] = await this.gdb.stack(thread);
-      const startAddress = frame.pc;
-      const endAddress = frame.pc;
-      await this.gdb.stepToRange(thread, startAddress, endAddress);
-    });
-  }
-
   protected async stepOutRequest(
     response: DebugProtocol.StepOutResponse,
     args: DebugProtocol.StepOutArguments

@@ -629,34 +629,33 @@ export class GdbProxy {
     const offset = breakpoint.offset;
     if (!this.socket.writable) {
       throw new Error("The Gdb connection is not opened");
-    } else {
-      if (
-        this.segments &&
-        segmentId !== undefined &&
-        segmentId >= this.segments.length
-      ) {
-        throw new Error("Invalid breakpoint segment id: " + segmentId);
-      }
-      let message: string;
-      if (isExceptionBreakpoint(breakpoint)) {
-        const expMskHex = GdbProxy.formatNumber(breakpoint.exceptionMask);
-        const expMskHexSz = GdbProxy.formatNumber(expMskHex.length);
-        message = "Z1,0,0;X" + expMskHexSz + "," + expMskHex;
-      } else if (offset >= 0) {
-        let segStr = "";
-        if (segmentId !== undefined && segmentId >= 0) {
-          segStr = "," + GdbProxy.formatNumber(segmentId);
-        }
-        message = "Z0," + GdbProxy.formatNumber(offset) + segStr;
-      } else {
-        throw new Error("Invalid breakpoint offset " + offset);
-      }
-      await this.waitConnected();
-      await this.sendPacketString(message, GdbPacketType.OK);
-      breakpoint.verified = true;
-      breakpoint.message = breakpoint.defaultMessage;
-      this.sendEvent("breakpointValidated", breakpoint);
     }
+    if (
+      this.segments &&
+      segmentId !== undefined &&
+      segmentId >= this.segments.length
+    ) {
+      throw new Error("Invalid breakpoint segment id: " + segmentId);
+    }
+    let message: string;
+    if (isExceptionBreakpoint(breakpoint)) {
+      const expMskHex = GdbProxy.formatNumber(breakpoint.exceptionMask);
+      const expMskHexSz = GdbProxy.formatNumber(expMskHex.length);
+      message = "Z1,0,0;X" + expMskHexSz + "," + expMskHex;
+    } else if (offset >= 0) {
+      let segStr = "";
+      if (segmentId !== undefined && segmentId >= 0) {
+        segStr = "," + GdbProxy.formatNumber(segmentId);
+      }
+      message = "Z0," + GdbProxy.formatNumber(offset) + segStr;
+    } else {
+      throw new Error("Invalid breakpoint offset " + offset);
+    }
+    await this.waitConnected();
+    await this.sendPacketString(message, GdbPacketType.OK);
+    breakpoint.verified = true;
+    breakpoint.message = breakpoint.defaultMessage;
+    this.sendEvent("breakpointValidated", breakpoint);
   }
 
   /**

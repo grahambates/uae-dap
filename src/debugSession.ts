@@ -1,35 +1,27 @@
 import {
   InitializedEvent,
   TerminatedEvent,
-  BreakpointEvent,
-  Source,
+  // BreakpointEvent,
+  // Source,
   DebugSession,
   OutputEvent,
-  ContinuedEvent,
+  // ContinuedEvent,
   InvalidatedEvent,
   logger,
 } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
-import { basename } from "path";
+// import { basename } from "path";
 import promiseRetry from "promise-retry";
 
 import {
-  GdbProxy,
-  GdbHaltStatus,
-  GdbThread,
-  isSourceBreakpoint,
-  isDataBreakpoint,
-} from "./gdb";
-import { BreakpointManager } from "./breakpoints";
-import {
   base64ToHex,
-  formatHexadecimal,
+  // formatHexadecimal,
   hexToBase64,
   NumberFormat,
-  replaceAsync,
+  // replaceAsync,
 } from "./utils/strings";
-import { Emulator } from "./emulator";
+import { FsUaeEmulator } from "./emulator/fsUae";
 import Program, { MemoryFormat, SourceConstantResolver } from "./program";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
 import { FileInfo } from "./fileInfo";
@@ -42,10 +34,6 @@ export interface LaunchRequestArguments
   stopOnEntry?: boolean;
   /** enable logging the Debug Adapter Protocol */
   trace?: boolean;
-  /** Host name of the server */
-  serverName?: string;
-  /** Port of the server */
-  serverPort?: number;
   /** Start emulator */
   startEmulator?: boolean;
   /** emulator program */
@@ -90,19 +78,7 @@ export const defaultMemoryFormats = {
 };
 
 export class FsUAEDebugSession extends DebugSession {
-  /** Timeout of the mutex */
-  protected static readonly MUTEX_TIMEOUT = 100000;
-
-  /** Loaded program */
-  protected program?: Program;
-  /** Proxy to Gdb */
-  protected gdb: GdbProxy;
-  /** Breakpoint manager */
-  protected breakpoints: BreakpointManager;
-  /** Emulator instance */
-  protected emulator: Emulator;
-  /** Test mode activated */
-  protected testMode = false;
+  protected emulator: FsUaeEmulator | null = null;
   /** trace the communication protocol */
   protected trace = false;
   /** Track which threads are stopped to avoid invalid events */
@@ -117,54 +93,14 @@ export class FsUAEDebugSession extends DebugSession {
     // this debugger uses zero-based lines and columns
     this.setDebuggerLinesStartAt1(false);
     this.setDebuggerColumnsStartAt1(false);
-
-    this.emulator = new Emulator();
-    this.gdb = this.createGdbProxy();
-    this.gdb.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
-    this.initProxy();
-    this.breakpoints = new BreakpointManager(this.gdb);
-    this.breakpoints.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
-  }
-
-  protected createGdbProxy(): GdbProxy {
-    return new GdbProxy();
-  }
-
-  /**
-   * Setting the context to run the tests.
-   * @param gdbProxy mocked proxy
-   */
-  public setTestContext(gdbProxy: GdbProxy, emulator: Emulator): void {
-    this.testMode = true;
-    this.gdb = gdbProxy;
-    this.emulator = emulator;
-    this.gdb.setMutexTimeout(1000);
-    this.initProxy();
-    this.breakpoints = new BreakpointManager(this.gdb);
-    this.breakpoints.setMutexTimeout(1000);
   }
 
   /**
    * Initialize proxy
    */
   public initProxy(): void {
-    // setup event handlers
-    this.gdb.on("stopOnEntry", (threadId) => {
-      this.sendStoppedEvent(threadId, "entry", false);
-    });
-    this.gdb.on("stopOnStep", (threadId, preserveFocusHint) => {
-      // Only send step events for stopped threads
-      if (this.stoppedThreads[threadId]) {
-        this.sendStoppedEvent(threadId, "step", preserveFocusHint);
-      }
-    });
-    this.gdb.on("stopOnPause", (threadId) => {
-      // Only send pause evens for running threads
-      if (!this.stoppedThreads[threadId]) {
-        this.sendStoppedEvent(threadId, "pause", false);
-      }
-    });
-    this.gdb.on("stopOnBreakpoint", async (threadId) => {
+    this.emulator.on("stop", async (threadId) => {
+      /*
       // Only send breakpoint events for running threads
       if (this.stoppedThreads[threadId]) {
         return;
@@ -219,56 +155,9 @@ export class FsUAEDebugSession extends DebugSession {
       } else {
         this.gdb.continueExecution(thread);
       }
+      */
     });
-    this.gdb.on("stopOnException", (_, threadId) => {
-      this.sendStoppedEvent(threadId, "exception", false);
-    });
-    this.gdb.on("continueThread", (threadId, allThreadsContinued) => {
-      this.stoppedThreads[threadId] = false;
-      this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
-    });
-    this.gdb.on("segmentsUpdated", (segments) =>
-      this.program?.updateSegments(segments)
-    );
-    this.gdb.on("breakpointValidated", (bp) => {
-      // Dirty workaround to issue https://github.com/microsoft/vscode/issues/65993
-      setTimeout(async () => {
-        try {
-          this.sendEvent(new BreakpointEvent("changed", bp));
-        } catch (error) {
-          // forget it
-        }
-      }, 100);
-    });
-    this.gdb.on("threadStarted", (threadId) => {
-      const event = <DebugProtocol.ThreadEvent>{
-        event: "thread",
-        body: {
-          reason: "started",
-          threadId: threadId,
-        },
-      };
-      this.sendEvent(event);
-    });
-    this.gdb.on("output", (text, filePath, line, column) => {
-      if (this.trace) {
-        const e: DebugProtocol.OutputEvent = new OutputEvent(`${text}\n`);
-        if (filePath !== undefined) {
-          e.body.source = new Source(
-            basename(filePath),
-            this.convertDebuggerPathToClient(filePath)
-          );
-        }
-        if (line !== undefined) {
-          e.body.line = this.convertDebuggerLineToClient(line);
-        }
-        if (column !== undefined) {
-          e.body.column = this.convertDebuggerColumnToClient(column);
-        }
-        this.sendEvent(e);
-      }
-    });
-    this.gdb.on("end", this.terminate.bind(this));
+    this.emulator.on("exit", this.terminate.bind(this));
   }
 
   /**
@@ -325,8 +214,6 @@ export class FsUAEDebugSession extends DebugSession {
       sourceFileMap,
       rootSourceFileMap,
       exceptionMask,
-      serverName = "localhost",
-      serverPort = 6860,
       startEmulator = true,
       stopOnEntry = false,
       emulator,
@@ -341,75 +228,33 @@ export class FsUAEDebugSession extends DebugSession {
         throw new Error("Missing program argument in launch request");
       }
 
-      const fileInfo = await FileInfo.create(
-        program,
-        sourceFileMap,
-        rootSourceFileMap
-      );
-
-      this.program = new Program(
-        this.gdb,
-        fileInfo,
-        this.getSourceConstantResolver(args),
-        {
-          ...defaultMemoryFormats,
-          ...memoryFormats,
-        }
-      );
-
-      this.breakpoints.setProgram(this.program);
-      this.breakpoints.addLocationToPending();
-      if (exceptionMask) {
-        this.breakpoints.setExceptionMask(exceptionMask);
-      }
-
       this.trace = trace;
       logger.init((e) => this.sendEvent(e));
       logger.setup(trace ? LogLevel.Verbose : LogLevel.Error);
 
-      if (!this.testMode) {
-        this.sendHelpText();
+      this.sendHelpText();
+
+      if (!emulator) {
+        throw new Error("Missing emulator argument in launch request");
       }
-
-      if (startEmulator) {
-        if (!emulator) {
-          throw new Error("Missing emulator argument in launch request");
-        }
-        await this.emulator.run({
-          executable: emulator,
-          args: emulatorOptions,
-          cwd: emulatorWorkingDir,
-          onExit: () => this.sendEvent(new TerminatedEvent()),
-        });
-      }
-
-      let retries = 30;
-
-      // Delay before connecting to emulator
-      if (!this.testMode) {
-        await new Promise((resolve) => setTimeout(resolve, 4000));
-        retries = 0;
-      }
-
-      // Connect to the emulator
-      await promiseRetry(
-        (retry) => this.gdb.connect(serverName, serverPort).catch(retry),
-        { minTimeout: 500, retries, factor: 1.1 }
-      );
 
       // Load the program
       this.output(`Starting program: ${program}\n`);
-      this.startProgram(program, stopOnEntry);
+
+      this.emulator = await FsUaeEmulator.create({
+        exe: emulator,
+        args: emulatorOptions,
+        cwd: emulatorWorkingDir,
+        program,
+        stopOnEntry,
+        // stopOnException,
+      });
 
       this.sendResponse(response);
     } catch (err) {
       this.sendEvent(new TerminatedEvent());
       this.sendStringErrorResponse(response, (err as Error).message);
     }
-  }
-
-  protected async startProgram(program: string, stopOnEntry: boolean) {
-    await this.gdb.load(program, stopOnEntry);
   }
 
   protected getSourceConstantResolver(
@@ -462,6 +307,7 @@ Expressions:
     this.output(text);
   }
 
+  /*
   protected sourceRequest(
     response: DebugProtocol.SourceResponse,
     args: DebugProtocol.SourceArguments
@@ -518,6 +364,7 @@ Expressions:
       response.body = { instructions };
     });
   }
+  */
 
   protected async setInstructionBreakpointsRequest(
     response: DebugProtocol.SetInstructionBreakpointsResponse,
@@ -670,7 +517,9 @@ Expressions:
   ) {
     this.handleAsyncRequest(response, async () => {
       const thread = await this.getThread(args.threadId);
-      await this.gdb.stepToRange(thread, 0, 0);
+      // await this.gdb.stepToRange(thread, 0, 0);
+      const [frame] = await this.gdb.stack(thread);
+      await this.gdb.stepToRange(thread, frame.pc, frame.pc);
     });
   }
 
