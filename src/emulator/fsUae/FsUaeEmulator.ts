@@ -147,7 +147,7 @@ export class FsUaeEmulator extends EventEmitter implements Emulator {
 
   async pause(): Promise<void> {
     this.stopped = true;
-    this.process.terminate();
+    this.process.stop();
   }
 
   async continue(): Promise<void> {

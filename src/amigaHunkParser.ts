@@ -3,6 +3,7 @@
  *
  * @see {@link http://amiga-dev.wikidot.com/file-format:hunk}
  */
+
 import { readFile } from "fs/promises";
 
 export interface Hunk {
