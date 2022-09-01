@@ -24,7 +24,7 @@ import {
   DisassemblyManager,
 } from "./disassembly";
 import { GdbProxy, GdbSegment, GdbStackPosition, GdbThread } from "./gdb";
-import { FileInfo, LineInfo, SegmentLocation } from "./fileInfo";
+import { FileInfo, LineInfo, SegmentOffset } from "./fileInfo";
 import {
   bitValue,
   chunk,
@@ -192,7 +192,7 @@ class Program {
     await this.gdb.waitConnected();
     const threadIds = await this.gdb.getThreadIds();
     const threads = threadIds.map(
-      (t) => new Thread(t.getId(), this.gdb.getThreadDisplayName(t))
+      (t) => new Thread(t.getId(), t.getDisplayName())
     );
     logger.log(`Threads: ${JSON.stringify(threads)}`);
     return threads;
@@ -1728,7 +1728,7 @@ class Program {
   public findLocationForLine(
     filename: string,
     lineNumber: number
-  ): Promise<SegmentLocation | null> {
+  ): Promise<SegmentOffset | null> {
     return this.fileInfo.findLocationForLine(filename, lineNumber);
   }
 

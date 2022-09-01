@@ -11,7 +11,7 @@ export interface LineInfo {
   lineText: string | null;
 }
 
-export interface SegmentLocation {
+export interface SegmentOffset {
   segmentId: number;
   offset: number;
 }
@@ -73,7 +73,7 @@ export class FileInfo {
   public async findLocationForLine(
     filename: string,
     lineNumber: number
-  ): Promise<SegmentLocation | null> {
+  ): Promise<SegmentOffset | null> {
     const normFilename = normalize(filename);
     for (let i = 0; i < this.hunks.length; i++) {
       const hunk = this.hunks[i];

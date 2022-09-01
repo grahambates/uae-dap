@@ -27,12 +27,14 @@ export class GdbThread {
   private processId: number;
   private threadId: number;
   private state: GdbThreadState;
+
   public constructor(processId: number, threadId: number) {
     this.id = GdbThread.getNextId();
     this.processId = processId;
     this.threadId = threadId;
     this.state = GdbThreadState.RUNNING;
   }
+
   public marshall(): string {
     if (GdbThread.supportMultiprocess) {
       return (
@@ -42,6 +44,7 @@ export class GdbThread {
       return this.threadId.toString(16);
     }
   }
+
   public static parse(value: string): GdbThread {
     // Thread id has the form : "p<process id in hex>.<thread id in hex>"
     const pth = value.split(".");
@@ -125,5 +128,11 @@ export class GdbThread {
   }
   public getState(): GdbThreadState {
     return this.state;
+  }
+  public isCPU(): boolean {
+    return this.threadId === GdbAmigaSysThreadId.CPU;
+  }
+  public isCopper(): boolean {
+    return this.threadId === GdbAmigaSysThreadId.COP;
   }
 }

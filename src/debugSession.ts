@@ -608,7 +608,7 @@ Expressions:
       const thread = await this.getThread(args.threadId);
       const positions = await this.gdb.stack(thread);
 
-      if (this.gdb.isCPUThread(thread) && positions[0]) {
+      if (thread.isCPU() && positions[0]) {
         this.onCpuFrame(positions[0].pc);
       }
 
@@ -830,7 +830,7 @@ Expressions:
       const haltStatus = await this.gdb.getHaltStatus();
       let selectedHs: GdbHaltStatus = haltStatus[0];
       for (const hs of haltStatus) {
-        if (hs.thread && this.gdb.isCPUThread(hs.thread)) {
+        if (hs.thread && hs.thread.isCPU()) {
           selectedHs = hs;
           break;
         }

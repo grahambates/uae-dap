@@ -65,9 +65,7 @@ export class BreakpointManager {
   /** Lock for breakpoint management function */
   protected breakpointLock?: () => void;
 
-  public constructor(private gdbProxy: GdbProxy) {
-    gdbProxy.onFirstStop(this.sendAllPendingBreakpoints);
-  }
+  public constructor(private gdbProxy: GdbProxy) {}
 
   // Setters:
 

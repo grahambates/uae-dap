@@ -33,14 +33,14 @@ export class DisassemblyManager {
     }
 
     let text = formatAddress(pc) + ": ";
-    const isCopper = this.gdb.isCopperThread(thread);
+    const isCopper = thread.isCopper();
     try {
       const memory = await this.gdb.getMemory(pc, 10);
       if (isCopper) {
         // Copper thread
         const lines = disassembleCopper(memory);
         text += lines[0].toString().split("    ")[0];
-      } else if (this.gdb.isCPUThread(thread)) {
+      } else if (thread.isCPU()) {
         // CPU thread
         const { code } = await disassemble(memory);
         const lines = splitLines(code);
@@ -81,7 +81,7 @@ export class DisassemblyManager {
     let line = 1;
 
     // is the pc on a opened segment ?
-    const [segmentId, offset] = this.gdb.toRelativeOffset(address);
+    const { segmentId, offset } = this.gdb.absoluteToOffset(address);
     if (segmentId >= 0 && !isCopper) {
       dAsmFile.segmentId = segmentId;
       line = await this.getLineNumberInDisassembledSegment(segmentId, offset);
@@ -136,7 +136,7 @@ export class DisassemblyManager {
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
     // ask for memory dump
     const memory = await this.gdb.getSegmentMemory(segmentId);
-    const startAddress = this.gdb.toAbsoluteOffset(segmentId, 0);
+    const startAddress = this.gdb.offsetToAbsolute(segmentId, 0);
     // disassemble the code
     const { instructions } = await disassemble(memory, startAddress);
     return instructions;
