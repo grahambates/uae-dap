@@ -43,25 +43,6 @@ export function hexStringToASCII(value: string, chunkSize: number): string {
 }
 
 /**
- * Converts a string containing hex values to an ascii string
- * @param value string to convert
- * @return ascii string
- */
-export function hexUTF8StringToUTF8(value: string): string {
-  // split input into groups of two
-  const hex = value.match(/[\s\S]{2}/g) || [];
-  let output = "";
-  // build a hex-encoded representation of your string
-  const j = hex.length;
-  for (let i = 0; i < j; i++) {
-    output += "%" + ("0" + hex[i]).slice(-2);
-  }
-  // decode it using this trick
-  output = decodeURIComponent(output);
-  return output;
-}
-
-/**
  * Converts a int32 in an array of bytes
  * @param num Number to convert
  * @return array of bytes
@@ -87,19 +68,6 @@ export function int32ToASCII(value: number): string {
     asciiContents += byteToASCII(i);
   }
   return asciiContents;
-}
-
-/**
- * Converts a string to a string of hex values
- * @param asciiString ascii string to convert
- * @return string of hex values
- */
-export function asciiToHex(asciiString: string): string {
-  let result = "";
-  for (let i = 0; i < asciiString.length; ++i) {
-    result += ("00" + asciiString.charCodeAt(i).toString(16)).slice(-2);
-  }
-  return result;
 }
 
 /**
@@ -149,12 +117,9 @@ export function base64ToHex(base64String: string): string {
  * @param b Second string
  * @return <0 if a>b, 0 if a=b, >0 if a<b
  */
-export function compareStringsLowerCase(
-  a: [string, number],
-  b: [string, number]
-): number {
-  const aL = a[0].toLowerCase();
-  const bL = b[0].toLowerCase();
+export function compareStringsLowerCase(a: string, b: string): number {
+  const aL = a.toLowerCase();
+  const bL = b.toLowerCase();
   if (aL > bL) {
     return 1;
   } else if (aL < bL) {

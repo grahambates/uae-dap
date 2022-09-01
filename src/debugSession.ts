@@ -1,77 +1,87 @@
 import {
+  logger,
   InitializedEvent,
   TerminatedEvent,
-  BreakpointEvent,
   OutputEvent,
-  ContinuedEvent,
   InvalidatedEvent,
-  logger,
   LoggingDebugSession,
+  ThreadEvent,
 } from "@vscode/debugadapter";
-import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
-import promiseRetry from "promise-retry";
+import { DebugProtocol } from "@vscode/debugprotocol";
+import { Mutex } from "async-mutex";
+import { basename } from "path";
 
 import {
-  GdbProxy,
-  GdbHaltStatus,
-  GdbThread,
-  isSourceBreakpoint,
-  isDataBreakpoint,
-  breakpointToString,
-} from "./gdb";
-import {
-  BreakpointManager,
-  BreakpointStorage,
-  BreakpointStorageMap,
-} from "./breakpoints";
+  GdbClient,
+  HaltSignal,
+  HaltEvent,
+  DEFAULT_FRAME_INDEX,
+} from "./gdbClient";
+import BreakpointManager, {
+  BreakpointReference,
+  DataBreakpointSizes,
+} from "./breakpointManager";
 import {
   base64ToHex,
+  formatAddress,
   formatHexadecimal,
   hexToBase64,
   NumberFormat,
   replaceAsync,
 } from "./utils/strings";
-import { Emulator } from "./emulator";
-import Program, {
+import { Emulator, EmulatorType, RunOptions } from "./emulator";
+import VariableManager, {
   MemoryFormat,
   ScopeType,
   SourceConstantResolver,
-} from "./program";
+} from "./variableManager";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
-import { FileInfo } from "./fileInfo";
+import { parseHunksFromFile } from "./amigaHunkParser";
+import SourceMap from "./sourceMap";
+import { DisassemblyManager } from "./disassembly";
+import { Threads } from "./hardware";
+import StackManager from "./stackManager";
+import promiseRetry from "promise-retry";
 
-export interface LaunchRequestArguments
-  extends DebugProtocol.LaunchRequestArguments {
-  /** An absolute path to the "program" to debug. */
+/**
+ * Additional arguments for launch/attach request
+ */
+interface CustomArguments {
+  /** Local path of target Amiga binary */
   program: string;
-  /** Automatically stop target after launch. If not specified, target does not stop. */
+  /** Remote path of target Amiga binary (default: SYS:{basename of program}) */
+  remoteProgram?: string;
+  /** Automatically stop target after launch (default: false) */
   stopOnEntry?: boolean;
-  /** enable logging the Debug Adapter Protocol */
+  /** Enable verbose logging (default: false) */
   trace?: boolean;
-  /** Host name of the server */
+  /** Host name of the debug server (default: localhost) */
   serverName?: string;
-  /** Port of the server */
+  /** Port number of the debug server (default: 2345) */
   serverPort?: number;
-  /** Start emulator */
-  startEmulator?: boolean;
-  /** emulator program */
-  emulator?: string;
-  /** emulator working directory */
-  emulatorWorkingDir?: string;
-  /** Emulator options */
-  emulatorOptions?: string[];
-  /** path replacements for source files */
-  sourceFileMap?: Record<string, string>;
-  /** root paths for sources */
-  rootSourceFileMap?: string[];
-  /** default exception's mask */
+  /** Exception mask (default: 0b111100) */
   exceptionMask?: number;
-  /** Options for vasm assembler */
+  /** Options for vasm assembler, used when extracting constants from sources */
   vasm?: VasmOptions;
   /** Display format per context */
   memoryFormats?: Record<string, MemoryFormat>;
 }
+
+export interface LaunchRequestArguments
+  extends DebugProtocol.LaunchRequestArguments,
+    CustomArguments {
+  /** Emulator program type (default: winuae for windows, fs-uae for other platforms) */
+  emulatorType?: EmulatorType;
+  /** Path of emulator executable (default: use bundled version) */
+  emulatorBin?: string;
+  /** Additional CLI args to pass to emulator program. Remote debugger args are added automatically */
+  emulatorArgs?: string[];
+}
+
+export interface AttachRequestArguments
+  extends DebugProtocol.AttachRequestArguments,
+    CustomArguments {}
 
 export interface VariableDisplayFormatRequest {
   /** info of the variable */
@@ -85,211 +95,77 @@ export interface DisassembledFileContentsRequest {
   path: string;
 }
 
-export const defaultMemoryFormats = {
-  watch: {
-    length: 104,
-    wordLength: 2,
-  },
-  hover: {
-    length: 24,
-    wordLength: 2,
+/**
+ * Default values for custom launch/attach args
+ */
+const defaultArgs = {
+  program: undefined,
+  remoteProgram: undefined,
+  stopOnEntry: false,
+  trace: false,
+  exceptionMask: 8188,
+  serverName: "localhost",
+  serverPort: 2345,
+  emulatorBin: undefined,
+  emulatorType: process.platform === "win32" ? "winuae" : "fs-uae",
+  emulatorArgs: [],
+  memoryFormats: {
+    watch: {
+      length: 104,
+      wordLength: 2,
+    },
+    hover: {
+      length: 24,
+      wordLength: 2,
+    },
   },
 };
 
-export class FsUAEDebugSession extends LoggingDebugSession {
-  /** Timeout of the mutex */
-  protected static readonly MUTEX_TIMEOUT = 100000;
+export class UAEDebugSession extends LoggingDebugSession {
+  protected gdb: GdbClient;
+  protected emulator?: Emulator;
 
-  /** Loaded program */
-  protected program?: Program;
-  /** Proxy to Gdb */
-  protected gdb: GdbProxy;
-  /** Breakpoint manager */
-  protected breakpoints: BreakpointManager;
-  /** Emulator instance */
-  protected emulator: Emulator;
-  /** Test mode activated */
-  protected testMode = false;
-  /** trace the communication protocol */
   protected trace = false;
-  /** Track which threads are stopped to avoid invalid events */
-  protected stoppedThreads: boolean[] = [false, false];
+  protected stopOnEntry = false;
+  protected exceptionMask = defaultArgs.exceptionMask;
 
-  /**
-   * Creates a new debug adapter that is used for one debug session.
-   * We configure the default implementation of a debug adapter here.
-   */
+  protected breakpoints?: BreakpointManager;
+  protected variables?: VariableManager;
+  protected disassembly?: DisassemblyManager;
+  protected stack?: StackManager;
+
+  // This can be replaced with a persistent implementation in VS Code
+  protected dataBreakpointSizes: DataBreakpointSizes = new Map();
+
   public constructor() {
     super();
+
     // this debugger uses zero-based lines and columns
     this.setDebuggerLinesStartAt1(false);
     this.setDebuggerColumnsStartAt1(false);
 
-    this.emulator = new Emulator();
-    this.gdb = this.createGdbProxy();
-    this.gdb.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
-    this.initProxy();
-    this.breakpoints = new BreakpointManager(this.gdb);
-    this.breakpoints.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
+    this.gdb = new GdbClient();
+
+    process
+      .on("unhandledRejection", (reason, p) => {
+        logger.error(reason + " Unhandled Rejection at Promise " + p);
+      })
+      .on("uncaughtException", (err) => {
+        logger.error("Uncaught Exception thrown: " + this.errorString(err));
+        process.exit(1);
+      });
+
+    const mutex = new Mutex();
+    this.gdb.on("stop", (haltStatus) => {
+      mutex.runExclusive(async () => {
+        return this.handleStop(haltStatus).catch((err) => {
+          logger.error(this.errorString(err));
+        });
+      });
+    });
+    this.gdb.on("end", this.shutdown.bind(this));
   }
 
-  protected createGdbProxy(): GdbProxy {
-    return new GdbProxy();
-  }
-
-  /**
-   * Setting the context to run the tests.
-   * @param gdbProxy mocked proxy
-   */
-  public setTestContext(gdbProxy: GdbProxy, emulator: Emulator): void {
-    this.testMode = true;
-    this.gdb = gdbProxy;
-    this.emulator = emulator;
-    this.gdb.setMutexTimeout(1000);
-    this.initProxy();
-    this.breakpoints = new BreakpointManager(this.gdb);
-    this.breakpoints.setMutexTimeout(1000);
-  }
-
-  /**
-   * Initialize proxy
-   */
-  public initProxy(): void {
-    // setup event handlers
-    this.gdb.on("stopOnEntry", (threadId) => {
-      logger.log(`[GDB] Stop on entry (thread: ${threadId})`);
-      this.sendStoppedEvent(threadId, "entry", false);
-    });
-    this.gdb.on("stopOnStep", (threadId, preserveFocusHint) => {
-      // Only send step events for stopped threads
-      if (this.stoppedThreads[threadId]) {
-        logger.log(
-          `[GDB] Stop on step (thread: ${threadId}, preserveFocusHint: ${preserveFocusHint})`
-        );
-        this.sendStoppedEvent(threadId, "step", preserveFocusHint);
-      }
-    });
-    this.gdb.on("stopOnPause", (threadId) => {
-      // Only send pause evens for running threads
-      if (!this.stoppedThreads[threadId]) {
-        logger.log(`[GDB] Stop on pause (thread: ${threadId})`);
-        this.sendStoppedEvent(threadId, "pause", false);
-      }
-    });
-    this.gdb.on("stopOnBreakpoint", async (threadId) => {
-      logger.log(`[EVT] Hit breakpoint on thread ${threadId}`);
-      // Only send breakpoint events for running threads
-      if (this.stoppedThreads[threadId]) {
-        return;
-      }
-      // Should we send a stop message to the client?
-      // May want to cancel for conditional or log breakpoints
-      let stop = true;
-
-      // Check for conditional or log breakpoints:
-
-      // Find the breakpoint that was hit
-      // first need to get the source line from the stack trace
-      const thread = await this.getThread(threadId);
-      const positions = await this.gdb.stack(thread);
-      assertIsDefined(this.program);
-      const [fr] = await this.program.getStackTrace(thread, positions);
-      // get the breakpoint at this source location:
-      const bp = this.breakpoints.findSourceBreakpoint(fr?.source, fr?.line);
-
-      if (bp) {
-        logger.log(`[EVT] Matched ${breakpointToString(bp)})`);
-      }
-
-      if (bp && (isSourceBreakpoint(bp) || isDataBreakpoint(bp))) {
-        if (bp.logMessage) {
-          // Interpolate variables
-          const message = await replaceAsync(
-            bp.logMessage,
-            /\{((#\{((#\{[^}]*\})|[^}])*\})|[^}])*\}/g, // Up to two levels of nesting
-            (match) => {
-              assertIsDefined(this.program);
-              return this.program
-                .evaluate(match.substring(1, match.length - 1), fr.id)
-                .then((v) => formatHexadecimal(v, 0))
-                .catch(() => "#error");
-            }
-          );
-          this.output(message + "\n");
-          stop = false;
-        } else if (bp.condition) {
-          const result = await this.program.evaluate(bp.condition, fr.id);
-          stop = !!result;
-          logger.log(
-            `[EVT] Evaluating conditional breakpoint #${bp.id}: ${bp.condition} = ${stop}`
-          );
-        } else if (bp.hitCondition) {
-          const result = await this.program.evaluate(bp.hitCondition, fr.id);
-          if (++bp.hitCount === result) {
-            logger.log(
-              `[EVT] Removing breakpoint #${bp.id} after reaching hit count ${result}`
-            );
-            this.breakpoints.removeBreakpoint(bp);
-          } else {
-            stop = false;
-          }
-        }
-      }
-
-      // Send stop event or resume execution
-      if (stop) {
-        this.sendStoppedEvent(threadId, "breakpoint", false);
-      } else {
-        this.gdb.continueExecution(thread);
-      }
-    });
-    this.gdb.on("stopOnException", (_, threadId) => {
-      logger.log(`[EVT] Stop on exception (thread: ${threadId})`);
-      this.sendStoppedEvent(threadId, "exception", false);
-    });
-    this.gdb.on("continueThread", (threadId, allThreadsContinued) => {
-      logger.log(
-        `[EVT] Continue thread ${threadId} (allThreadsContinued: ${allThreadsContinued})`
-      );
-      this.stoppedThreads[threadId] = false;
-      this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
-    });
-    this.gdb.on("segmentsUpdated", (segments) => {
-      logger.log(`[EVT] Segments updated`);
-      this.program?.updateSegments(segments);
-    });
-    this.gdb.on("breakpointValidated", (bp) => {
-      logger.log(`[EVT] Validated ${breakpointToString(bp)}`);
-      // Dirty workaround to issue https://github.com/microsoft/vscode/issues/65993
-      setTimeout(async () => {
-        try {
-          this.sendEvent(new BreakpointEvent("changed", bp));
-        } catch (error) {
-          // forget it
-        }
-      }, 100);
-    });
-    this.gdb.on("threadStarted", (threadId) => {
-      logger.log(`[EVT] Thread ${threadId} started`);
-      const event = <DebugProtocol.ThreadEvent>{
-        event: "thread",
-        body: {
-          reason: "started",
-          threadId: threadId,
-        },
-      };
-      this.sendEvent(event);
-    });
-    this.gdb.on("end", () => {
-      logger.log(`[EVT] Remote debugger ended`);
-      this.terminate();
-    });
-  }
-
-  /**
-   * The 'initialize' request is the first request called by the frontend
-   * to interrogate the features the debug adapter provides.
-   */
   protected initializeRequest(
     response: DebugProtocol.InitializeResponse
   ): void {
@@ -300,7 +176,7 @@ export class FsUAEDebugSession extends LoggingDebugSession {
       supportsConditionalBreakpoints: true,
       supportsHitConditionalBreakpoints: true,
       supportsLogPoints: true,
-      supportsConfigurationDoneRequest: false,
+      supportsConfigurationDoneRequest: true,
       supportsDataBreakpoints: true,
       supportsDisassembleRequest: true,
       supportsEvaluateForHovers: true,
@@ -308,8 +184,10 @@ export class FsUAEDebugSession extends LoggingDebugSession {
       supportsExceptionOptions: true,
       supportsInstructionBreakpoints: true,
       supportsReadMemoryRequest: true,
+      supportsRestartRequest: true,
       supportsRestartFrame: false,
       supportsSetVariable: true,
+      supportsSingleThreadExecutionRequests: false,
       supportsStepBack: false,
       supportsSteppingGranularity: false,
       supportsValueFormattingOptions: true,
@@ -322,127 +200,757 @@ export class FsUAEDebugSession extends LoggingDebugSession {
         },
       ],
     };
-
     this.sendResponse(response);
-
-    // since this debug adapter can accept configuration requests like 'setBreakpoint' at any time,
-    // we request them early by sending an 'initializeRequest' to the frontend.
-    // The frontend will end the configuration sequence by calling 'configurationDone' request.
-    this.sendEvent(new InitializedEvent());
   }
 
   protected async launchRequest(
     response: DebugProtocol.LaunchResponse,
-    args: LaunchRequestArguments
+    customArgs: LaunchRequestArguments
   ) {
-    const {
-      program,
-      sourceFileMap,
-      rootSourceFileMap,
-      exceptionMask,
-      serverName = "localhost",
-      serverPort = 6860,
-      startEmulator = true,
-      stopOnEntry = false,
-      emulator,
-      emulatorOptions = [],
-      emulatorWorkingDir,
-      trace = false,
-      memoryFormats,
-    } = args;
+    await this.launchOrAttach(response, customArgs, true, !customArgs.noDebug);
+  }
+
+  protected async attachRequest(
+    response: DebugProtocol.LaunchResponse,
+    customArgs: LaunchRequestArguments
+  ) {
+    await this.launchOrAttach(response, customArgs, false);
+  }
+
+  protected async launchOrAttach(
+    response: DebugProtocol.Response,
+    customArgs: CustomArguments,
+    startEmulator = true,
+    debug = true
+  ) {
+    // Merge in default args
+    const args = {
+      ...defaultArgs,
+      ...customArgs,
+      memoryFormats: {
+        ...defaultArgs.memoryFormats,
+        ...customArgs.memoryFormats,
+      },
+    };
 
     try {
-      if (!program) {
-        throw new Error("Missing program argument in launch request");
-      }
+      this.trace = args.trace;
+      this.stopOnEntry = args.stopOnEntry;
+      this.exceptionMask = args.exceptionMask;
 
-      const fileInfo = await FileInfo.create(
-        program,
-        sourceFileMap,
-        rootSourceFileMap
-      );
-
-      this.program = new Program(
-        this.gdb,
-        fileInfo,
-        this.getSourceConstantResolver(args),
-        {
-          ...defaultMemoryFormats,
-          ...memoryFormats,
-        }
-      );
-
-      this.breakpoints.setProgram(this.program);
-      this.breakpoints.addLocationToPending();
-      if (exceptionMask) {
-        this.breakpoints.setExceptionMask(exceptionMask);
-      }
-
-      this.trace = trace;
+      // Initialize logger:
       logger.init((e) => this.sendEvent(e));
-      logger.setup(trace ? LogLevel.Verbose : LogLevel.Error);
+      logger.setup(args.trace ? LogLevel.Verbose : LogLevel.Error);
 
-      if (!this.testMode) {
-        this.sendHelpText();
-      }
+      logger.log("[LAUNCH] " + JSON.stringify(args, null, 2));
 
+      // Start the emulator
       if (startEmulator) {
-        if (!emulator || !emulatorOptions) {
-          throw new Error("Missing emulator configuration");
+        this.emulator = Emulator.getInstance(args.emulatorType as EmulatorType);
+        if (!args.program) {
+          throw new Error("Missing program argument in launch request");
         }
-        logger.log("Starting emulator: ${emulator} ${args.join(' ')}");
-        await this.emulator.run({
-          executable: emulator,
-          args: emulatorOptions,
-          cwd: emulatorWorkingDir,
-          onExit: () => this.sendEvent(new TerminatedEvent()),
-        });
+        if (!args.remoteProgram) {
+          args.remoteProgram = "SYS:" + basename(args.program);
+        }
+
+        // By default mount the dir containing the remote program as hard drive 0 (SYS:)
+        const mountDir = args.program
+          .replace(/\\/, "/")
+          .replace(args.remoteProgram.replace(/^.+:/, ""), "");
+
+        const runOpts: RunOptions = {
+          bin: args.emulatorBin,
+          args: args.emulatorArgs,
+          mountDir,
+          onExit: () => {
+            this.sendEvent(new TerminatedEvent());
+          },
+        };
+
+        if (debug) {
+          await this.emulator.debug({
+            ...runOpts,
+            serverPort: args.serverPort,
+            remoteProgram: args.remoteProgram,
+          });
+        } else {
+          await this.emulator.run(runOpts);
+        }
+      } else {
+        logger.log(`[LAUNCH] Not starting emulator`);
       }
 
-      let retries = 30;
-
-      // Delay before connecting to emulator
-      if (!this.testMode) {
-        await new Promise((resolve) => setTimeout(resolve, 4000));
-        retries = 0;
+      if (!debug) {
+        logger.log(`[LAUNCH] Not debugging`);
+        return;
       }
 
-      // Connect to the emulator
+      this.sendHelpText();
+
+      // Connect to the remote debugger
       await promiseRetry(
-        (retry) => this.gdb.connect(serverName, serverPort).catch(retry),
-        { minTimeout: 500, retries, factor: 1.1 }
+        (retry, attempt) => {
+          logger.log(`[LAUNCH] Connecting to remote debugger... [${attempt}]`);
+          return this.gdb
+            .connect(args.serverName, args.serverPort)
+            .catch(retry);
+        },
+        { retries: 20, factor: 1.1 }
       );
-      logger.log("Connected to remote debugger");
 
-      // Load the program
-      this.startProgram(program, stopOnEntry);
+      this.gdb.setExceptionBreakpoint(args.exceptionMask);
+      for (const threadId of [Threads.CPU, Threads.COPPER]) {
+        this.sendEvent(new ThreadEvent("started", threadId));
+      }
 
-      this.sendResponse(response);
+      // Get info to Initialize source map
+      const [hunks, offsets] = await Promise.all([
+        parseHunksFromFile(args.program),
+        this.gdb.getOffsets(),
+      ]);
+      const sourceMap = new SourceMap(hunks, offsets);
+
+      // Initialize managers:
+      this.variables = new VariableManager(
+        this.gdb,
+        sourceMap,
+        this.getSourceConstantResolver(customArgs),
+        args.memoryFormats
+      );
+      this.disassembly = new DisassemblyManager(
+        this.gdb,
+        this.variables,
+        sourceMap
+      );
+      this.breakpoints = new BreakpointManager(
+        this.gdb,
+        sourceMap,
+        this.disassembly,
+        this.dataBreakpointSizes
+      );
+      this.stack = new StackManager(this.gdb, sourceMap, this.disassembly);
+
+      if (args.stopOnEntry) {
+        logger.log("[LAUNCH] Stopping on entry");
+        await this.gdb.stepIn(Threads.CPU);
+        this.sendStoppedEvent(Threads.CPU, "entry");
+      }
+
+      // Tell client that we can now handle breakpoints etc.
+      this.sendEvent(new InitializedEvent());
     } catch (err) {
       this.sendEvent(new TerminatedEvent());
-      this.sendStringErrorResponse(response, (err as Error).message);
+      response.success = false;
+      response.message = (err as Error).message;
+    }
+
+    this.sendResponse(response);
+  }
+
+  protected configurationDoneRequest(
+    response: DebugProtocol.ConfigurationDoneResponse
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      if (!this.stopOnEntry) {
+        logger.log("Continuing execution after config done");
+        await this.gdb.continueExecution(Threads.CPU);
+      }
+    });
+  }
+
+  protected restartRequest(response: DebugProtocol.RestartResponse) {
+    this.handleAsyncRequest(response, async () => {
+      await this.gdb.monitor("reset");
+    });
+  }
+
+  public shutdown(): void {
+    logger.log(`Shutting down`);
+    this.gdb.destroy();
+    this.emulator?.destroy();
+  }
+
+  // Breakpoints:
+
+  protected async setBreakPointsRequest(
+    response: DebugProtocol.SetBreakpointsResponse,
+    args: DebugProtocol.SetBreakpointsArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const breakpoints = await this.breakpointManager().setSourceBreakpoints(
+        args.source,
+        args.breakpoints || []
+      );
+      response.body = { breakpoints };
+      response.success = true;
+    });
+  }
+
+  protected async setInstructionBreakpointsRequest(
+    response: DebugProtocol.SetInstructionBreakpointsResponse,
+    args: DebugProtocol.SetInstructionBreakpointsArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const breakpoints =
+        await this.breakpointManager().setInstructionBreakpoints(
+          args.breakpoints
+        );
+      response.body = { breakpoints };
+      response.success = true;
+    });
+  }
+
+  protected async dataBreakpointInfoRequest(
+    response: DebugProtocol.DataBreakpointInfoResponse,
+    args: DebugProtocol.DataBreakpointInfoArguments
+  ): Promise<void> {
+    this.handleAsyncRequest(response, async () => {
+      if (!args.variablesReference || !args.name) {
+        return;
+      }
+      const variables = this.variableManager();
+      const { type } = variables.getScopeReference(args.variablesReference);
+      if (type === ScopeType.Symbols || type === ScopeType.Registers) {
+        const variableName = args.name;
+        const vars = await variables.getVariables();
+        const value = vars[variableName];
+        if (typeof value === "number") {
+          const displayValue = variables.formatVariable(variableName, value);
+
+          const isRegister = type === ScopeType.Registers;
+          const dataId = `${variableName}(${displayValue})`;
+
+          response.body = {
+            dataId,
+            description: isRegister ? displayValue : dataId,
+            accessTypes: ["read", "write", "readWrite"],
+            canPersist: true,
+          };
+        }
+      }
+    });
+  }
+
+  protected async setDataBreakpointsRequest(
+    response: DebugProtocol.SetDataBreakpointsResponse,
+    args: DebugProtocol.SetDataBreakpointsArguments
+  ): Promise<void> {
+    this.handleAsyncRequest(response, async () => {
+      for (const i in args.breakpoints) {
+        const bp = args.breakpoints[i];
+        const { name, displayValue } = this.breakpointManager().parseDataId(
+          bp.dataId
+        );
+        const size = this.dataBreakpointSizes.get(bp.dataId);
+        if (!size) {
+          const sizeInput = await this.getDataBreakpointSize(
+            displayValue,
+            name
+          );
+          this.dataBreakpointSizes.set(bp.dataId, sizeInput);
+        }
+      }
+      const breakpoints = await this.breakpointManager().setDataBreakpoints(
+        args.breakpoints
+      );
+      response.body = { breakpoints };
+      response.success = true;
+    });
+  }
+
+  protected async setExceptionBreakPointsRequest(
+    response: DebugProtocol.SetExceptionBreakpointsResponse,
+    args: DebugProtocol.SetExceptionBreakpointsArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      if (this.exceptionMask) {
+        // There is only one filter - "all exceptions" so just use it to toggle on/off
+        if (args.filters.length > 0) {
+          await this.gdb.setExceptionBreakpoint(this.exceptionMask);
+        } else {
+          await this.gdb.setExceptionBreakpoint(0);
+        }
+      }
+      response.success = true;
+    });
+  }
+
+  // Running program info:
+
+  protected async threadsRequest(response: DebugProtocol.ThreadsResponse) {
+    response.body = {
+      threads: [
+        { id: Threads.CPU, name: "cpu" },
+        { id: Threads.COPPER, name: "copper" },
+      ],
+    };
+    this.sendResponse(response);
+  }
+
+  protected async stackTraceRequest(
+    response: DebugProtocol.StackTraceResponse,
+    { threadId }: DebugProtocol.StackTraceArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const stack = this.stackManager();
+      const positions = await stack.getPositions(threadId);
+      const stackFrames = await stack.getStackTrace(threadId, positions);
+      stackFrames.map(({ source }) => this.processSource(source));
+
+      if (threadId === Threads.CPU && positions[0]) {
+        await this.onCpuFrame(positions[0].pc);
+        const breakpoints = this.breakpointManager();
+        if (breakpoints.temporaryBreakpointAtAddress(positions[0].pc)) {
+          await breakpoints.clearTemporaryBreakpoints();
+        }
+      }
+
+      response.body = { stackFrames, totalFrames: positions.length };
+    });
+  }
+
+  protected scopesRequest(
+    response: DebugProtocol.ScopesResponse,
+    { frameId }: DebugProtocol.ScopesArguments
+  ): void {
+    this.handleAsyncRequest(response, async () => {
+      response.body = {
+        scopes: this.variableManager().getScopes(frameId),
+      };
+    });
+  }
+
+  protected async exceptionInfoRequest(
+    response: DebugProtocol.ExceptionInfoResponse
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const haltStatus = await this.gdb.getHaltStatus();
+      if (haltStatus) {
+        response.body = {
+          exceptionId: haltStatus.signal.toString(),
+          description: haltStatus.label,
+          breakMode: "always",
+        };
+      }
+    });
+  }
+
+  // Execution flow:
+
+  protected async pauseRequest(
+    response: DebugProtocol.PauseResponse,
+    { threadId }: DebugProtocol.PauseArguments
+  ) {
+    this.sendResponse(response);
+    await this.gdb.pause(Threads.CPU);
+    this.sendStoppedEvent(threadId, "pause");
+  }
+
+  protected async continueRequest(response: DebugProtocol.ContinueResponse) {
+    response.body = { allThreadsContinued: true };
+    this.sendResponse(response);
+    await this.gdb.continueExecution(Threads.CPU);
+  }
+
+  protected async nextRequest(
+    response: DebugProtocol.NextResponse,
+    { threadId }: DebugProtocol.NextArguments
+  ): Promise<void> {
+    this.sendResponse(response);
+    const [frame] = await this.stackManager().getPositions(threadId);
+    await this.gdb.stepToRange(threadId, frame.pc, frame.pc);
+    this.sendStoppedEvent(threadId, "step");
+  }
+
+  protected async stepInRequest(
+    response: DebugProtocol.StepInResponse,
+    { threadId }: DebugProtocol.StepInArguments
+  ) {
+    this.sendResponse(response);
+    if (threadId === Threads.COPPER) {
+      const [frame] = await this.stackManager().getPositions(threadId);
+      await this.gdb.stepToRange(threadId, frame.pc, frame.pc);
+    } else {
+      await this.gdb.stepIn(threadId);
+    }
+    this.sendStoppedEvent(threadId, "step");
+  }
+
+  protected async stepOutRequest(
+    response: DebugProtocol.StepOutResponse,
+    { threadId }: DebugProtocol.StepOutArguments
+  ): Promise<void> {
+    this.sendResponse(response);
+    const positions = await this.stackManager().getPositions(threadId);
+    if (positions[1]) {
+      // Set a temp breakpoint after PC of prev stack frame
+      const { pc } = positions[1];
+      await this.breakpointManager().addTemporaryBreakpoints(pc);
+      await this.gdb.continueExecution(threadId);
+    } else {
+      // Step over instead
+      const { pc } = positions[0];
+      await this.gdb.stepToRange(threadId, pc, pc);
+      this.sendStoppedEvent(threadId, "step");
     }
   }
 
-  protected async startProgram(_: string, stopOnEntry: boolean): Promise<void> {
-    await this.gdb.initProgram();
-    const thread = this.gdb.getCurrentCpuThread();
-    if (thread) {
-      if (stopOnEntry) {
-        await this.gdb.stepIn(thread);
-        await this.breakpoints.sendAllPendingBreakpoints();
-        this.sendStoppedEvent(thread.getId(), "entry", false);
+  // Variables:
+
+  protected async variablesRequest(
+    response: DebugProtocol.VariablesResponse,
+    args: DebugProtocol.VariablesArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      // Try to look up stored reference
+      const variables = await this.variableManager().getVariablesByReference(
+        args.variablesReference
+      );
+      response.body = { variables };
+    });
+  }
+
+  protected async setVariableRequest(
+    response: DebugProtocol.SetVariableResponse,
+    { variablesReference, name, value }: DebugProtocol.SetVariableArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const newValue = await this.variableManager().setVariable(
+        variablesReference,
+        name,
+        value
+      );
+      response.body = {
+        value: newValue,
+      };
+    });
+  }
+
+  protected async evaluateRequest(
+    response: DebugProtocol.EvaluateResponse,
+    args: DebugProtocol.EvaluateArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const body = await this.variableManager().evaluateExpression(args);
+      if (body) {
+        response.body = body;
       } else {
-        await this.breakpoints.sendAllPendingBreakpoints();
-        await this.gdb.continueExecution(thread);
+        response.body = { result: "", variablesReference: 0 };
+        this.sendHelpText();
+      }
+    });
+  }
+
+  protected async completionsRequest(
+    response: DebugProtocol.CompletionsResponse,
+    args: DebugProtocol.CompletionsArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const targets = await this.variableManager().getCompletions(
+        args.text,
+        args.frameId
+      );
+      response.body = { targets };
+    });
+  }
+
+  // Memory:
+
+  protected async readMemoryRequest(
+    response: DebugProtocol.ReadMemoryResponse,
+    args: DebugProtocol.ReadMemoryArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const address = parseInt(args.memoryReference);
+      let size = 0;
+      let memory = "";
+      const maxChunkSize = 1000;
+      let remaining = args.count;
+      while (remaining > 0) {
+        let chunkSize = maxChunkSize;
+        if (remaining < chunkSize) {
+          chunkSize = remaining;
+        }
+        memory += await this.gdb.readMemory(address + size, chunkSize);
+        remaining -= chunkSize;
+        size += chunkSize;
+      }
+      let unreadable = args.count - size;
+      if (unreadable < 0) {
+        unreadable = 0;
+      }
+      response.body = {
+        address: address.toString(16),
+        data: hexToBase64(memory),
+      };
+    });
+  }
+
+  protected async writeMemoryRequest(
+    response: DebugProtocol.WriteMemoryResponse,
+    args: DebugProtocol.WriteMemoryArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      let address = parseInt(args.memoryReference);
+      if (args.offset) {
+        address += args.offset;
+      }
+      const hexString = base64ToHex(args.data);
+      const count = hexString.length;
+      const maxChunkSize = 1000;
+      let remaining = count;
+      let size = 0;
+      while (remaining > 0) {
+        let chunkSize = maxChunkSize;
+        if (remaining < chunkSize) {
+          chunkSize = remaining;
+        }
+        await this.gdb.writeMemory(
+          address,
+          hexString.substring(size, chunkSize)
+        );
+        remaining -= chunkSize;
+        size += chunkSize;
+      }
+      response.body = {
+        bytesWritten: size,
+      };
+    });
+  }
+
+  // Disassembly:
+
+  protected async disassembleRequest(
+    response: DebugProtocol.DisassembleResponse,
+    args: DebugProtocol.DisassembleArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const instructions = await this.disassemblyManager().disassemble(args);
+      instructions.map(({ location }) => this.processSource(location));
+      response.body = { instructions };
+    });
+  }
+
+  protected sourceRequest(
+    response: DebugProtocol.SourceResponse,
+    args: DebugProtocol.SourceArguments
+  ): void {
+    this.handleAsyncRequest(response, async () => {
+      const content = await this.disassembly?.getDisassembledFileContentsByRef(
+        args.sourceReference
+      );
+      if (!content) {
+        throw new Error("Source not found");
+      }
+      response.body = { content };
+    });
+  }
+
+  protected async customRequest(
+    command: string,
+    response: DebugProtocol.Response,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    args: any
+  ) {
+    if (command === "disassembledFileContents") {
+      const fileReq: DisassembledFileContentsRequest = args;
+      const content =
+        await this.disassemblyManager().getDisassembledFileContentsByPath(
+          fileReq.path
+        );
+      response.body = { content };
+      return this.sendResponse(response);
+    }
+    if (command === "modifyVariableFormat") {
+      const variableReq: VariableDisplayFormatRequest = args;
+      this.variableManager().setVariableFormat(
+        variableReq.variableInfo.variable.name,
+        variableReq.variableDisplayFormat
+      );
+      this.sendEvent(new InvalidatedEvent(["variables"]));
+      return this.sendResponse(response);
+    }
+    super.customRequest(command, response, args);
+  }
+
+  // Internals:
+
+  protected async handleAsyncRequest(
+    response: DebugProtocol.Response,
+    cb: () => Promise<void>
+  ) {
+    try {
+      await cb();
+    } catch (err) {
+      if (err instanceof Error) {
+        // Display stack trace in trace mode
+        response.message = this.trace ? err.stack ?? err.message : err.message;
+      }
+      response.success = false;
+    }
+    this.sendResponse(response);
+  }
+
+  protected sendStoppedEvent(
+    threadId: number,
+    reason: string,
+    preserveFocusHint?: boolean
+  ) {
+    this.sendEvent(<DebugProtocol.StoppedEvent>{
+      event: "stopped",
+      body: {
+        reason,
+        threadId,
+        allThreadsStopped: true,
+        preserveFocusHint,
+      },
+    });
+  }
+
+  protected errorString(err: unknown): string {
+    if (err instanceof Error)
+      return this.trace ? err.stack || err.message : err.message;
+    return String(err);
+  }
+
+  /**
+   * Process a Source object before returning in to the client
+   */
+  protected processSource(source?: DebugProtocol.Source) {
+    // Ensure path is in correct format for client
+    if (source?.path) {
+      source.path = this.convertDebuggerPathToClient(source.path);
+    }
+  }
+
+  /**
+   * Event handler for stop/halt event
+   */
+  protected async handleStop(e: HaltEvent) {
+    logger.log(`[STOP] ${e.label} thread: ${e.threadId}`);
+
+    // Any other halt code other than TRAP must be an exception:
+    if (e.signal !== HaltSignal.TRAP) {
+      logger.log(`[STOP] Exception`);
+      this.sendStoppedEvent(Threads.CPU, "exception");
+      return;
+    }
+
+    // Get stack position to find current PC address for thread
+    const threadId = e.threadId ?? Threads.CPU;
+    const { pc, stackFrameIndex } = await this.stackManager().getStackPosition(
+      threadId,
+      DEFAULT_FRAME_INDEX
+    );
+
+    const manager = this.breakpointManager();
+
+    // Check temporary breakpoints:
+    // Are we waiting for a temporary breakpoint?
+    if (manager.hasTemporaryBreakpoints()) {
+      // Did we hit it or something else?
+      if (manager.temporaryBreakpointAtAddress(pc)) {
+        logger.log(
+          `[STOP] Matched temporary breakpoint at address ${formatAddress(pc)}`
+        );
+        await manager.clearTemporaryBreakpoints();
+        this.sendStoppedEvent(Threads.CPU, "step");
+      } else {
+        logger.log(`[STOP] ignoring while waiting for temporary breakpoint`);
+        await this.gdb.continueExecution(Threads.CPU);
+      }
+      return;
+    }
+
+    // Check instruction breakpoints:
+    if (manager.instructionBreakpointAtAddress(pc)) {
+      logger.log(
+        `[STOP] Matched instruction breakpoint at address ${formatAddress(pc)}`
+      );
+      this.sendStoppedEvent(threadId, "instruction breakpoint");
+      return;
+    }
+
+    // Check source / data breakpoints:
+    let ref: BreakpointReference | undefined =
+      manager.sourceBreakpointAtAddress(pc);
+    let type = "breakpoint";
+    if (!ref) {
+      ref = manager.dataBreakpointAtAddress(pc);
+      type = "data breakpoint";
+    }
+    if (!ref) {
+      logger.log(`[STOP] No breakpoint found at address ${formatAddress(pc)}`);
+      // Copper breakpoints seem to be less precise and don't always stop on the exact address
+      if (threadId === Threads.COPPER)
+        this.sendStoppedEvent(threadId, "breakpoint");
+      return;
+    }
+
+    logger.log(`[STOP] Matched ${type} at address ${formatAddress(pc)}`);
+
+    // Decide whether to stop at this breakpoint or continue
+    // Needs to check for conditional / log breakpoints etc.
+    let shouldStop = true;
+    const bp = ref.breakpoint;
+
+    // Log point:
+    const logMessage = (bp as DebugProtocol.SourceBreakpoint).logMessage;
+    if (logMessage) {
+      // Interpolate variables
+      const message = await replaceAsync(
+        logMessage,
+        /\{((#\{((#\{[^}]*\})|[^}])*\})|[^}])*\}/g, // Up to two levels of nesting
+        async (match) => {
+          try {
+            const v = await this.variableManager().evaluate(
+              match.substring(1, match.length - 1),
+              stackFrameIndex
+            );
+            return formatHexadecimal(v, 0);
+          } catch {
+            return "#error";
+          }
+        }
+      );
+      this.sendEvent(new OutputEvent(message + "\n", "console"));
+      shouldStop = false;
+    }
+
+    // Conditional breakpoint:
+    if (bp.condition) {
+      const result = await this.variableManager().evaluate(
+        bp.condition,
+        stackFrameIndex
+      );
+      const stop = !!result;
+      logger.log(
+        `[STOP] Evaluated conditional breakpoint ${bp.condition} = ${stop}`
+      );
+    }
+
+    // Hit count:
+    if (bp.hitCondition) {
+      const evaluatedCondition = await this.variableManager().evaluate(
+        bp.hitCondition,
+        stackFrameIndex
+      );
+      logger.log(`[STOP] Hit count: ${ref.hitCount}/${evaluatedCondition}`);
+      if (++ref.hitCount === evaluatedCondition) {
+        this.gdb.removeBreakpoint(pc);
+      } else {
+        shouldStop = false;
       }
     }
-  }
 
-  protected getSourceConstantResolver(
-    args: LaunchRequestArguments
-  ): SourceConstantResolver {
-    return new VasmSourceConstantResolver(args.vasm);
+    if (shouldStop) {
+      logger.log(`[STOP] stopping at ${type}`);
+      this.sendStoppedEvent(threadId, type);
+    } else {
+      logger.log(`[STOP] continuing execution`);
+      await this.gdb.continueExecution(threadId);
+    }
   }
 
   protected sendHelpText() {
@@ -486,568 +994,56 @@ Expressions:
       @s(address[,size=4])
         example: @s(a0,2)              Signed word value at address in register a0
 `;
-    this.output(text);
+    this.sendEvent(new OutputEvent(text, "console"));
   }
 
-  protected sourceRequest(
-    response: DebugProtocol.SourceResponse,
-    args: DebugProtocol.SourceArguments
-  ): void {
-    this.handleAsyncRequest(response, async () => {
-      const content = await this.program?.getDisassembledFileContentsByRef(
-        args.sourceReference
-      );
-      if (!content) {
-        throw new Error("Source not found");
-      }
-      response.body = { content };
-    });
+  // Implementation specific overrides:
+  // VS Code extension will override these methods to add native behaviours.
+
+  protected getSourceConstantResolver(
+    args: LaunchRequestArguments
+  ): SourceConstantResolver {
+    return new VasmSourceConstantResolver(args.vasm);
   }
 
-  protected async customRequest(
-    command: string,
-    response: DebugProtocol.Response,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    args: any
-  ) {
-    if (command === "disassembledFileContents") {
-      const fileReq: DisassembledFileContentsRequest = args;
-      assertIsDefined(this.program);
-      const content = await this.program.getDisassembledFileContentsByPath(
-        fileReq.path
-      );
-      response.body = { content };
-      return this.sendResponse(response);
+  protected async onCpuFrame(_address: number): Promise<void> {
+    // This will trigger an update to the disassembly view
+  }
+
+  protected async getDataBreakpointSize(_displayValue: string, _name: string) {
+    // This will prompt for user input in VS Code
+    // TODO: could have a better guess at size by looking at disassembly e.g. `dc.l` or address of next label
+    return 2;
+  }
+
+  // Manager getters:
+  // Ensures these are defined i.e. the program is started
+
+  protected breakpointManager(): BreakpointManager {
+    if (!this.breakpoints) {
+      throw new Error("BreakpointManager not initialized");
     }
-    if (command === "modifyVariableFormat") {
-      const variableReq: VariableDisplayFormatRequest = args;
-      assertIsDefined(this.program);
-      this.program.setVariableFormat(
-        variableReq.variableInfo.variable.name,
-        variableReq.variableDisplayFormat
-      );
-      this.sendEvent(new InvalidatedEvent(["variables"]));
-      return this.sendResponse(response);
+    return this.breakpoints;
+  }
+
+  protected variableManager(): VariableManager {
+    if (!this.variables) {
+      throw new Error("VariableManager not initialized");
     }
-    super.customRequest(command, response, args);
+    return this.variables;
   }
 
-  protected async disassembleRequest(
-    response: DebugProtocol.DisassembleResponse,
-    args: DebugProtocol.DisassembleArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      assertIsDefined(this.program);
-      const instructions = await this.program.disassemble(args);
-      await Promise.all(
-        instructions.map(({ location }) => this.processSource(location))
-      );
-      response.body = { instructions };
-    });
-  }
-
-  protected async setInstructionBreakpointsRequest(
-    response: DebugProtocol.SetInstructionBreakpointsResponse,
-    args: DebugProtocol.SetInstructionBreakpointsArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      const breakpoints: DebugProtocol.Breakpoint[] = [];
-      await this.breakpoints.clearInstructionBreakpoints();
-      // set and verify breakpoint locations
-      if (args.breakpoints) {
-        for (const reqBp of args.breakpoints) {
-          const bp = this.breakpoints.createInstructionBreakpoint(
-            parseInt(reqBp.instructionReference)
-          );
-          await this.breakpoints.setBreakpoint(bp);
-          breakpoints.push(bp);
-        }
-      }
-      response.body = { breakpoints };
-      response.success = true;
-    });
-  }
-
-  protected async setBreakPointsRequest(
-    response: DebugProtocol.SetBreakpointsResponse,
-    args: DebugProtocol.SetBreakpointsArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      // clear all breakpoints for this file
-      await this.breakpoints.clearBreakpoints(args.source);
-      // set and verify breakpoint locations
-      const breakpoints = args.breakpoints
-        ? await Promise.all(
-            args.breakpoints.map(async (reqBp) => {
-              const bp = this.breakpoints.createBreakpoint(args.source, reqBp);
-              await this.breakpoints.setBreakpoint(bp);
-              return bp;
-            })
-          )
-        : [];
-      // send back the actual breakpoint positions
-      response.body = { breakpoints };
-      response.success = true;
-    });
-  }
-
-  protected async threadsRequest(response: DebugProtocol.ThreadsResponse) {
-    this.handleAsyncRequest(response, async () => {
-      assertIsDefined(this.program);
-      const threads = await this.program.getThreads();
-      response.body = { threads };
-    });
-  }
-
-  protected async stackTraceRequest(
-    response: DebugProtocol.StackTraceResponse,
-    args: DebugProtocol.StackTraceArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      assertIsDefined(this.program);
-      const thread = await this.getThread(args.threadId);
-      const positions = await this.gdb.stack(thread);
-
-      if (this.gdb.isCPUThread(thread) && positions[0]) {
-        this.onCpuFrame(positions[0].pc);
-      }
-
-      const stackFrames = await this.program.getStackTrace(thread, positions);
-      await Promise.all(
-        stackFrames.map(({ source }) => this.processSource(source))
-      );
-
-      response.body = { stackFrames, totalFrames: positions.length };
-    });
-  }
-
-  /**
-   * Hook to perform actions when entering a new CPU stack frame
-   */
-  protected async onCpuFrame(address: number) {
-    this.breakpoints.checkTemporaryBreakpoints(address);
-  }
-
-  /**
-   * Process a Source object before returning in to the client
-   */
-  protected async processSource(source?: DebugProtocol.Source) {
-    // Ensure path is in correct format for client
-    if (source?.path) {
-      source.path = this.convertDebuggerPathToClient(source.path);
+  protected disassemblyManager(): DisassemblyManager {
+    if (!this.disassembly) {
+      throw new Error("DisassemblyManager not initialized");
     }
+    return this.disassembly;
   }
 
-  protected scopesRequest(
-    response: DebugProtocol.ScopesResponse,
-    { frameId }: DebugProtocol.ScopesArguments
-  ): void {
-    this.handleAsyncRequest(response, async () => {
-      response.body = {
-        scopes: this.program?.getScopes(frameId) ?? [],
-      };
-    });
-  }
-
-  protected async variablesRequest(
-    response: DebugProtocol.VariablesResponse,
-    args: DebugProtocol.VariablesArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      assertIsDefined(this.program);
-      // Try to look up stored reference
-      const variables = await this.program.getVariablesByReference(
-        args.variablesReference
-      );
-      response.body = { variables };
-    });
-  }
-
-  protected async setVariableRequest(
-    response: DebugProtocol.SetVariableResponse,
-    { variablesReference, name, value }: DebugProtocol.SetVariableArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      assertIsDefined(this.program);
-      const newValue = await this.program.setVariable(
-        variablesReference,
-        name,
-        value
-      );
-      response.body = {
-        value: newValue,
-      };
-    });
-  }
-
-  protected async continueRequest(
-    response: DebugProtocol.ContinueResponse,
-    args: DebugProtocol.ContinueArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      await this.gdb.continueExecution(thread);
-      response.body = { allThreadsContinued: false };
-    });
-  }
-
-  protected async nextRequest(
-    response: DebugProtocol.NextResponse,
-    args: DebugProtocol.NextArguments
-  ): Promise<void> {
-    this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      const [frame] = await this.gdb.stack(thread);
-      await this.gdb.stepToRange(thread, frame.pc, frame.pc);
-    });
-  }
-
-  protected async stepInRequest(
-    response: DebugProtocol.StepInResponse,
-    args: DebugProtocol.StepInArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      await this.gdb.stepIn(thread);
-    });
-  }
-
-  protected async stepOutRequest(
-    response: DebugProtocol.StepOutResponse,
-    args: DebugProtocol.StepOutArguments
-  ): Promise<void> {
-    this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      const positions = await this.gdb.stack(thread);
-      if (positions.length <= 0) {
-        throw new Error("No frame to step out");
-      }
-      if (positions[1]) {
-        const { pc } = positions[1];
-        const bpArray = this.breakpoints.createTemporaryBreakpointArray([
-          pc + 1,
-          pc + 2,
-          pc + 4,
-        ]);
-        await this.breakpoints.addTemporaryBreakpointArray(bpArray);
-        await this.gdb.continueExecution(thread);
-      }
-    });
-  }
-
-  protected async readMemoryRequest(
-    response: DebugProtocol.ReadMemoryResponse,
-    args: DebugProtocol.ReadMemoryArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      const address = parseInt(args.memoryReference);
-      await this.gdb.waitConnected();
-      let size = 0;
-      let memory = "";
-      const DEFAULT_CHUNK_SIZE = 1000;
-      let remaining = args.count;
-      while (remaining > 0) {
-        let chunkSize = DEFAULT_CHUNK_SIZE;
-        if (remaining < chunkSize) {
-          chunkSize = remaining;
-        }
-        memory += await this.gdb.getMemory(address + size, chunkSize);
-        remaining -= chunkSize;
-        size += chunkSize;
-      }
-      let unreadable = args.count - size;
-      if (unreadable < 0) {
-        unreadable = 0;
-      }
-      response.body = {
-        address: address.toString(16),
-        data: hexToBase64(memory),
-      };
-    });
-  }
-
-  protected async writeMemoryRequest(
-    response: DebugProtocol.WriteMemoryResponse,
-    args: DebugProtocol.WriteMemoryArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      let address = parseInt(args.memoryReference);
-      if (args.offset) {
-        address += args.offset;
-      }
-      await this.gdb.waitConnected();
-      const hexString = base64ToHex(args.data);
-      const count = hexString.length;
-      const DEFAULT_CHUNK_SIZE = 1000;
-      let remaining = count;
-      let size = 0;
-      while (remaining > 0) {
-        let chunkSize = DEFAULT_CHUNK_SIZE;
-        if (remaining < chunkSize) {
-          chunkSize = remaining;
-        }
-        await this.gdb.setMemory(address, hexString.substring(size, chunkSize));
-        remaining -= chunkSize;
-        size += chunkSize;
-      }
-      response.body = {
-        bytesWritten: size,
-      };
-    });
-  }
-
-  protected async evaluateRequest(
-    response: DebugProtocol.EvaluateResponse,
-    args: DebugProtocol.EvaluateArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      assertIsDefined(this.program);
-      const body = await this.program.evaluateExpression(args);
-      if (body) {
-        response.body = body;
-      } else {
-        response.body = { result: "", variablesReference: 0 };
-        this.sendHelpText();
-      }
-    });
-  }
-
-  protected async pauseRequest(
-    response: DebugProtocol.PauseResponse,
-    args: DebugProtocol.PauseArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      await this.gdb.pause(thread);
-    });
-  }
-
-  protected async exceptionInfoRequest(
-    response: DebugProtocol.ExceptionInfoResponse
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      await this.gdb.waitConnected();
-      const haltStatus = await this.gdb.getHaltStatus();
-      let selectedHs: GdbHaltStatus = haltStatus[0];
-      for (const hs of haltStatus) {
-        if (hs.thread && this.gdb.isCPUThread(hs.thread)) {
-          selectedHs = hs;
-          break;
-        }
-      }
-      response.body = {
-        exceptionId: selectedHs.code.toString(),
-        description: selectedHs.details,
-        breakMode: "always",
-      };
-    });
-  }
-
-  protected async dataBreakpointInfoRequest(
-    response: DebugProtocol.DataBreakpointInfoResponse,
-    args: DebugProtocol.DataBreakpointInfoArguments
-  ): Promise<void> {
-    this.handleAsyncRequest(response, async () => {
-      if (!args.variablesReference || !args.name) {
-        return;
-      }
-      this.ensureProgramLoaded(this.program);
-      const { type } = this.program.getScopeReference(args.variablesReference);
-      if (type === ScopeType.Symbols || type === ScopeType.Registers) {
-        const variableName = args.name;
-        const vars = await this.program.getVariables();
-        const value = vars[variableName];
-        if (typeof value === "number") {
-          const displayValue = this.program.formatVariable(variableName, value);
-
-          const isRegister = type === ScopeType.Registers;
-          const dataId = `${variableName}(${displayValue})`;
-
-          response.body = {
-            dataId,
-            description: isRegister ? `${displayValue}` : dataId,
-            accessTypes: ["read", "write", "readWrite"],
-            canPersist: true,
-          };
-        }
-      }
-    });
-  }
-
-  protected async setDataBreakpointsRequest(
-    response: DebugProtocol.SetDataBreakpointsResponse,
-    args: DebugProtocol.SetDataBreakpointsArguments
-  ): Promise<void> {
-    this.handleAsyncRequest(response, async () => {
-      const breakpoints: DebugProtocol.Breakpoint[] = [];
-      // clear all breakpoints for this file
-      await this.breakpoints.clearDataBreakpoints();
-      // set and verify breakpoint locations
-      if (!args.breakpoints) {
-        return;
-      }
-      for (const reqBp of args.breakpoints) {
-        const { name, displayValue, value } = this.parseDataIdAddress(
-          reqBp.dataId
-        );
-        const size = await this.getDataBreakpointSize(
-          reqBp.dataId,
-          displayValue,
-          name
-        );
-        const bp = this.breakpoints.createDataBreakpoint(
-          value,
-          size,
-          reqBp.accessType,
-          `${size} bytes watched starting at ${displayValue}`
-        );
-        await this.breakpoints.setBreakpoint(bp);
-        breakpoints.push(bp);
-      }
-      // send back the actual breakpoint positions
-      response.body = { breakpoints };
-      response.success = true;
-    });
-  }
-
-  private parseDataIdAddress(dataId: string): {
-    name: string;
-    displayValue: string;
-    value: number;
-  } {
-    const match = dataId.match(/(?<name>.+)\((?<displayValue>.+)\)/);
-    if (!match?.groups) {
-      throw new Error("DataId format invalid");
+  protected stackManager(): StackManager {
+    if (!this.stack) {
+      throw new Error("StackManager not initialized");
     }
-    const { name, displayValue } = match.groups;
-    return {
-      name,
-      displayValue,
-      value: parseInt(displayValue),
-    };
-  }
-
-  protected getBreakpointStorage(): BreakpointStorage {
-    return new BreakpointStorageMap();
-  }
-
-  protected async getDataBreakpointSize(
-    id: string,
-    _address: string,
-    _variable: string
-  ): Promise<number> {
-    return this.getBreakpointStorage().getSize(id) ?? 2;
-  }
-
-  protected async setExceptionBreakPointsRequest(
-    response: DebugProtocol.SetExceptionBreakpointsResponse,
-    args: DebugProtocol.SetExceptionBreakpointsArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      if (args.filters.length > 0) {
-        await this.breakpoints.setExceptionBreakpoint();
-      } else {
-        await this.breakpoints.removeExceptionBreakpoint();
-      }
-      response.success = true;
-    });
-  }
-
-  protected async completionsRequest(
-    response: DebugProtocol.CompletionsResponse,
-    args: DebugProtocol.CompletionsArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      assertIsDefined(this.program);
-      const targets = await this.program.getCompletions(
-        args.text,
-        args.frameId
-      );
-      response.body = { targets };
-    });
-  }
-
-  public terminate(): void {
-    logger.log(`Terminating`);
-    this.gdb.destroy();
-    this.emulator.destroy();
-  }
-
-  public shutdown(): void {
-    logger.log(`Shutting down`);
-    this.terminate();
-  }
-
-  protected async getThread(threadId: number): Promise<GdbThread> {
-    await this.gdb.waitConnected();
-    const thread = this.gdb.getThread(threadId);
-    if (!thread) {
-      throw new Error("Unknown thread");
-    }
-    return thread;
-  }
-
-  protected ensureProgramLoaded(
-    program: Program | undefined
-  ): asserts program is Program {
-    if (program === undefined) {
-      throw new Error("Program not running");
-    }
-  }
-
-  protected async handleAsyncRequest(
-    response: DebugProtocol.Response,
-    cb: () => Promise<void>
-  ) {
-    try {
-      await cb();
-      this.sendResponse(response);
-    } catch (err) {
-      let message = "Unknown error";
-      if (err instanceof Error) {
-        const showStack = this.trace || this.testMode;
-        // Display stack trace in trace mode
-        message = showStack ? err.stack ?? err.message : err.message;
-      }
-      this.sendStringErrorResponse(response, message);
-    }
-  }
-
-  protected sendStoppedEvent(
-    threadId: number,
-    reason: string,
-    preserveFocusHint?: boolean
-  ) {
-    this.stoppedThreads[threadId] = true;
-    this.sendEvent(<DebugProtocol.StoppedEvent>{
-      event: "stopped",
-      body: {
-        reason,
-        threadId,
-        preserveFocusHint,
-        allThreadsStopped: true,
-      },
-    });
-  }
-
-  protected sendStringErrorResponse(
-    response: DebugProtocol.Response,
-    message: string
-  ): void {
-    response.success = false;
-    response.message = message;
-    this.sendResponse(response);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  protected output(output: string, category = "console", data?: any) {
-    const e = new OutputEvent(output, category, data);
-    this.sendEvent(e);
-  }
-}
-
-function assertIsDefined<T>(val: T): asserts val is NonNullable<T> {
-  if (val === undefined || val === null) {
-    throw new Error(`Expected 'val' to be defined, but received ${val}`);
+    return this.stack;
   }
 }

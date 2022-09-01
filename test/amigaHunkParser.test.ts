@@ -1,4 +1,4 @@
-import { HunkParser, HunkType } from "../src/amigaHunkParser";
+import { HunkType, parseHunksFromFile } from "../src/amigaHunkParser";
 import * as Path from "path";
 
 const FIXTURES_PATH = Path.join(__dirname, "fixtures");
@@ -7,20 +7,19 @@ const FIXTURES_PATH = Path.join(__dirname, "fixtures");
 describe("AmigaHunkFile", function () {
   it("Should open a hunk file", async function () {
     const programFilename = Path.join(FIXTURES_PATH, "fs-uae", "hd0", "gencop");
-    const parser = new HunkParser();
-    const hunks = await parser.readFile(programFilename);
+    const hunks = await parseHunksFromFile(programFilename);
     expect(hunks.length).toBe(1);
     const hunk = hunks[0];
     expect(hunk.symbols).toBeDefined();
     expect(hunk.symbols).toHaveLength(15);
     expect(hunk.symbols?.[0].name).toBe("init");
     expect(hunk.symbols?.[0].offset).toBe(0);
-    expect(hunk.codeData).toBeDefined();
+    expect(hunk.data).toBeDefined();
     expect(hunk.lineDebugInfo).toBeDefined();
     expect(hunk.lineDebugInfo).toHaveLength(1);
     const sourceFile = hunk.lineDebugInfo?.[0];
     expect(sourceFile?.lines).toHaveLength(106);
-    expect(sourceFile?.name).toBe(
+    expect(sourceFile?.sourceFilename).toBe(
       "c:\\Users\\paulr\\workspace\\amiga\\projects\\vscode-amiga-wks-example\\gencop.s"
     );
   });
@@ -32,8 +31,7 @@ describe("AmigaHunkFile", function () {
       "hd0",
       "tutorial"
     );
-    const parser = new HunkParser();
-    const hunks = await parser.readFile(programFilename);
+    const hunks = await parseHunksFromFile(programFilename);
     expect(hunks).toHaveLength(3);
     // Code hunk
     let hunk = hunks[0];
@@ -45,7 +43,7 @@ describe("AmigaHunkFile", function () {
     expect(name === "start" || name === "OSOff").toBeTruthy();
     expect(hunk.symbols?.[0].offset).toBe(0);
 
-    expect(hunk.codeData).toBeDefined();
+    expect(hunk.data).toBeDefined();
     expect(hunk.lineDebugInfo).toBeDefined();
     // Data hunk
     hunk = hunks[1];
@@ -71,16 +69,15 @@ describe("AmigaHunkFile", function () {
       "hd0",
       "hello-vbcc"
     );
-    const parser = new HunkParser();
-    const hunks = await parser.readFile(programFilename);
+    const hunks = await parseHunksFromFile(programFilename);
     expect(hunks).toHaveLength(7);
     // Code hunk
     const hunk = hunks[0];
-    expect(hunk.codeData).toBeDefined();
+    expect(hunk.data).toBeDefined();
     expect(hunk.lineDebugInfo).toBeDefined();
     expect(hunk.lineDebugInfo).toHaveLength(1);
     const sourceFile = hunk.lineDebugInfo?.[0];
     expect(sourceFile?.lines).toHaveLength(11);
-    expect(sourceFile?.name).toBe("hello.c");
+    expect(sourceFile?.sourceFilename).toBe("hello.c");
   });
 });

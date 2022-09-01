@@ -592,3 +592,8 @@ export const cia = {
   "CLK CE": 0xdc0038,
   "CLK CF": 0xdc003c,
 };
+
+export enum Threads {
+  CPU = 1,
+  COPPER = 2,
+}

@@ -3,9 +3,7 @@ import {
   formatNumber,
   hexToBase64,
   bytesToHex,
-  asciiToHex,
   int32ToASCII,
-  hexUTF8StringToUTF8,
   hexToBytes,
   chunk,
   bitValue,
@@ -58,24 +56,11 @@ describe("strings", () => {
     });
   });
 
-  describe("asciiToHex", () => {
-    it("Should convert a ascii string to hex buffer", () => {
-      const str = "abc";
-      expect(asciiToHex(str)).toBe("616263");
-    });
-  });
-
   describe("int32ToASCII", () => {
     it("Should convert a number to ascii string", () => {
       expect(int32ToASCII(0x0)).toBe("....");
       expect(int32ToASCII(0x60006162)).toBe("`.ab");
       expect(int32ToASCII(0x6385ff00)).toBe("c.ÿ.");
-    });
-  });
-
-  describe("hexUTF8StringToUTF8", () => {
-    it("Should convert a hex string containing an utf8 string to utf8 string", () => {
-      expect(hexUTF8StringToUTF8("C385E282AC")).toBe("Å€");
     });
   });
 
