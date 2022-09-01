@@ -47,14 +47,16 @@ export class WinUAEDebugSession extends FsUAEDebugSession {
       if (positions.length <= 0) {
         throw new Error("No frame to step out");
       }
-      const { pc } = positions[1];
-      const bpArray = this.breakpoints.createTemporaryBreakpointArray([
-        pc + 1,
-        pc + 2,
-        pc + 4,
-      ]);
-      await this.breakpoints.addTemporaryBreakpointArray(bpArray);
-      await this.gdb.continueExecution(thread);
+      if (positions[1]) {
+        const { pc } = positions[1];
+        const bpArray = this.breakpoints.createTemporaryBreakpointArray([
+          pc + 1,
+          pc + 2,
+          pc + 4,
+        ]);
+        await this.breakpoints.addTemporaryBreakpointArray(bpArray);
+        await this.gdb.continueExecution(thread);
+      }
     });
   }
 
