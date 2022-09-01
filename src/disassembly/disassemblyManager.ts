@@ -2,7 +2,7 @@ import { StackFrame, Source, Handles } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 
 import { disassemble } from "./cpuDisassembler";
-import { GdbProxy, GdbStackPosition, GdbThread } from "../gdb";
+import { GdbProxy, StackPosition, Thread } from "../gdb";
 import { disassembleCopper } from "./copperDisassembler";
 import { formatAddress, formatHexadecimal, splitLines } from "../utils/strings";
 import Program from "../program";
@@ -25,7 +25,7 @@ export class DisassemblyManager {
 
   public async disassembleLine(
     pc: number,
-    thread: GdbThread
+    thread: Thread
   ): Promise<DisassembledLine> {
     const cached = this.lineCache.get(pc);
     if (cached) {
@@ -65,8 +65,8 @@ export class DisassemblyManager {
   }
 
   public async getStackFrame(
-    stackPosition: GdbStackPosition,
-    thread: GdbThread
+    stackPosition: StackPosition,
+    thread: Thread
   ): Promise<StackFrame> {
     const address = stackPosition.pc;
     const { text, isCopper } = await this.disassembleLine(address, thread);

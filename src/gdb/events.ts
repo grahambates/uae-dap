@@ -1,4 +1,4 @@
-import { GdbPacket } from "./packets";
+import { Packet } from "./packets";
 
 /**
  * Lite Consumer event interface
@@ -52,27 +52,27 @@ interface ILiteHandler<T> {
   handle(data: T): boolean;
 }
 
-export type GdbPacketHandler = ILiteHandler<GdbPacket>;
+export type GdbPacketHandler = ILiteHandler<Packet>;
 
 /**
  * Class to manage the Gdb data received.
  * The data is consumed by the first handler added tha consumes it.
  */
 export class GdbReceivedDataManager {
-  private readonly onData: LiteConsumerEvent<GdbPacket>;
+  private readonly onData: LiteConsumerEvent<Packet>;
 
-  constructor(defaultHandler?: { (data: GdbPacket): boolean }) {
-    this.onData = new LiteConsumerEvent<GdbPacket>(defaultHandler);
+  constructor(defaultHandler?: { (data: Packet): boolean }) {
+    this.onData = new LiteConsumerEvent<Packet>(defaultHandler);
   }
 
-  public get OnData(): ILiteConsumerEvent<GdbPacket> {
+  public get OnData(): ILiteConsumerEvent<Packet> {
     return this.onData.expose();
   }
-  public trigger(data: GdbPacket): void {
+  public trigger(data: Packet): void {
     this.onData.trigger(data);
   }
 
-  public waitData(handler: GdbPacketHandler): Promise<GdbPacket> {
+  public waitData(handler: GdbPacketHandler): Promise<Packet> {
     return new Promise((resolve) => {
       this.onData.on((packet): boolean => {
         if (handler.handle(packet)) {

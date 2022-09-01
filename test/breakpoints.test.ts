@@ -10,8 +10,12 @@ import {
   reset,
 } from "@johanblumenberg/ts-mockito";
 
-import { GdbBreakpoint, GdbBreakpointType, GdbProxy } from "../src/gdb";
-import { BreakpointManager } from "../src/breakpoints";
+import { GdbProxy } from "../src/gdb";
+import {
+  Breakpoint,
+  BreakpointManager,
+  BreakpointType,
+} from "../src/breakpoints";
 import Program from "../src/program";
 
 describe("Breakpoint Manager", () => {
@@ -48,11 +52,11 @@ describe("Breakpoint Manager", () => {
       const source: DebugProtocol.Source = {
         path: SOURCE_PATH,
       };
-      const bp: GdbBreakpoint = {
+      const bp: Breakpoint = {
         id: 1,
         source,
         line: sourceLine,
-        type: GdbBreakpointType.SOURCE,
+        type: BreakpointType.SOURCE,
         offset: 0,
         verified: false,
         defaultMessage: "",
@@ -127,7 +131,7 @@ describe("Breakpoint Manager", () => {
 
     describe("Address breakpoint", () => {
       const sourceLine = 1;
-      const bp = <GdbBreakpoint>{
+      const bp = <Breakpoint>{
         id: 1,
         source: {
           name: DIS_NAME,
@@ -177,7 +181,7 @@ describe("Breakpoint Manager", () => {
     });
 
     it("should reject if the breakpoint is incomplete", async () => {
-      const bp = <GdbBreakpoint>{};
+      const bp = <Breakpoint>{};
       await expect(bpManager.setBreakpoint(bp)).resolves.toBe(false);
       verify(
         spiedBpManager.addPendingBreakpoint(anything(), anything())
@@ -187,7 +191,7 @@ describe("Breakpoint Manager", () => {
 
   it("should send all pending breakpoints", async () => {
     const sourceLine = 1;
-    const bp = <GdbBreakpoint>{
+    const bp = <Breakpoint>{
       id: 1,
       source: {
         path: SOURCE_PATH,

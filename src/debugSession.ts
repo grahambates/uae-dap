@@ -12,18 +12,14 @@ import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
 import promiseRetry from "promise-retry";
 
-import {
-  GdbProxy,
-  GdbHaltStatus,
-  GdbThread,
-  isSourceBreakpoint,
-  isDataBreakpoint,
-  breakpointToString,
-} from "./gdb";
+import { GdbProxy, HaltStatus, Thread } from "./gdb";
 import {
   BreakpointManager,
   BreakpointStorage,
   BreakpointStorageMap,
+  breakpointToString,
+  isDataBreakpoint,
+  isSourceBreakpoint,
 } from "./breakpoints";
 import {
   base64ToHex,
@@ -128,7 +124,7 @@ export class FsUAEDebugSession extends LoggingDebugSession {
     this.emulator = new Emulator();
     this.gdb = this.createGdbProxy();
     this.gdb.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
-    this.initProxy();
+    this.addListeners();
     this.breakpoints = new BreakpointManager(this.gdb);
     this.breakpoints.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
   }
@@ -146,20 +142,21 @@ export class FsUAEDebugSession extends LoggingDebugSession {
     this.gdb = gdbProxy;
     this.emulator = emulator;
     this.gdb.setMutexTimeout(1000);
-    this.initProxy();
+    this.addListeners();
     this.breakpoints = new BreakpointManager(this.gdb);
     this.breakpoints.setMutexTimeout(1000);
   }
 
   /**
-   * Initialize proxy
+   * Bind handlers to GDB events
    */
-  public initProxy(): void {
+  public addListeners(): void {
     // setup event handlers
     this.gdb.on("stopOnEntry", (threadId) => {
       logger.log(`[GDB] Stop on entry (thread: ${threadId})`);
       this.sendStoppedEvent(threadId, "entry", false);
     });
+
     this.gdb.on("stopOnStep", (threadId, preserveFocusHint) => {
       // Only send step events for stopped threads
       if (this.stoppedThreads[threadId]) {
@@ -169,6 +166,7 @@ export class FsUAEDebugSession extends LoggingDebugSession {
         this.sendStoppedEvent(threadId, "step", preserveFocusHint);
       }
     });
+
     this.gdb.on("stopOnPause", (threadId) => {
       // Only send pause evens for running threads
       if (!this.stoppedThreads[threadId]) {
@@ -176,6 +174,7 @@ export class FsUAEDebugSession extends LoggingDebugSession {
         this.sendStoppedEvent(threadId, "pause", false);
       }
     });
+
     this.gdb.on("stopOnBreakpoint", async (threadId) => {
       logger.log(`[EVT] Hit breakpoint on thread ${threadId}`);
       // Only send breakpoint events for running threads
@@ -243,10 +242,12 @@ export class FsUAEDebugSession extends LoggingDebugSession {
         this.gdb.continueExecution(thread);
       }
     });
+
     this.gdb.on("stopOnException", (_, threadId) => {
       logger.log(`[EVT] Stop on exception (thread: ${threadId})`);
       this.sendStoppedEvent(threadId, "exception", false);
     });
+
     this.gdb.on("continueThread", (threadId, allThreadsContinued) => {
       logger.log(
         `[EVT] Continue thread ${threadId} (allThreadsContinued: ${allThreadsContinued})`
@@ -254,10 +255,12 @@ export class FsUAEDebugSession extends LoggingDebugSession {
       this.stoppedThreads[threadId] = false;
       this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
     });
+
     this.gdb.on("segmentsUpdated", (segments) => {
       logger.log(`[EVT] Segments updated`);
       this.program?.updateSegments(segments);
     });
+
     this.gdb.on("breakpointValidated", (bp) => {
       logger.log(`[EVT] Validated ${breakpointToString(bp)}`);
       // Dirty workaround to issue https://github.com/microsoft/vscode/issues/65993
@@ -269,6 +272,7 @@ export class FsUAEDebugSession extends LoggingDebugSession {
         }
       }, 100);
     });
+
     this.gdb.on("threadStarted", (threadId) => {
       logger.log(`[EVT] Thread ${threadId} started`);
       const event = <DebugProtocol.ThreadEvent>{
@@ -280,6 +284,7 @@ export class FsUAEDebugSession extends LoggingDebugSession {
       };
       this.sendEvent(event);
     });
+
     this.gdb.on("end", () => {
       logger.log(`[EVT] Remote debugger ended`);
       this.terminate();
@@ -828,7 +833,7 @@ Expressions:
     this.handleAsyncRequest(response, async () => {
       await this.gdb.waitConnected();
       const haltStatus = await this.gdb.getHaltStatus();
-      let selectedHs: GdbHaltStatus = haltStatus[0];
+      let selectedHs: HaltStatus = haltStatus[0];
       for (const hs of haltStatus) {
         if (hs.thread && hs.thread.isCPU()) {
           selectedHs = hs;
@@ -978,7 +983,7 @@ Expressions:
     this.terminate();
   }
 
-  protected async getThread(threadId: number): Promise<GdbThread> {
+  protected async getThread(threadId: number): Promise<Thread> {
     await this.gdb.waitConnected();
     const thread = this.gdb.getThread(threadId);
     if (!thread) {

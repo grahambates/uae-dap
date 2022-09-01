@@ -5,7 +5,6 @@ import {
   Scope,
   Source,
   StackFrame,
-  Thread,
 } from "@vscode/debugadapter";
 import { basename } from "path";
 import { parse, eval as expEval } from "expression-eval";
@@ -23,7 +22,7 @@ import {
   disassembledFileFromPath,
   DisassemblyManager,
 } from "./disassembly";
-import { GdbProxy, GdbSegment, GdbStackPosition, GdbThread } from "./gdb";
+import { GdbProxy, Segment, StackPosition, Thread } from "./gdb";
 import { FileInfo, LineInfo, SegmentOffset } from "./fileInfo";
 import {
   bitValue,
@@ -104,12 +103,12 @@ class Program {
    *
    * @param segments The list of returned segments from the debugger
    */
-  public updateSegments(segments: GdbSegment[]): void {
+  public updateSegments(segments: Segment[]): void {
     const lastPos = this.fileInfo.hunks.length;
     for (let posSegment = 0; posSegment < lastPos; posSegment++) {
       // Segments in order of file
       const hunk = this.fileInfo.hunks[posSegment];
-      let segment: GdbSegment;
+      let segment: Segment;
       let address: number;
       if (posSegment >= segments.length) {
         // Segment not declared by the protocol
@@ -191,9 +190,10 @@ class Program {
   public async getThreads(): Promise<DebugProtocol.Thread[]> {
     await this.gdb.waitConnected();
     const threadIds = await this.gdb.getThreadIds();
-    const threads = threadIds.map(
-      (t) => new Thread(t.getId(), t.getDisplayName())
-    );
+    const threads = threadIds.map((t) => ({
+      id: t.getId(),
+      name: t.getDisplayName(),
+    }));
     logger.log(`Threads: ${JSON.stringify(threads)}`);
     return threads;
   }
@@ -202,8 +202,8 @@ class Program {
    * Get stack trace for thread
    */
   public async getStackTrace(
-    thread: GdbThread,
-    stackPositions: GdbStackPosition[]
+    thread: Thread,
+    stackPositions: StackPosition[]
   ): Promise<StackFrame[]> {
     await this.gdb.waitConnected();
     const stackFrames = [];
@@ -1688,7 +1688,7 @@ class Program {
 
   private async findSourceLine(
     address: number,
-    segments: GdbSegment[]
+    segments: Segment[]
   ): Promise<LineInfo | null> {
     const segment = this.findSegmentContainingAddress(address, segments);
     if (!segment) {
@@ -1702,8 +1702,8 @@ class Program {
 
   private findSegmentContainingAddress(
     address: number,
-    segments: GdbSegment[]
-  ): GdbSegment | undefined {
+    segments: Segment[]
+  ): Segment | undefined {
     return segments.find(
       (s) => address >= s.address && address < s.address + s.size
     );

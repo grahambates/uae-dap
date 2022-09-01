@@ -1,5 +1,5 @@
 /** Type of the message packet */
-export enum GdbPacketType {
+export enum PacketType {
   ERROR,
   REGISTER,
   MEMORY,
@@ -16,16 +16,10 @@ export enum GdbPacketType {
 }
 
 /** Packet sent by the debugging server */
-export class GdbPacket {
-  private type: GdbPacketType;
-  private message: string;
-  private notification: boolean;
+export class Packet {
+  private notification = false;
 
-  constructor(type: GdbPacketType, message: string) {
-    this.type = type;
-    this.message = message;
-    this.notification = false;
-  }
+  constructor(private type: PacketType, private message: string) {}
 
   public setNotification(isNotification: boolean) {
     this.notification = isNotification;
@@ -35,7 +29,7 @@ export class GdbPacket {
     return this.notification;
   }
 
-  public getType(): GdbPacketType {
+  public getType(): PacketType {
     return this.type;
   }
   public getMessage(): string {
@@ -46,12 +40,12 @@ export class GdbPacket {
    * Parses the data received.
    * @param data Data to parse
    */
-  public static parseData(data: Buffer): GdbPacket[] {
-    const parsedData = new Array<GdbPacket>();
+  public static parseData(data: Buffer): Packet[] {
+    const parsedData = new Array<Packet>();
     if (data) {
       let s = data.toString();
       if (s.startsWith("+")) {
-        parsedData.push(new GdbPacket(GdbPacketType.PLUS, "+"));
+        parsedData.push(new Packet(PacketType.PLUS, "+"));
         if (s.length > 1) {
           s = s.substring(1);
         }
@@ -63,13 +57,13 @@ export class GdbPacket {
         }
         let match = messageRegexp.exec(s);
         while (match) {
-          let message = GdbPacket.extractPacket(match[1]);
+          let message = Packet.extractPacket(match[1]);
           let isNotification = false;
           if (message.startsWith("%Stop")) {
             isNotification = true;
             message = message.replace("%Stop:", "");
           }
-          const packet = new GdbPacket(GdbPacket.parseType(message), message);
+          const packet = new Packet(Packet.parseType(message), message);
           packet.setNotification(isNotification);
           parsedData.push(packet);
           match = messageRegexp.exec(s);
@@ -98,32 +92,32 @@ export class GdbPacket {
    * Parses the type of the packet
    * @param message packet message to parse
    */
-  public static parseType(message: string): GdbPacketType {
+  public static parseType(message: string): PacketType {
     if (message.startsWith("OK")) {
-      return GdbPacketType.OK;
+      return PacketType.OK;
     } else if (message.startsWith("+")) {
-      return GdbPacketType.PLUS;
+      return PacketType.PLUS;
     } else if (message.startsWith("AS")) {
-      return GdbPacketType.SEGMENT;
+      return PacketType.SEGMENT;
     } else if (message.startsWith("E")) {
-      return GdbPacketType.ERROR;
+      return PacketType.ERROR;
     } else if (
       message.startsWith("S") ||
       (message.startsWith("T") && !message.startsWith("Te"))
     ) {
       if (message.includes("tframes")) {
-        return GdbPacketType.QTSTATUS;
+        return PacketType.QTSTATUS;
       }
-      return GdbPacketType.STOP;
+      return PacketType.STOP;
     } else if (message.startsWith("W")) {
-      return GdbPacketType.END;
+      return PacketType.END;
     } else if (message.startsWith("F")) {
-      return GdbPacketType.FRAME;
+      return PacketType.FRAME;
     } else if (message === "-") {
-      return GdbPacketType.MINUS;
+      return PacketType.MINUS;
     } else if (message.startsWith("O")) {
-      return GdbPacketType.OUTPUT;
+      return PacketType.OUTPUT;
     }
-    return GdbPacketType.UNKNOWN;
+    return PacketType.UNKNOWN;
   }
 }

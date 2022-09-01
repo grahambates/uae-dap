@@ -1,118 +1,29 @@
 import { Socket } from "net";
 import { EventEmitter } from "events";
 import { Mutex } from "../utils/mutex";
-import { GdbThread, GdbThreadState, GdbAmigaSysThreadId } from "./threads";
+import { Thread, ThreadState, ThreadId } from "./threads";
 import { GdbReceivedDataManager } from "./events";
-import { GdbPacket, GdbPacketType } from "./packets";
+import { Packet, PacketType } from "./packets";
 import { hexUTF8StringToUTF8, asciiToHex } from "../utils/strings";
-import { DebugProtocol } from "@vscode/debugprotocol";
 import { logger } from "@vscode/debugadapter";
 import { SegmentOffset } from "../fileInfo";
+import {
+  AccessType,
+  Breakpoint,
+  isDataBreakpoint,
+  isExceptionBreakpoint,
+} from "../breakpoints";
 
 /** Status for the current halt */
-export interface GdbHaltStatus {
+export interface HaltStatus {
   code: number;
   details: string;
   registers: Map<number, number>;
-  thread?: GdbThread;
-}
-
-/** Interface for a breakpoint */
-export interface GdbBreakpoint extends DebugProtocol.Breakpoint {
-  /**Type of breakpoint */
-  type: GdbBreakpointType;
-  /** Id for the segment if undefined it is an absolute offset*/
-  segmentId?: number;
-  /** Offset relative to the segment*/
-  offset: number;
-  /** default message for the breakpoint */
-  defaultMessage?: string;
-  condition?: string;
-  hitCondition?: string;
-  hitCount: number;
-  logMessage?: string;
-}
-
-/**
- * Types of breakpoints
- */
-export enum GdbBreakpointType {
-  SOURCE,
-  DATA,
-  INSTRUCTION,
-  EXCEPTION,
-  TEMPORARY,
-}
-
-/**
- * Values to the access type of data breakpoint
- */
-export enum GdbBreakpointAccessType {
-  READ = "read",
-  WRITE = "write",
-  READWRITE = "readWrite",
-}
-
-export interface GdbBreakpointSource
-  extends GdbBreakpoint,
-    DebugProtocol.SourceBreakpoint {
-  type: GdbBreakpointType.SOURCE;
-  source: DebugProtocol.Source;
-  line: number;
-}
-
-export interface GdbBreakpointData
-  extends GdbBreakpoint,
-    DebugProtocol.DataBreakpoint {
-  type: GdbBreakpointType.DATA;
-  /** Size of the memory watched */
-  size?: number;
-  /** The access type of the data. */
-  accessType?: GdbBreakpointAccessType;
-}
-
-export interface GdbBreakpointException extends GdbBreakpoint {
-  type: GdbBreakpointType.EXCEPTION;
-  /** exception mask : if present it is an exception breakpoint */
-  exceptionMask: number;
-}
-
-export interface GdbBreakpointInstruction extends GdbBreakpoint {
-  type: GdbBreakpointType.INSTRUCTION;
-}
-
-export interface GdbBreakpointTemporary extends GdbBreakpoint {
-  type: GdbBreakpointType.TEMPORARY;
-}
-
-export function isSourceBreakpoint(
-  bp: GdbBreakpoint
-): bp is GdbBreakpointSource {
-  return (
-    bp.source !== undefined && bp.line !== undefined && bp.id !== undefined
-  );
-}
-export function isDataBreakpoint(bp: GdbBreakpoint): bp is GdbBreakpointData {
-  return bp.type === GdbBreakpointType.DATA;
-}
-export function isInstructionBreakpoint(
-  bp: GdbBreakpoint
-): bp is GdbBreakpointInstruction {
-  return bp.type === GdbBreakpointType.INSTRUCTION;
-}
-export function isExceptionBreakpoint(
-  bp: GdbBreakpoint
-): bp is GdbBreakpointException {
-  return (bp as GdbBreakpointException).exceptionMask !== undefined;
-}
-export function isTemporaryBreakpoint(
-  bp: GdbBreakpoint
-): bp is GdbBreakpointTemporary {
-  return bp.type === GdbBreakpointType.TEMPORARY;
+  thread?: Thread;
 }
 
 /** StackFrame position */
-export interface GdbStackPosition {
+export interface StackPosition {
   /** Index of the position */
   index: number;
   /** Index of the stack frame */
@@ -126,13 +37,13 @@ export interface GdbStackPosition {
 }
 
 /** Register value */
-export interface GdbRegister {
+export interface Register {
   name: string;
   value: number;
 }
 
 /** Memory segment */
-export interface GdbSegment {
+export interface Segment {
   id: number;
   name?: string;
   address: number;
@@ -145,10 +56,10 @@ type Events = {
   stopOnStep: (threadId: number, preserveFocusHint?: boolean) => void;
   stopOnPause: (threadId: number) => void;
   stopOnBreakpoint: (threadId: number) => void;
-  segmentsUpdated: (segments: GdbSegment[]) => void;
-  stopOnException: (haltStatus: GdbHaltStatus, threadId: number) => void;
+  segmentsUpdated: (segments: Segment[]) => void;
+  stopOnException: (haltStatus: HaltStatus, threadId: number) => void;
   continueThread: (threadId: number, allThreadsContinued?: boolean) => void;
-  breakpointValidated: (bp: GdbBreakpoint) => void;
+  breakpointValidated: (bp: Breakpoint) => void;
   threadStarted: (threadId: number) => void;
   end: () => void;
   error: (err: Error) => void;
@@ -215,7 +126,7 @@ export class GdbProxy {
   /** Socket to connect */
   private socket: Socket;
   /** Segments of memory */
-  private segments?: GdbSegment[];
+  private segments?: Segment[];
   /** Stop on entry asked */
   private stopOnEntryRequested = false;
   /** Mutex to just have one call to gdb */
@@ -223,9 +134,9 @@ export class GdbProxy {
   /** vCont commands are supported */
   private supportVCont = false;
   /** Created threads */
-  private threads: Map<number, GdbThread>;
+  private threads: Map<number, Thread>;
   /** Created threads indexed by native ids */
-  private threadsNative: Map<string, GdbThread>;
+  private threadsNative: Map<string, Thread>;
   /** Manager for the received socket data */
   private receivedDataManager: GdbReceivedDataManager;
   /** Lock for sendPacketString function */
@@ -250,8 +161,8 @@ export class GdbProxy {
     this.receivedDataManager = new GdbReceivedDataManager(
       this.defaultOnDataHandler
     );
-    this.threads = new Map<number, GdbThread>();
-    this.threadsNative = new Map<string, GdbThread>();
+    this.threads = new Map<number, Thread>();
+    this.threadsNative = new Map<string, Thread>();
   }
 
   // Public API:
@@ -268,17 +179,17 @@ export class GdbProxy {
         try {
           const data = await this.sendPacketString(
             SUPPORT_STRING,
-            GdbPacketType.UNKNOWN
+            PacketType.UNKNOWN
           );
           const returnedData = data;
           if (returnedData.indexOf("multiprocess+") >= 0) {
-            GdbThread.setSupportMultiprocess(true);
+            Thread.setSupportMultiprocess(true);
           }
           if (returnedData.indexOf("vContSupported+") >= 0) {
             this.supportVCont = true;
           }
           if (returnedData.indexOf("QStartNoAckMode+") >= 0) {
-            await this.sendPacketString("QStartNoAckMode", GdbPacketType.OK);
+            await this.sendPacketString("QStartNoAckMode", PacketType.OK);
           } else {
             throw new Error("QStartNoAckMode not active in remote debug");
           }
@@ -352,7 +263,7 @@ export class GdbProxy {
    * @param breakpoint breakpoint to add
    * @return Promise with a breakpoint
    */
-  public async setBreakpoint(breakpoint: GdbBreakpoint): Promise<void> {
+  public async setBreakpoint(breakpoint: Breakpoint): Promise<void> {
     const segmentId = breakpoint.segmentId;
     const offset = breakpoint.offset;
     if (!this.socket.writable) {
@@ -382,13 +293,13 @@ export class GdbProxy {
       // Data breakpoint:
       let code: number;
       switch (breakpoint.accessType) {
-        case GdbBreakpointAccessType.READ:
+        case AccessType.READ:
           code = 2;
           break;
-        case GdbBreakpointAccessType.WRITE:
+        case AccessType.WRITE:
           code = 3;
           break;
-        case GdbBreakpointAccessType.READWRITE:
+        case AccessType.READWRITE:
           code = 4;
           break;
       }
@@ -407,7 +318,7 @@ export class GdbProxy {
     } else {
       throw new Error("Invalid breakpoint offset");
     }
-    await this.sendPacketString(message, GdbPacketType.OK);
+    await this.sendPacketString(message, PacketType.OK);
     breakpoint.verified = true;
     breakpoint.message = breakpoint.defaultMessage;
     this.sendEvent("breakpointValidated", breakpoint);
@@ -417,7 +328,7 @@ export class GdbProxy {
    * Ask for a breakpoint removal
    * @param breakpoint breakpoint to remove
    */
-  public async removeBreakpoint(breakpoint: GdbBreakpoint): Promise<void> {
+  public async removeBreakpoint(breakpoint: Breakpoint): Promise<void> {
     const segmentId = breakpoint.segmentId;
     const offset = breakpoint.offset;
     let message: string | undefined = undefined;
@@ -437,13 +348,13 @@ export class GdbProxy {
       ) {
         let code: number;
         switch (breakpoint.accessType) {
-          case GdbBreakpointAccessType.READ:
+          case AccessType.READ:
             code = 2;
             break;
-          case GdbBreakpointAccessType.WRITE:
+          case AccessType.WRITE:
             code = 3;
             break;
-          case GdbBreakpointAccessType.READWRITE:
+          case AccessType.READWRITE:
             code = 4;
             break;
         }
@@ -459,17 +370,17 @@ export class GdbProxy {
         "No segments are defined or segmentId is invalid, is the debugger connected?"
       );
     }
-    await this.sendPacketString(message, GdbPacketType.OK);
+    await this.sendPacketString(message, PacketType.OK);
   }
 
   /**
    * Ask the frames count
    * @param thread Thread identifier
    */
-  public async getFramesCount(thread: GdbThread): Promise<number> {
-    if (thread.getThreadId() === GdbAmigaSysThreadId.CPU) {
+  public async getFramesCount(thread: Thread): Promise<number> {
+    if (thread.getThreadId() === ThreadId.CPU) {
       const message = "qTStatus";
-      const data = await this.sendPacketString(message, GdbPacketType.QTSTATUS);
+      const data = await this.sendPacketString(message, PacketType.QTSTATUS);
       const frameCountPosition = data.indexOf("tframes");
       if (frameCountPosition > 0) {
         let endFrameCountPosition = data.indexOf(";", frameCountPosition);
@@ -488,17 +399,17 @@ export class GdbProxy {
    *
    * @param thread Thread identifier
    */
-  public async stack(thread: GdbThread): Promise<GdbStackPosition[]> {
+  public async stack(thread: Thread): Promise<StackPosition[]> {
     const unlock = await this.mutex.capture("stack");
     try {
-      const stackPositions = new Array<GdbStackPosition>();
+      const stackPositions = new Array<StackPosition>();
       // Retrieve the current frame
       let stackPosition = await this.getStackPosition(
         thread,
         DEFAULT_FRAME_INDEX
       );
       stackPositions.push(stackPosition);
-      if (thread.getThreadId() === GdbAmigaSysThreadId.CPU) {
+      if (thread.getThreadId() === ThreadId.CPU) {
         // Retrieve the current frame count
         const stackSize = await this.getFramesCount(thread);
         for (let i = stackSize - 1; i >= 0; i--) {
@@ -523,7 +434,7 @@ export class GdbProxy {
    * @param endAddress Start address for the stop range excluded
    */
   public async stepToRange(
-    thread: GdbThread,
+    thread: Thread,
     startAddress: number,
     endAddress: number
   ): Promise<void> {
@@ -541,8 +452,8 @@ export class GdbProxy {
       // Not a real GDB command...
       message = "n";
     }
-    thread.setState(GdbThreadState.STEPPING);
-    await this.sendPacketString(message, GdbPacketType.STOP);
+    thread.setState(ThreadState.STEPPING);
+    await this.sendPacketString(message, PacketType.STOP);
     this.sendStopOnStepEvent(thread);
   }
 
@@ -550,15 +461,15 @@ export class GdbProxy {
    * Ask the debugger to step in
    * @param thread Thread selected
    */
-  public async stepIn(thread: GdbThread): Promise<void> {
+  public async stepIn(thread: Thread): Promise<void> {
     let message: string;
     if (this.supportVCont) {
       message = "vCont;s:" + thread.marshall();
     } else {
       message = "s";
     }
-    thread.setState(GdbThreadState.STEPPING);
-    await this.sendPacketString(message, GdbPacketType.STOP);
+    thread.setState(ThreadState.STEPPING);
+    await this.sendPacketString(message, PacketType.STOP);
     this.sendStopOnStepEvent(thread);
   }
 
@@ -567,8 +478,8 @@ export class GdbProxy {
    */
   public async registers(
     frameId: number | null,
-    thread?: GdbThread | null
-  ): Promise<Array<GdbRegister>> {
+    thread?: Thread | null
+  ): Promise<Register[]> {
     const unlock = await this.mutex.capture("selectFrame");
     try {
       if (frameId !== null) {
@@ -579,11 +490,8 @@ export class GdbProxy {
       if (thread !== null) {
         command = "Hg" + thread?.getThreadId();
       }
-      const message = await this.sendPacketString(
-        command,
-        GdbPacketType.UNKNOWN
-      );
-      let registers = new Array<GdbRegister>();
+      const message = await this.sendPacketString(command, PacketType.UNKNOWN);
+      let registers = new Array<Register>();
       let pos = 0;
       let letter = "d";
       let v = "";
@@ -646,7 +554,7 @@ export class GdbProxy {
   public async getMemory(address: number, length: number): Promise<string> {
     return this.sendPacketString(
       "m" + formatNumber(address) + "," + formatNumber(length),
-      GdbPacketType.UNKNOWN
+      PacketType.UNKNOWN
     );
   }
 
@@ -659,7 +567,7 @@ export class GdbProxy {
     const size = Math.ceil(dataToSend.length / 2);
     await this.sendPacketString(
       "M" + formatNumber(address) + "," + size + ":" + dataToSend,
-      GdbPacketType.OK
+      PacketType.OK
     );
   }
 
@@ -693,7 +601,7 @@ export class GdbProxy {
       if (regIdx !== null) {
         const data = await this.sendPacketString(
           "p" + formatNumber(regIdx),
-          GdbPacketType.UNKNOWN
+          PacketType.UNKNOWN
         );
         return [parseInt(data, 16), returnedFrameIndex];
       } else {
@@ -707,13 +615,13 @@ export class GdbProxy {
   /**
    * Reads the thread id's
    */
-  public async getThreadIds(): Promise<GdbThread[]> {
+  public async getThreadIds(): Promise<Thread[]> {
     const unlock = await this.mutex.capture("getThreadIds");
     try {
       if (this.threads.size <= 0) {
         const data = await this.sendPacketString(
           "qfThreadInfo",
-          GdbPacketType.UNKNOWN
+          PacketType.UNKNOWN
         );
         return this.parseThreadsMessage(data);
       } else {
@@ -727,9 +635,9 @@ export class GdbProxy {
   /**
    * Ask for the status of the current stop
    */
-  public async getHaltStatus(): Promise<GdbHaltStatus[]> {
-    const returnedHaltStatus = new Array<GdbHaltStatus>();
-    const response = await this.sendPacketString("?", GdbPacketType.STOP);
+  public async getHaltStatus(): Promise<HaltStatus[]> {
+    const returnedHaltStatus = new Array<HaltStatus>();
+    const response = await this.sendPacketString("?", PacketType.STOP);
     if (response.indexOf("OK") < 0) {
       returnedHaltStatus.push(this.parseHaltStatus(response));
     }
@@ -741,7 +649,7 @@ export class GdbProxy {
    *
    * @param thread Thread to pause
    */
-  public async pause(thread: GdbThread): Promise<void> {
+  public async pause(thread: Thread): Promise<void> {
     let message: string;
     if (this.supportVCont) {
       message = "vCont;t:" + thread.marshall();
@@ -749,15 +657,15 @@ export class GdbProxy {
       // Not a real GDB command...
       message = "vCtrlC";
     }
-    thread.setState(GdbThreadState.STEPPING);
-    await this.sendPacketString(message, GdbPacketType.STOP);
+    thread.setState(ThreadState.STEPPING);
+    await this.sendPacketString(message, PacketType.STOP);
     this.sendEvent("stopOnPause", thread.getId());
   }
 
   /**
    * Continue the execution
    */
-  public async continueExecution(thread: GdbThread): Promise<void> {
+  public async continueExecution(thread: Thread): Promise<void> {
     let message: string;
     if (this.supportVCont) {
       message = "vCont;c:" + thread.marshall();
@@ -765,7 +673,7 @@ export class GdbProxy {
       // Not a real GDB command...
       message = "c";
     }
-    thread.setState(GdbThreadState.RUNNING);
+    thread.setState(ThreadState.RUNNING);
     await this.sendPacketString(message, null, false);
     this.sendEvent("continueThread", thread.getId(), true);
   }
@@ -808,22 +716,22 @@ export class GdbProxy {
   /**
    * Returns a stored thread from it's id.
    */
-  public getThread(gdbThreadId: number): GdbThread | undefined {
+  public getThread(gdbThreadId: number): Thread | undefined {
     return this.threads.get(gdbThreadId);
   }
 
   /**
    * Returns the current CPU thread...
    */
-  public getCurrentCpuThread(): GdbThread | undefined {
-    return this.getThreadFromSysThreadId(GdbAmigaSysThreadId.CPU);
+  public getCurrentCpuThread(): Thread | undefined {
+    return this.getThreadFromSysThreadId(ThreadId.CPU);
   }
 
   /**
    * Returns the current array of segments
    * @return array of segments or undefined
    */
-  public getSegments(): GdbSegment[] | undefined {
+  public getSegments(): Segment[] | undefined {
     return this.segments;
   }
 
@@ -832,7 +740,7 @@ export class GdbProxy {
    * @param segment Segment to add
    * @return the start address of the segment
    */
-  public addSegment(segment: GdbSegment): number {
+  public addSegment(segment: Segment): number {
     if (this.segments) {
       const lastSegment = this.segments[this.segments.length - 1];
       segment.address = lastSegment.address + lastSegment.size;
@@ -900,30 +808,30 @@ export class GdbProxy {
   // Internals:
 
   /** Default handler for the on data event*/
-  private defaultOnDataHandler = (packet: GdbPacket): boolean => {
+  private defaultOnDataHandler = (packet: Packet): boolean => {
     logger.log(
       `[GDB] defaultOnDataHandler (type : ${
-        GdbPacketType[packet.getType()]
+        PacketType[packet.getType()]
       }, notification : ${packet.isNotification()}) : --> ${packet.getMessage()}`
     );
     const consumed = false;
     switch (packet.getType()) {
-      case GdbPacketType.STOP:
+      case PacketType.STOP:
         this.parseStop(packet.getMessage());
         break;
-      case GdbPacketType.END:
+      case PacketType.END:
         this.sendEvent("end");
         break;
-      case GdbPacketType.MINUS:
+      case PacketType.MINUS:
         console.error("Unsupported packet : '-'");
         this.sendEvent("error", new Error("Unsupported packet : '-'"));
         break;
-      case GdbPacketType.SEGMENT:
+      case PacketType.SEGMENT:
         this.parseSegments(packet.getMessage());
         break;
-      case GdbPacketType.OK:
-      case GdbPacketType.PLUS:
-      case GdbPacketType.UNKNOWN:
+      case PacketType.OK:
+      case PacketType.PLUS:
+      case PacketType.UNKNOWN:
       default:
         break;
     }
@@ -935,10 +843,10 @@ export class GdbProxy {
    * @param data Data to parse
    */
   private onData(data: Buffer): void {
-    const packets = GdbPacket.parseData(data);
+    const packets = Packet.parseData(data);
     for (const packet of packets) {
       // plus packet are acknowledge - to be ignored
-      if (packet.getType() === GdbPacketType.OUTPUT) {
+      if (packet.getType() === PacketType.OUTPUT) {
         try {
           let msg = hexUTF8StringToUTF8(packet.getMessage().substring(1));
           if (!msg.startsWith("PRF: ")) {
@@ -952,7 +860,7 @@ export class GdbProxy {
         } catch (err) {
           logger.error(`[GDB] Error parsing server output : ${err}`);
         }
-      } else if (packet.getType() !== GdbPacketType.PLUS) {
+      } else if (packet.getType() !== PacketType.PLUS) {
         this.receivedDataManager.trigger(packet);
       }
     }
@@ -961,11 +869,11 @@ export class GdbProxy {
   private async updateSegments(): Promise<void> {
     const segmentReply = await this.sendPacketString(
       "qOffsets",
-      GdbPacketType.UNKNOWN
+      PacketType.UNKNOWN
     );
     // expected return message : TextSeg=00c03350;DataSeg=00c03350
     const segs = segmentReply.split(";");
-    this.segments = new Array<GdbSegment>();
+    this.segments = new Array<Segment>();
     // The segments message begins with the keyword AS
     let segIdx = 0;
     for (const seg of segs) {
@@ -1000,7 +908,7 @@ export class GdbProxy {
    */
   private async sendPacketString(
     text: string,
-    expectedType: GdbPacketType | null,
+    expectedType: PacketType | null,
     answerExpected = true
   ): Promise<string> {
     let returnedMessage = "";
@@ -1010,7 +918,7 @@ export class GdbProxy {
       try {
         let expectedTypeName: string;
         if (expectedType) {
-          expectedTypeName = GdbPacketType[expectedType];
+          expectedTypeName = PacketType[expectedType];
         } else {
           expectedTypeName = "null";
         }
@@ -1018,10 +926,10 @@ export class GdbProxy {
         let p;
         if (answerExpected) {
           p = this.receivedDataManager.waitData({
-            handle: (testedPacket: GdbPacket): boolean => {
+            handle: (testedPacket: Packet): boolean => {
               return (
                 expectedType === null ||
-                testedPacket.getType() === GdbPacketType.ERROR ||
+                testedPacket.getType() === PacketType.ERROR ||
                 expectedType === testedPacket.getType()
               );
             },
@@ -1034,7 +942,7 @@ export class GdbProxy {
             returnedMessage = packet.getMessage();
             logger.log(`[GDB] <-- req: ${text} res: ${returnedMessage}`);
 
-            if (packet.getType() === GdbPacketType.ERROR) {
+            if (packet.getType() === PacketType.ERROR) {
               throw this.parseError(returnedMessage);
             }
           } else {
@@ -1065,7 +973,7 @@ export class GdbProxy {
       if (num !== null) {
         if (num < 0) {
           message += "ffffffff";
-          await this.sendPacketString(message, GdbPacketType.OK);
+          await this.sendPacketString(message, PacketType.OK);
           return DEFAULT_FRAME_INDEX;
         } else {
           message += formatNumber(num);
@@ -1075,7 +983,7 @@ export class GdbProxy {
       } else {
         throw new Error("No arguments to select a frame");
       }
-      const data = await this.sendPacketString(message, GdbPacketType.FRAME);
+      const data = await this.sendPacketString(message, PacketType.FRAME);
       if (data === "F-1") {
         // No frame found
         return DEFAULT_FRAME_INDEX;
@@ -1099,10 +1007,10 @@ export class GdbProxy {
    * @param frameIndex Index of the frame selected
    */
   private async getStackPosition(
-    thread: GdbThread,
+    thread: Thread,
     frameIndex: number
-  ): Promise<GdbStackPosition> {
-    if (thread.getThreadId() === GdbAmigaSysThreadId.CPU) {
+  ): Promise<StackPosition> {
+    if (thread.getThreadId() === ThreadId.CPU) {
       // Get the current frame
       const [pc, index] = await this.getRegister("pc", frameIndex);
       if (pc) {
@@ -1121,7 +1029,7 @@ export class GdbProxy {
             ": pc not retrieved"
         );
       }
-    } else if (thread.getThreadId() === GdbAmigaSysThreadId.COP) {
+    } else if (thread.getThreadId() === ThreadId.COP) {
       // Retrieve the stack position from the copper
       const haltStatus = await this.getHaltStatus();
       if (haltStatus) {
@@ -1153,7 +1061,7 @@ export class GdbProxy {
    * Send a stop on step event for thread
    * @param thread selected thread
    */
-  private sendStopOnStepEvent(thread: GdbThread) {
+  private sendStopOnStepEvent(thread: Thread) {
     for (const thId of this.threads.keys()) {
       if (thId !== thread.getId()) {
         this.sendEvent("stopOnStep", thId, true);
@@ -1167,7 +1075,7 @@ export class GdbProxy {
    * @param threadsMessage Message containing the threads
    * @returns array of threads
    */
-  private parseThreadsMessage(threadsMessage: string): GdbThread[] {
+  private parseThreadsMessage(threadsMessage: string): Thread[] {
     let pData = threadsMessage;
     if (pData.startsWith("m")) {
       pData = pData.substring(1).trim();
@@ -1178,9 +1086,9 @@ export class GdbProxy {
     if (pData.endsWith(",")) {
       pData = pData.substring(0, pData.length - 1);
     }
-    const returnedThreads: GdbThread[] = [];
+    const returnedThreads: Thread[] = [];
     for (const elm of pData.split(",")) {
-      const th = GdbThread.parse(elm);
+      const th = Thread.parse(elm);
       returnedThreads.push(th);
       this.threads.set(th.getId(), th);
       this.threadsNative.set(elm, th);
@@ -1258,7 +1166,7 @@ export class GdbProxy {
 
   private parseHaltParameters(
     parameters: string
-  ): [GdbThread | undefined, Map<number, number>] {
+  ): [Thread | undefined, Map<number, number>] {
     const map = new Map<number, number>();
     let thread;
     const elms = parameters.trim().split(";");
@@ -1280,7 +1188,7 @@ export class GdbProxy {
    * ‘TAAn1:r1;n2:r2;…’
    * @param message Message to be parsed
    */
-  private parseHaltStatus(message: string): GdbHaltStatus {
+  private parseHaltStatus(message: string): HaltStatus {
     // Retrieve the cause
     const sig = parseInt(message.substring(1, 3), 16);
     let parameters: string | null = null;
@@ -1362,9 +1270,7 @@ export class GdbProxy {
   /**
    * Returns the thread with an amiga sys type
    */
-  private getThreadFromSysThreadId(
-    sysThreadId: GdbAmigaSysThreadId
-  ): GdbThread | undefined {
+  private getThreadFromSysThreadId(sysThreadId: ThreadId): Thread | undefined {
     for (const t of this.threads.values()) {
       if (t.getThreadId() === sysThreadId) {
         return t;
@@ -1384,109 +1290,44 @@ export class GdbProxy {
   }
 }
 
+const errorMessages = {
+  E01: "General error during processing",
+  E02: "Error during the packet parse",
+  E03: "Unsupported / unknown command",
+  E04: "Unknown register",
+  E05: "Invalid Frame Id",
+  E06: "Invalid memory location",
+  E07: "Address not safe for a set memory command",
+  E08: "Unknown breakpoint",
+  E09: "The maximum of breakpoints have been reached",
+  E0F: "Error during the packet parse for command send memory",
+  E10: "Unknown register",
+  E11: "Invalid Frame Id",
+  E12: "Invalid memory location",
+  E20: "Error during the packet parse for command set memory",
+  E21: "Missing end packet for a set memory message",
+  E22: "Address not safe for a set memory command",
+  E25: "Error during the packet parse for command set register",
+  E26: "Error during set register - unsupported register name",
+  E30: "Error during the packet parse for command get register",
+  E31: "Error during the vCont packet parse",
+  E40: "Unable to load segments",
+  E41: "Thread command parse error",
+};
+
 export class GdbError extends Error {
   public errorType: string;
   constructor(errorType: string) {
     super();
     this.errorType = errorType.toUpperCase();
     this.name = "GdbError";
-    this.createMessage();
-  }
-  private createMessage() {
-    switch (this.errorType) {
-      case "E01":
-        this.message = "General error during processing";
-        break;
-      case "E02":
-        this.message = "Error during the packet parse";
-        break;
-      case "E03":
-        this.message = "Unsupported / unknown command";
-        break;
-      case "E04":
-        this.message = "Unknown register";
-        break;
-      case "E05":
-        this.message = "Invalid Frame Id";
-        break;
-      case "E06":
-        this.message = "Invalid memory location";
-        break;
-      case "E07":
-        this.message = "Address not safe for a set memory command";
-        break;
-      case "E08":
-        this.message = "Unknown breakpoint";
-        break;
-      case "E09":
-        this.message = "The maximum of breakpoints have been reached";
-        break;
-      case "E0F":
-        this.message = "Error during the packet parse for command send memory";
-        break;
-      case "E10":
-        this.message = "Unknown register";
-        break;
-      case "E11":
-        this.message = "Invalid Frame Id";
-        break;
-      case "E12":
-        this.message = "Invalid memory location";
-        break;
-      case "E20":
-        this.message = "Error during the packet parse for command set memory";
-        break;
-      case "E21":
-        this.message = "Missing end packet for a set memory message";
-        break;
-      case "E22":
-        this.message = "Address not safe for a set memory command";
-        break;
-      case "E25":
-        this.message = "Error during the packet parse for command set register";
-        break;
-      case "E26":
-        this.message = "Error during set register - unsupported register name";
-        break;
-      case "E30":
-        this.message = "Error during the packet parse for command get register";
-        break;
-      case "E31":
-        this.message = "Error during the vCont packet parse";
-        break;
-      case "E40":
-        this.message = "Unable to load segments";
-        break;
-      case "E41":
-        this.message = "Thread command parse error";
-        break;
-      default:
-        this.message = "Error code received: '" + this.errorType + "'";
-        break;
+    const msg = errorMessages[this.errorType as keyof typeof errorMessages];
+    if (msg) {
+      this.message = msg;
+    } else {
+      this.message = "Error code received: '" + this.errorType + "'";
     }
   }
-}
-
-export function breakpointToString(bp: GdbBreakpoint): string {
-  let out = "";
-  if (isSourceBreakpoint(bp)) {
-    out = `Source Breakpoint #${bp.id} ${bp.source.name}:${bp.line} ${bp.segmentId}/${bp.offset}`;
-  } else if (isExceptionBreakpoint(bp)) {
-    out = `Exception Breakpoint: #${bp.id} ${bp.exceptionMask}`;
-  } else if (isDataBreakpoint(bp)) {
-    out = `Data Breakpoint #${bp.id} ${bp.offset} ${bp.size} (${bp.accessType}`;
-  } else if (isInstructionBreakpoint(bp)) {
-    out = `Instruction Breakpoint #${bp.id} ${bp.offset}`;
-  } else {
-    out = `Breakpoint #${bp.id}`;
-  }
-  if (bp.condition) {
-    out += " condition: " + bp.condition;
-  }
-  if (bp.hitCondition) {
-    out += " hitCondition: " + bp.hitCondition;
-  }
-  return out;
 }
 
 // Utils:
@@ -1542,8 +1383,8 @@ function formatNumber(n: number): string {
  * Retrieve the details of the status register
  * @param srValue Status Register value
  */
-function getSRDetailedValues(srValue: number): GdbRegister[] {
-  const registers: GdbRegister[] = [];
+function getSRDetailedValues(srValue: number): Register[] {
+  const registers: Register[] = [];
   let intMask = 0;
   let intPos = 2;
   for (let i = 0; i < SR_LABELS.length; i++) {

@@ -1,24 +1,133 @@
 import { Mutex } from "./utils/mutex";
 import { DebugProtocol } from "@vscode/debugprotocol";
-import {
-  GdbProxy,
-  GdbBreakpoint,
-  GdbBreakpointType,
-  GdbBreakpointAccessType,
-  isSourceBreakpoint,
-  isExceptionBreakpoint,
-  GdbBreakpointException,
-  GdbBreakpointData,
-  GdbBreakpointInstruction,
-  GdbBreakpointTemporary,
-  isDataBreakpoint,
-  isInstructionBreakpoint,
-  breakpointToString,
-} from "./gdb";
+import { GdbProxy } from "./gdb";
 import Program from "./program";
 import { isDisassembledFile } from "./disassembly";
 import { normalize } from "./utils/files";
 import { logger } from "@vscode/debugadapter";
+
+/**
+ * Base breakpoint type
+ */
+export interface Breakpoint extends DebugProtocol.Breakpoint {
+  /**Type of breakpoint */
+  type: BreakpointType;
+  /** Id for the segment if undefined it is an absolute offset*/
+  segmentId?: number;
+  /** Offset relative to the segment*/
+  offset: number;
+  /** default message for the breakpoint */
+  defaultMessage?: string;
+  condition?: string;
+  hitCondition?: string;
+  hitCount: number;
+  logMessage?: string;
+}
+
+/**
+ * Types of breakpoints
+ */
+export enum BreakpointType {
+  SOURCE,
+  DATA,
+  INSTRUCTION,
+  EXCEPTION,
+  TEMPORARY,
+}
+
+/**
+ * Values to the access type of data breakpoint
+ */
+export enum AccessType {
+  READ = "read",
+  WRITE = "write",
+  READWRITE = "readWrite",
+}
+
+// Breakpoint types:
+
+export interface SourceBreakpoint
+  extends Breakpoint,
+    DebugProtocol.SourceBreakpoint {
+  type: BreakpointType.SOURCE;
+  source: DebugProtocol.Source;
+  line: number;
+}
+
+export interface DataBreakpoint
+  extends Breakpoint,
+    DebugProtocol.DataBreakpoint {
+  type: BreakpointType.DATA;
+  /** Size of the memory watched */
+  size?: number;
+  /** The access type of the data. */
+  accessType?: AccessType;
+}
+
+export interface ExceptionBreakpoint extends Breakpoint {
+  type: BreakpointType.EXCEPTION;
+  /** exception mask : if present it is an exception breakpoint */
+  exceptionMask: number;
+}
+
+export interface InstructionBreakpoint extends Breakpoint {
+  type: BreakpointType.INSTRUCTION;
+}
+
+export interface TemporaryBreakpoint extends Breakpoint {
+  type: BreakpointType.TEMPORARY;
+}
+
+// Typeguards:
+
+export function isSourceBreakpoint(bp: Breakpoint): bp is SourceBreakpoint {
+  return (
+    bp.source !== undefined && bp.line !== undefined && bp.id !== undefined
+  );
+}
+export function isDataBreakpoint(bp: Breakpoint): bp is DataBreakpoint {
+  return bp.type === BreakpointType.DATA;
+}
+export function isInstructionBreakpoint(
+  bp: Breakpoint
+): bp is InstructionBreakpoint {
+  return bp.type === BreakpointType.INSTRUCTION;
+}
+export function isExceptionBreakpoint(
+  bp: Breakpoint
+): bp is ExceptionBreakpoint {
+  return (bp as ExceptionBreakpoint).exceptionMask !== undefined;
+}
+export function isTemporaryBreakpoint(
+  bp: Breakpoint
+): bp is TemporaryBreakpoint {
+  return bp.type === BreakpointType.TEMPORARY;
+}
+
+/**
+ * Format as string for logging
+ */
+export function breakpointToString(bp: Breakpoint): string {
+  let out = "";
+  if (isSourceBreakpoint(bp)) {
+    out = `Source Breakpoint #${bp.id} ${bp.source.name}:${bp.line} ${bp.segmentId}/${bp.offset}`;
+  } else if (isExceptionBreakpoint(bp)) {
+    out = `Exception Breakpoint: #${bp.id} ${bp.exceptionMask}`;
+  } else if (isDataBreakpoint(bp)) {
+    out = `Data Breakpoint #${bp.id} ${bp.offset} ${bp.size} (${bp.accessType}`;
+  } else if (isInstructionBreakpoint(bp)) {
+    out = `Instruction Breakpoint #${bp.id} ${bp.offset}`;
+  } else {
+    out = `Breakpoint #${bp.id}`;
+  }
+  if (bp.condition) {
+    out += " condition: " + bp.condition;
+  }
+  if (bp.hitCondition) {
+    out += " hitCondition: " + bp.hitCondition;
+  }
+  return out;
+}
 
 export interface BreakpointStorage {
   getSize(id: string): number | undefined;
@@ -51,15 +160,15 @@ export class BreakpointManager {
   /** exception mask */
   private exceptionMask = BreakpointManager.DEFAULT_EXCEPTION_MASK;
   /** Breakpoints selected */
-  private breakpoints: GdbBreakpoint[] = [];
+  private breakpoints: Breakpoint[] = [];
   /** Pending breakpoint not yet sent to debugger */
-  private pendingBreakpoints: GdbBreakpoint[] = [];
+  private pendingBreakpoints: Breakpoint[] = [];
   /** Debug information for the loaded program */
   private program?: Program;
   /** Next breakpoint id - used to assign unique IDs to created breakpoints */
   private nextBreakpointId = 0;
   /** Temporary breakpoints arrays */
-  private temporaryBreakpointArrays: GdbBreakpoint[][] = [];
+  private temporaryBreakpointArrays: Breakpoint[][] = [];
   /** Mutex to just have one call to gdb */
   protected mutex = new Mutex(100, 180000);
   /** Lock for breakpoint management function */
@@ -100,7 +209,7 @@ export class BreakpointManager {
    *
    * @returns Added immediately?
    */
-  public async setBreakpoint(bp: GdbBreakpoint): Promise<boolean> {
+  public async setBreakpoint(bp: Breakpoint): Promise<boolean> {
     try {
       if (!this.gdbProxy.isConnected() || !this.program) {
         throw new Error();
@@ -161,7 +270,7 @@ export class BreakpointManager {
    * @param breakpoint Breakpoint to add
    * @param err Error the prevented the breakpoint being added immediately
    */
-  public addPendingBreakpoint(breakpoint: GdbBreakpoint, err?: Error): void {
+  public addPendingBreakpoint(breakpoint: Breakpoint, err?: Error): void {
     logger.log(`[BP] Pending breakpoint #${breakpoint.id}`);
     breakpoint.verified = false;
     if (err) {
@@ -192,7 +301,7 @@ export class BreakpointManager {
   /**
    * Get pending breakpoints array
    */
-  public getPendingBreakpoints(): GdbBreakpoint[] {
+  public getPendingBreakpoints(): Breakpoint[] {
     return this.pendingBreakpoints;
   }
 
@@ -235,10 +344,10 @@ export class BreakpointManager {
   public createBreakpoint(
     source: DebugProtocol.Source,
     reqBp: DebugProtocol.SourceBreakpoint
-  ): GdbBreakpoint {
+  ): Breakpoint {
     return {
       ...reqBp,
-      type: GdbBreakpointType.SOURCE,
+      type: BreakpointType.SOURCE,
       id: this.nextBreakpointId++,
       source,
       verified: false,
@@ -250,9 +359,9 @@ export class BreakpointManager {
   /**
    * Create a new temporary breakpoint object
    */
-  public createTemporaryBreakpoint(address: number): GdbBreakpointTemporary {
+  public createTemporaryBreakpoint(address: number): TemporaryBreakpoint {
     return {
-      type: GdbBreakpointType.TEMPORARY,
+      type: BreakpointType.TEMPORARY,
       id: this.nextBreakpointId++,
       offset: address,
       verified: false,
@@ -263,11 +372,9 @@ export class BreakpointManager {
   /**
    * Create a new instruction breakpoint object
    */
-  public createInstructionBreakpoint(
-    address: number
-  ): GdbBreakpointInstruction {
+  public createInstructionBreakpoint(address: number): InstructionBreakpoint {
     return {
-      type: GdbBreakpointType.INSTRUCTION,
+      type: BreakpointType.INSTRUCTION,
       id: this.nextBreakpointId++,
       offset: address,
       verified: false,
@@ -283,9 +390,9 @@ export class BreakpointManager {
     size: number,
     accessType: DebugProtocol.DataBreakpointAccessType = "readWrite",
     message?: string
-  ): GdbBreakpointData {
+  ): DataBreakpoint {
     return {
-      type: GdbBreakpointType.DATA,
+      type: BreakpointType.DATA,
       id: this.nextBreakpointId++,
       offset,
       verified: false,
@@ -298,9 +405,9 @@ export class BreakpointManager {
     };
   }
 
-  public createExceptionBreakpoint(): GdbBreakpointException {
+  public createExceptionBreakpoint(): ExceptionBreakpoint {
     return {
-      type: GdbBreakpointType.EXCEPTION,
+      type: BreakpointType.EXCEPTION,
       id: this.nextBreakpointId++,
       exceptionMask: this.exceptionMask,
       verified: false,
@@ -335,7 +442,7 @@ export class BreakpointManager {
   /**
    * Ask to remove a breakpoint
    */
-  public async removeBreakpoint(breakpoint: GdbBreakpoint): Promise<void> {
+  public async removeBreakpoint(breakpoint: Breakpoint): Promise<void> {
     logger.log(`[BP] Removing breakpoint #${breakpoint.id}`);
     await this.acquireLock();
     try {
@@ -355,7 +462,7 @@ export class BreakpointManager {
    */
   public clearBreakpoints(source: DebugProtocol.Source): Promise<void> {
     logger.log(`[BP] Clearing source breakpoints (source: ${source.name})`);
-    return this.clearBreakpointsType(GdbBreakpointType.SOURCE, source);
+    return this.clearBreakpointsType(BreakpointType.SOURCE, source);
   }
 
   /**
@@ -363,7 +470,7 @@ export class BreakpointManager {
    */
   public clearDataBreakpoints(): Promise<void> {
     logger.log(`[BP] Clearing data breakpoints`);
-    return this.clearBreakpointsType(GdbBreakpointType.DATA);
+    return this.clearBreakpointsType(BreakpointType.DATA);
   }
 
   /**
@@ -371,11 +478,11 @@ export class BreakpointManager {
    */
   public clearInstructionBreakpoints(): Promise<void> {
     logger.log(`[BP] Clearing instruction breakpoints`);
-    return this.clearBreakpointsType(GdbBreakpointType.INSTRUCTION);
+    return this.clearBreakpointsType(BreakpointType.INSTRUCTION);
   }
 
   private async clearBreakpointsType(
-    type: GdbBreakpointType,
+    type: BreakpointType,
     source?: DebugProtocol.Source
   ): Promise<void> {
     let hasError = false;
@@ -409,7 +516,7 @@ export class BreakpointManager {
   // Temporary breakpoints
 
   public async addTemporaryBreakpointArray(
-    tmpBreakpoints: GdbBreakpoint[]
+    tmpBreakpoints: Breakpoint[]
   ): Promise<void> {
     this.temporaryBreakpointArrays.push(tmpBreakpoints);
     await Promise.all(
@@ -429,7 +536,7 @@ export class BreakpointManager {
   }
 
   public async removeTemporaryBreakpointArray(
-    tmpBreakpoints: GdbBreakpoint[]
+    tmpBreakpoints: Breakpoint[]
   ): Promise<void> {
     try {
       await this.acquireLock();
@@ -444,9 +551,7 @@ export class BreakpointManager {
     }
   }
 
-  public createTemporaryBreakpointArray(
-    offsets: Array<number>
-  ): GdbBreakpoint[] {
+  public createTemporaryBreakpointArray(offsets: Array<number>): Breakpoint[] {
     return offsets.map((o) => this.createTemporaryBreakpoint(o));
   }
 
@@ -472,7 +577,7 @@ export class BreakpointManager {
    * @return successfully added location?
    */
   private async addLocation(
-    breakpoint: GdbBreakpoint,
+    breakpoint: Breakpoint,
     path: string,
     line: number
   ): Promise<boolean> {
@@ -504,11 +609,9 @@ export class BreakpointManager {
   }
 }
 
-const accessTypes: Record<
-  DebugProtocol.DataBreakpointAccessType,
-  GdbBreakpointAccessType
-> = {
-  read: GdbBreakpointAccessType.READ,
-  write: GdbBreakpointAccessType.WRITE,
-  readWrite: GdbBreakpointAccessType.READWRITE,
-};
+const accessTypes: Record<DebugProtocol.DataBreakpointAccessType, AccessType> =
+  {
+    read: AccessType.READ,
+    write: AccessType.WRITE,
+    readWrite: AccessType.READWRITE,
+  };
