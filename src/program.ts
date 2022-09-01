@@ -1328,6 +1328,10 @@ class Program {
       case "c":
         variables = await this.disassembleCopperCommand(expression, frameId);
         break;
+      case "p":
+        await this.profileCommand(expression);
+        result = "profiling...";
+        break;
       case "h":
       case "H":
       case "?":
@@ -1492,6 +1496,26 @@ class Program {
     }
     await this.gdb.setMemory(address, groups.data);
     return this.readMemoryAsVariables(address, groups.data.length / 2);
+  }
+
+  private async profileCommand(
+    expression: string
+  ): Promise<DebugProtocol.Variable[]> {
+    const matches =
+      /p\s*(?<frames>[0-9]+),\s*(?<unwindFile>[^, ]+),\s*(?<outFile>[^, ]+)/i.exec(
+        expression
+      );
+    const groups = matches?.groups;
+    if (!groups) {
+      throw new Error("Expected syntax: p frames,unwindFile,outFile");
+    }
+    const frames = parseInt(groups.frames, 10);
+    const unwindFile = groups.unwindFile;
+    const outFile = groups.outFile;
+    const res = await this.gdb.monitor(
+      `profile ${frames} ${unwindFile} ${outFile}`
+    );
+    return [];
   }
 
   private async dumpMemoryCommand(
