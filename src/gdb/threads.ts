@@ -1,19 +1,5 @@
-/** System Threads numbers (DMA) for FS_UAE */
-export enum GdbAmigaSysThreadIdFsUAE {
-  AUD0 = 0, // Thread id designating AUDIO 0 interrupt
-  AUD1 = 1, // Thread id designating AUDIO 1 interrupt
-  AUD2 = 2, // Thread id designating AUDIO 2 interrupt
-  AUD3 = 3, // Thread id designating AUDIO 3 interrupt
-  DSK = 4, // Thread id designating DISK interrupt
-  SPR = 5, // Thread id designating SPRITE interrupt
-  BLT = 6, // Thread id designating BLITTER interrupt
-  COP = 7, // Thread id designating COPPER interrupt
-  BPL = 8, // Thread id designating BIT-PLANE interrupt
-  CPU = 0xf, // Thread id designating default cpu execution
-}
-
-/** System Threads numbers (DMA) for WinUAE*/
-export enum GdbAmigaSysThreadIdWinUAE {
+/** System Threads numbers (DMA) */
+export enum GdbAmigaSysThreadId {
   CPU = 1, // Thread id designating default cpu execution
   COP = 2, // Thread id designating COPPER interrupt
   AUD0 = 3, // Thread id designating AUDIO 0 interrupt
@@ -72,81 +58,43 @@ export class GdbThread {
   /**
    * Constructs the name of a thread
    */
-  public getDisplayName(isWinUAE: boolean): string {
+  public getDisplayName(): string {
     let name: string;
     if (this.processId === GdbThread.DEFAULT_PROCESS_ID) {
-      if (isWinUAE) {
-        switch (this.threadId) {
-          case GdbAmigaSysThreadIdWinUAE.AUD0:
-            name = "audio 0";
-            break;
-          case GdbAmigaSysThreadIdWinUAE.AUD1:
-            name = "audio 1";
-            break;
-          case GdbAmigaSysThreadIdWinUAE.AUD2:
-            name = "audio 2";
-            break;
-          case GdbAmigaSysThreadIdWinUAE.AUD3:
-            name = "audio 3";
-            break;
-          case GdbAmigaSysThreadIdWinUAE.BLT:
-            name = "blitter";
-            break;
-          case GdbAmigaSysThreadIdWinUAE.BPL:
-            name = "bit-plane";
-            break;
-          case GdbAmigaSysThreadIdWinUAE.COP:
-            name = "copper";
-            break;
-          case GdbAmigaSysThreadIdWinUAE.CPU:
-            name = "cpu";
-            break;
-          case GdbAmigaSysThreadIdWinUAE.DSK:
-            name = "disk";
-            break;
-          case GdbAmigaSysThreadIdWinUAE.SPR:
-            name = "sprite";
-            break;
-          default:
-            name = this.threadId.toString();
-            break;
-        }
-      } else {
-        switch (this.threadId) {
-          case GdbAmigaSysThreadIdFsUAE.AUD0:
-            name = "audio 0";
-            break;
-          case GdbAmigaSysThreadIdFsUAE.AUD1:
-            name = "audio 1";
-            break;
-          case GdbAmigaSysThreadIdFsUAE.AUD2:
-            name = "audio 2";
-            break;
-          case GdbAmigaSysThreadIdFsUAE.AUD3:
-            name = "audio 3";
-            break;
-          case GdbAmigaSysThreadIdFsUAE.BLT:
-            name = "blitter";
-            break;
-          case GdbAmigaSysThreadIdFsUAE.BPL:
-            name = "bit-plane";
-            break;
-          case GdbAmigaSysThreadIdFsUAE.COP:
-            name = "copper";
-            break;
-          case GdbAmigaSysThreadIdFsUAE.CPU:
-            name = "cpu";
-            break;
-          case GdbAmigaSysThreadIdFsUAE.DSK:
-            name = "disk";
-            break;
-          case GdbAmigaSysThreadIdFsUAE.SPR:
-            name = "sprite";
-            break;
-          default:
-            name = this.threadId.toString();
-            break;
-        }
+      switch (this.threadId) {
+        case GdbAmigaSysThreadId.AUD0:
+          name = "audio 0";
+          break;
+        case GdbAmigaSysThreadId.AUD1:
+          name = "audio 1";
+          break;
+        case GdbAmigaSysThreadId.AUD2:
+          name = "audio 2";
+          break;
+        case GdbAmigaSysThreadId.AUD3:
+          name = "audio 3";
+          break;
+        case GdbAmigaSysThreadId.BLT:
+          name = "blitter";
+          break;
+        case GdbAmigaSysThreadId.BPL:
+          name = "bit-plane";
+          break;
+        case GdbAmigaSysThreadId.COP:
+          name = "copper";
+          break;
+        case GdbAmigaSysThreadId.CPU:
+          name = "cpu";
+          break;
+        case GdbAmigaSysThreadId.DSK:
+          name = "disk";
+          break;
+        case GdbAmigaSysThreadId.SPR:
+          name = "sprite";
+          break;
+        default:
+          name = this.threadId.toString();
+          break;
       }
     } else {
       if (GdbThread.supportMultiprocess) {

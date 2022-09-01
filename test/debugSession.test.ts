@@ -21,7 +21,7 @@ import {
   GdbEvents,
   GdbProxy,
   GdbThread,
-  GdbAmigaSysThreadIdFsUAE,
+  GdbAmigaSysThreadId,
   GdbBreakpoint,
   GdbBreakpointType,
   isExceptionBreakpoint,
@@ -65,8 +65,8 @@ describe("Node Debug Adapter", () => {
 
   let dc: DebugClient;
   const callbacks = new Map<string, Callback>();
-  const th = new GdbThread(0, GdbAmigaSysThreadIdFsUAE.CPU);
-  const thCop = new GdbThread(1, GdbAmigaSysThreadIdFsUAE.COP);
+  const th = new GdbThread(0, GdbAmigaSysThreadId.CPU);
+  const thCop = new GdbThread(1, GdbAmigaSysThreadId.COP);
   const threadId = 0;
 
   let gdbProxy: GdbProxy;

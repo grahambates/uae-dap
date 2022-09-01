@@ -1,5 +1,4 @@
 export * from "./debugSession";
-export * from "./debugSessionWinUAE";
 export * from "./amigaHunkParser";
 export * from "./disassembly/cpuDisassembler";
 export * from "./disassembly/copperDisassembler";

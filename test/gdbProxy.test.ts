@@ -1,7 +1,7 @@
 import {
   GdbProxy,
   GdbError,
-  GdbAmigaSysThreadIdFsUAE,
+  GdbAmigaSysThreadId,
   GdbThread,
   GdbBreakpoint,
   GdbBreakpointType,
@@ -565,9 +565,7 @@ describe("GdbProxy", function () {
             `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.07;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
           )
           .thenResolve(RESPONSE_OK);
-        const thread = proxy.getThreadFromSysThreadId(
-          GdbAmigaSysThreadIdFsUAE.COP
-        );
+        const thread = proxy.getThreadFromSysThreadId(GdbAmigaSysThreadId.COP);
         expect(thread).toBeDefined();
         return expect(proxy.stack(<GdbThread>thread)).resolves.toEqual([
           {
@@ -605,9 +603,7 @@ describe("GdbProxy", function () {
             `T05;swbreak:;thread:p0${GdbThread.DEFAULT_PROCESS_ID}.07;0e:00c00b00;0f:00c14e18;10:00000000;11:00c034c2;1e:00005860`
           )
           .thenResolve(RESPONSE_OK);
-        const thread = proxy.getThreadFromSysThreadId(
-          GdbAmigaSysThreadIdFsUAE.COP
-        );
+        const thread = proxy.getThreadFromSysThreadId(GdbAmigaSysThreadId.COP);
         expect(thread).toBeDefined();
         return expect(proxy.stack(<GdbThread>thread)).rejects.toThrow();
       });
@@ -785,13 +781,13 @@ describe("GdbProxy", function () {
         // tslint:disable-next-line: no-unused-expression
         expect(haltStatus[0].thread).toBeDefined();
         expect(haltStatus[0].thread?.getThreadId()).toBe(
-          GdbAmigaSysThreadIdFsUAE.CPU
+          GdbAmigaSysThreadId.CPU
         );
         expect(haltStatus[1].code).toBe(5);
         // tslint:disable-next-line: no-unused-expression
         expect(haltStatus[1].thread).toBeDefined();
         expect(haltStatus[1].thread?.getThreadId()).toBe(
-          GdbAmigaSysThreadIdFsUAE.COP
+          GdbAmigaSysThreadId.COP
         );
         verify(spiedProxy.sendPacketString("?", anything())).once();
         verify(spiedProxy.sendPacketString("vStopped", anything())).twice();

@@ -408,7 +408,7 @@ export class BreakpointManager {
     }
   }
 
-  // Temporary breakpoints (used for WinUAE):
+  // Temporary breakpoints
 
   public async addTemporaryBreakpointArray(
     tmpBreakpoints: GdbBreakpoint[]
