@@ -3,8 +3,9 @@ import * as path from "path";
 import { basename } from "path";
 import { openSync } from "temp";
 import * as fs from "fs/promises";
-import { SourceConstantResolver } from "./program";
+import { SourceConstantResolver } from "./variableManager";
 import { findWasmDir } from "./utils/files";
+import { logger } from "@vscode/debugadapter";
 
 export interface VasmOptions {
   /** Enable extracting constants from source files using vasm */
@@ -51,9 +52,17 @@ export default class Vasm {
     let out = "";
 
     return new Promise((resolve, reject) => {
-      proc.on("exit", () => resolve(out));
+      proc.on("exit", (code) => {
+        code === 0 ? resolve(out) : reject(new VasmError(out));
+      });
       proc.on("error", reject);
     });
+  }
+}
+
+class VasmError extends Error {
+  constructor(public output: string) {
+    super("Vasm error");
   }
 }
 
@@ -81,7 +90,7 @@ export class VasmSourceConstantResolver implements SourceConstantResolver {
         const outFile = openSync(basename(src));
         const userArgs = this.vasmOptions?.args ?? [];
         try {
-          await vasm.run([
+          const out = await vasm.run([
             ...userArgs,
             "-Ftest",
             "-quiet",
@@ -90,11 +99,22 @@ export class VasmSourceConstantResolver implements SourceConstantResolver {
             src,
           ]);
           const output = (await fs.readFile(outFile.path)).toString();
+          logger.log("[VASM] " + out);
           Array.from(
             output.matchAll(
               /^([^ ]+) EXPR\((-?[0-9]+)=0x[0-9a-f]+\) (UNUSED )?EQU/gm
             )
           ).forEach((m) => (constants[m[1]] = parseInt(m[2], 10)));
+        } catch (err) {
+          let msg = "";
+          if (err instanceof VasmError) {
+            msg = err.output;
+          } else if (err instanceof Error) {
+            msg = err.message;
+          }
+          logger.error(
+            `[VASM] Error building ${src} to get constants:\n${msg}`
+          );
         } finally {
           fs.unlink(outFile.path);
         }

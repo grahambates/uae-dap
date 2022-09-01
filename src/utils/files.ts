@@ -63,3 +63,15 @@ export function findWasmDir(): string {
   }
   throw new Error("wasm dir not found");
 }
+
+export function findBinDir(): string {
+  let dir = __dirname;
+  for (let i = 0; i < 5; i++) {
+    const binDir = path.join(dir, "bin");
+    if (fs.existsSync(binDir)) {
+      return binDir;
+    }
+    dir = path.dirname(dir);
+  }
+  throw new Error("bin dir not found");
+}

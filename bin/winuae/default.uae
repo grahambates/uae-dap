@@ -1,0 +1,15 @@
+use_gui=no
+win32.start_not_captured=yes
+win32.nonotificationicon=yes
+boot_rom_uae=min
+cpu_cycle_exact=true
+cpu_memory_cycle_exact=true
+blitter_cycle_exact=true
+cycle_exact=true
+input.config=1
+input.1.keyboard.0.friendlyname=WinUAE keyboard
+input.1.keyboard.0.name=NULLKEYBOARD
+input.1.keyboard.0.empty=false
+input.1.keyboard.0.disabled=false
+input.1.keyboard.0.button.41.GRAVE=SPC_SINGLESTEP.0
+input.1.keyboard.0.button.201.PREV=SPC_WARP.0

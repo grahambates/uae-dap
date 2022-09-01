@@ -1,3 +1,4 @@
+import { logger } from "@vscode/debugadapter";
 import * as cp from "child_process";
 import * as fs from "fs";
 
@@ -10,6 +11,8 @@ interface EmulatorOptions {
   cwd?: string;
   /** Callback executed on process exit */
   onExit?: () => void;
+  /** Callback executed on stdout/stderr */
+  onOutput?: (data: string) => void;
 }
 
 /**
@@ -22,26 +25,42 @@ export class Emulator {
    * Start emulator process
    */
   public run(options: EmulatorOptions): Promise<void> {
-    const { executable, args, cwd, onExit } = options;
+    const { executable, args, cwd, onExit, onOutput: onData } = options;
 
     try {
-      fs.accessSync(executable, fs.constants.X_OK);
+      fs.existsSync(executable);
     } catch (err) {
-      throw new Error(
-        `The emulator executable '${executable}' is not executable`
+      throw new Error(`Emulator binary not found at '${executable}'`);
+    }
+    try {
+      fs.accessSync(executable, fs.constants.X_OK);
+    } catch (_) {
+      logger.log(
+        "Emulator binary '${executable}' not executable - trying to chmod"
       );
+      try {
+        fs.chmodSync(executable, 755);
+      } catch (_) {
+        throw new Error(
+          `The emulator binary '${executable}' is not executable and permissions could not be changed`
+        );
+      }
     }
 
     return new Promise((resolve, reject) => {
       this.childProcess = cp.spawn(executable, args, { cwd });
-      this.childProcess.on("exit", () => {
+      this.childProcess.once("exit", () => {
         if (onExit) {
           onExit();
         }
         this.childProcess = undefined;
       });
-      this.childProcess.on("spawn", resolve);
-      this.childProcess.on("error", reject);
+      this.childProcess.once("spawn", resolve);
+      this.childProcess.once("error", reject);
+      if (onData) {
+        this.childProcess.stdout?.on("data", onData);
+        this.childProcess.stderr?.on("data", onData);
+      }
     });
   }
 
