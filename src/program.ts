@@ -1,6 +1,7 @@
 import { DebugProtocol } from "@vscode/debugprotocol";
 import {
   Handles,
+  logger,
   Scope,
   Source,
   StackFrame,
@@ -190,9 +191,11 @@ class Program {
   public async getThreads(): Promise<DebugProtocol.Thread[]> {
     await this.gdb.waitConnected();
     const threadIds = await this.gdb.getThreadIds();
-    return threadIds.map(
+    const threads = threadIds.map(
       (t) => new Thread(t.getId(), this.gdb.getThreadDisplayName(t))
     );
+    logger.log(`Threads: ${JSON.stringify(threads)}`);
+    return threads;
   }
 
   /**
@@ -236,6 +239,8 @@ class Program {
         stackFrames.push(sf);
       }
     }
+
+    logger.log(`Stack trace: ${JSON.stringify(stackFrames)}`);
 
     return stackFrames;
   }
@@ -1307,7 +1312,7 @@ class Program {
     const isRegister = expression.match(/^([ad][0-7]|pc|sr)$/i) !== null;
     const isSymbol = this.symbols.has(expression);
 
-    const commandMatch = expression.match(/([mdch?])(\s|$)/i);
+    const commandMatch = expression.match(/([mdcph?])(\s|$)/i);
     const command = commandMatch?.[1];
 
     switch (command) {

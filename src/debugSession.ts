@@ -2,16 +2,14 @@ import {
   InitializedEvent,
   TerminatedEvent,
   BreakpointEvent,
-  Source,
-  DebugSession,
   OutputEvent,
   ContinuedEvent,
   InvalidatedEvent,
   logger,
+  LoggingDebugSession,
 } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
-import { basename } from "path";
 import promiseRetry from "promise-retry";
 
 import {
@@ -20,6 +18,7 @@ import {
   GdbThread,
   isSourceBreakpoint,
   isDataBreakpoint,
+  breakpointToString,
 } from "./gdb";
 import { BreakpointManager } from "./breakpoints";
 import {
@@ -89,7 +88,7 @@ export const defaultMemoryFormats = {
   },
 };
 
-export class FsUAEDebugSession extends DebugSession {
+export class FsUAEDebugSession extends LoggingDebugSession {
   /** Timeout of the mutex */
   protected static readonly MUTEX_TIMEOUT = 100000;
 
@@ -150,21 +149,27 @@ export class FsUAEDebugSession extends DebugSession {
   public initProxy(): void {
     // setup event handlers
     this.gdb.on("stopOnEntry", (threadId) => {
+      logger.log(`[GDB] Stop on entry (thread: ${threadId})`);
       this.sendStoppedEvent(threadId, "entry", false);
     });
     this.gdb.on("stopOnStep", (threadId, preserveFocusHint) => {
       // Only send step events for stopped threads
       if (this.stoppedThreads[threadId]) {
+        logger.log(
+          `[GDB] Stop on step (thread: ${threadId}, preserveFocusHint: ${preserveFocusHint})`
+        );
         this.sendStoppedEvent(threadId, "step", preserveFocusHint);
       }
     });
     this.gdb.on("stopOnPause", (threadId) => {
       // Only send pause evens for running threads
       if (!this.stoppedThreads[threadId]) {
+        logger.log(`[GDB] Stop on pause (thread: ${threadId})`);
         this.sendStoppedEvent(threadId, "pause", false);
       }
     });
     this.gdb.on("stopOnBreakpoint", async (threadId) => {
+      logger.log(`[EVT] Hit breakpoint on thread ${threadId}`);
       // Only send breakpoint events for running threads
       if (this.stoppedThreads[threadId]) {
         return;
@@ -183,6 +188,10 @@ export class FsUAEDebugSession extends DebugSession {
       const [fr] = await this.program.getStackTrace(thread, positions);
       // get the breakpoint at this source location:
       const bp = this.breakpoints.findSourceBreakpoint(fr?.source, fr?.line);
+
+      if (bp) {
+        logger.log(`[EVT] Matched ${breakpointToString(bp)})`);
+      }
 
       if (bp && (isSourceBreakpoint(bp) || isDataBreakpoint(bp))) {
         if (bp.logMessage) {
@@ -203,9 +212,15 @@ export class FsUAEDebugSession extends DebugSession {
         } else if (bp.condition) {
           const result = await this.program.evaluate(bp.condition, fr.id);
           stop = !!result;
+          logger.log(
+            `[EVT] Evaluating conditional breakpoint #${bp.id}: ${bp.condition} = ${stop}`
+          );
         } else if (bp.hitCondition) {
           const result = await this.program.evaluate(bp.hitCondition, fr.id);
           if (++bp.hitCount === result) {
+            logger.log(
+              `[EVT] Removing breakpoint #${bp.id} after reaching hit count ${result}`
+            );
             this.breakpoints.removeBreakpoint(bp);
           } else {
             stop = false;
@@ -221,16 +236,22 @@ export class FsUAEDebugSession extends DebugSession {
       }
     });
     this.gdb.on("stopOnException", (_, threadId) => {
+      logger.log(`[EVT] Stop on exception (thread: ${threadId})`);
       this.sendStoppedEvent(threadId, "exception", false);
     });
     this.gdb.on("continueThread", (threadId, allThreadsContinued) => {
+      logger.log(
+        `[EVT] Continue thread ${threadId} (allThreadsContinued: ${allThreadsContinued})`
+      );
       this.stoppedThreads[threadId] = false;
       this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
     });
-    this.gdb.on("segmentsUpdated", (segments) =>
-      this.program?.updateSegments(segments)
-    );
+    this.gdb.on("segmentsUpdated", (segments) => {
+      logger.log(`[EVT] Segments updated`);
+      this.program?.updateSegments(segments);
+    });
     this.gdb.on("breakpointValidated", (bp) => {
+      logger.log(`[EVT] Validated ${breakpointToString(bp)}`);
       // Dirty workaround to issue https://github.com/microsoft/vscode/issues/65993
       setTimeout(async () => {
         try {
@@ -241,6 +262,7 @@ export class FsUAEDebugSession extends DebugSession {
       }, 100);
     });
     this.gdb.on("threadStarted", (threadId) => {
+      logger.log(`[EVT] Thread ${threadId} started`);
       const event = <DebugProtocol.ThreadEvent>{
         event: "thread",
         body: {
@@ -250,25 +272,10 @@ export class FsUAEDebugSession extends DebugSession {
       };
       this.sendEvent(event);
     });
-    this.gdb.on("output", (text, filePath, line, column) => {
-      if (this.trace) {
-        const e: DebugProtocol.OutputEvent = new OutputEvent(`${text}\n`);
-        if (filePath !== undefined) {
-          e.body.source = new Source(
-            basename(filePath),
-            this.convertDebuggerPathToClient(filePath)
-          );
-        }
-        if (line !== undefined) {
-          e.body.line = this.convertDebuggerLineToClient(line);
-        }
-        if (column !== undefined) {
-          e.body.column = this.convertDebuggerColumnToClient(column);
-        }
-        this.sendEvent(e);
-      }
+    this.gdb.on("end", () => {
+      logger.log(`[EVT] Remote debugger ended`);
+      this.terminate();
     });
-    this.gdb.on("end", this.terminate.bind(this));
   }
 
   /**
@@ -372,9 +379,10 @@ export class FsUAEDebugSession extends DebugSession {
       }
 
       if (startEmulator) {
-        if (!emulator) {
-          throw new Error("Missing emulator argument in launch request");
+        if (!emulator || !emulatorOptions) {
+          throw new Error("Missing emulator configuration");
         }
+        logger.log("Starting emulator: ${emulator} ${args.join(' ')}");
         await this.emulator.run({
           executable: emulator,
           args: emulatorOptions,
@@ -396,9 +404,9 @@ export class FsUAEDebugSession extends DebugSession {
         (retry) => this.gdb.connect(serverName, serverPort).catch(retry),
         { minTimeout: 500, retries, factor: 1.1 }
       );
+      logger.log("Connected to remote debugger");
 
       // Load the program
-      this.output(`Starting program: ${program}\n`);
       this.startProgram(program, stopOnEntry);
 
       this.sendResponse(response);
@@ -409,6 +417,7 @@ export class FsUAEDebugSession extends DebugSession {
   }
 
   protected async startProgram(program: string, stopOnEntry: boolean) {
+    logger.log(`Starting program: ${program}\n`);
     await this.gdb.load(program, stopOnEntry);
   }
 
@@ -833,11 +842,13 @@ Expressions:
   }
 
   public terminate(): void {
+    logger.log(`Terminating`);
     this.gdb.destroy();
     this.emulator.destroy();
   }
 
   public shutdown(): void {
+    logger.log(`Shutting down`);
     this.terminate();
   }
 

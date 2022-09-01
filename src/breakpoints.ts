@@ -13,10 +13,12 @@ import {
   GdbBreakpointTemporary,
   isDataBreakpoint,
   isInstructionBreakpoint,
+  breakpointToString,
 } from "./gdb";
 import Program from "./program";
 import { isDisassembledFile } from "./disassembly";
 import { normalize } from "./utils/files";
+import { logger } from "@vscode/debugadapter";
 
 export interface BreakpointStorage {
   getSize(id: string): number | undefined;
@@ -137,6 +139,8 @@ export class BreakpointManager {
         throw new Error("Breakpoint info incomplete");
       }
 
+      logger.log(`[BP] Set ${breakpointToString(bp)}`);
+
       await this.gdbProxy.setBreakpoint(bp);
       if (!isExceptionBreakpoint(bp)) {
         this.breakpoints.push(bp);
@@ -160,6 +164,7 @@ export class BreakpointManager {
    * @param err Error the prevented the breakpoint being added immediately
    */
   public addPendingBreakpoint(breakpoint: GdbBreakpoint, err?: Error): void {
+    logger.log(`[BP] Pending breakpoint #${breakpoint.id}`);
     breakpoint.verified = false;
     if (err) {
       breakpoint.message = err.message;
@@ -171,13 +176,19 @@ export class BreakpointManager {
    * Find the breakpoint corresponding to a source line
    */
   public findSourceBreakpoint(source?: DebugProtocol.Source, line?: number) {
-    return this.breakpoints.find(
+    const bp = this.breakpoints.find(
       (bp) =>
         bp.source &&
         source &&
         this.isSameSource(bp.source, source) &&
         bp.line === line
     );
+    if (bp) {
+      logger.log(`[BP] Found breakpoint ${bp.id} for ${source?.name}:${line}`);
+    } else {
+      logger.log(`[BP] Could not find breakpoint for ${source?.name}:${line}`);
+    }
+    return bp;
   }
 
   /**
@@ -208,6 +219,7 @@ export class BreakpointManager {
    * Send pending breakpoints to program
    */
   public sendAllPendingBreakpoints = async (): Promise<void> => {
+    logger.log(`[BP] Sending pending breakpoints`);
     if (this.pendingBreakpoints.length > 0) {
       await this.acquireLock();
       const pending = this.pendingBreakpoints;
@@ -326,6 +338,7 @@ export class BreakpointManager {
    * Ask to remove a breakpoint
    */
   public async removeBreakpoint(breakpoint: GdbBreakpoint): Promise<void> {
+    logger.log(`[BP] Removing breakpoint #${breakpoint.id}`);
     await this.acquireLock();
     try {
       await this.gdbProxy.removeBreakpoint(breakpoint);
@@ -343,6 +356,7 @@ export class BreakpointManager {
    * Clear source breakpoints
    */
   public clearBreakpoints(source: DebugProtocol.Source): Promise<void> {
+    logger.log(`[BP] Clearing source breakpoints (source: ${source.name})`);
     return this.clearBreakpointsType(GdbBreakpointType.SOURCE, source);
   }
 
@@ -350,6 +364,7 @@ export class BreakpointManager {
    * Clear data breakpoints
    */
   public clearDataBreakpoints(): Promise<void> {
+    logger.log(`[BP] Clearing data breakpoints`);
     return this.clearBreakpointsType(GdbBreakpointType.DATA);
   }
 
@@ -357,6 +372,7 @@ export class BreakpointManager {
    * Clear instruction breakpoints
    */
   public clearInstructionBreakpoints(): Promise<void> {
+    logger.log(`[BP] Clearing instruction breakpoints`);
     return this.clearBreakpointsType(GdbBreakpointType.INSTRUCTION);
   }
 
@@ -467,7 +483,12 @@ export class BreakpointManager {
       if (location) {
         breakpoint.segmentId = location.segmentId;
         breakpoint.offset = location.offset;
+        logger.log(
+          `[BP] Found location ${location.segmentId}/${location.offset} for breakpoint at ${path}:${line}`
+        );
         return true;
+      } else {
+        logger.log(`[BP] Location not found for breakpoint at ${path}:${line}`);
       }
     }
     return false;

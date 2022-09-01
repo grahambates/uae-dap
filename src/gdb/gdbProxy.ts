@@ -11,6 +11,7 @@ import { GdbReceivedDataManager } from "./events";
 import { GdbPacket, GdbPacketType } from "./packets";
 import { hexUTF8StringToUTF8, asciiToHex } from "../utils/strings";
 import { DebugProtocol } from "@vscode/debugprotocol";
+import { logger } from "@vscode/debugadapter";
 
 /** Status for the current halt */
 export interface GdbHaltStatus {
@@ -171,12 +172,6 @@ export type GdbEvents = {
   continueThread: (threadId: number, allThreadsContinued?: boolean) => void;
   breakpointValidated: (bp: GdbBreakpoint) => void;
   threadStarted: (threadId: number) => void;
-  output: (
-    text: string,
-    filePath?: string,
-    line?: number,
-    column?: number
-  ) => void;
   end: () => void;
   error: (err: Error) => void;
 };
@@ -372,9 +367,8 @@ export class GdbProxy {
 
   /** Default handler for the on data event*/
   protected defaultOnDataHandler = (packet: GdbPacket): boolean => {
-    this.sendEvent(
-      "output",
-      `defaultOnDataHandler (type : ${
+    logger.log(
+      `[GDB] defaultOnDataHandler (type : ${
         GdbPacketType[packet.getType()]
       }, notification : ${packet.isNotification()}) : --> ${packet.getMessage()}`
     );
@@ -419,10 +413,10 @@ export class GdbProxy {
               // user output (KPrintF, etc.)
               msg = msg.substring(5); // remove "DBG: " prefix added by uaelib.cpp
             }
-            this.sendEvent("output", `server output : ${msg}`);
+            logger.log(`[GDB] server output : ${msg}`);
           }
         } catch (err) {
-          this.sendEvent("output", `Error parsing server output : ${err}`);
+          logger.error(`[GDB] Error parsing server output : ${err}`);
         }
       } else if (packet.getType() !== GdbPacketType.PLUS) {
         this.receivedDataManager.trigger(packet);
@@ -574,10 +568,7 @@ export class GdbProxy {
         } else {
           expectedTypeName = "null";
         }
-        this.sendEvent(
-          "output",
-          `sending ... ${dataToSend} / ${expectedTypeName}-->`
-        );
+        logger.log(`[GDB] --> ${text} / ${expectedTypeName}`);
         let p;
         if (answerExpected) {
           p = this.receivedDataManager.waitData({
@@ -594,14 +585,11 @@ export class GdbProxy {
         if (answerExpected) {
           const packet = await p;
           if (packet) {
-            this.sendEvent(
-              "output",
-              `${dataToSend} --> ${packet.getMessage()}`
-            );
+            returnedMessage = packet.getMessage();
+            logger.log(`[GDB] <-- req: ${text} res: ${returnedMessage}`);
+
             if (packet.getType() === GdbPacketType.ERROR) {
-              throw this.parseError(packet.getMessage());
-            } else {
-              returnedMessage = packet.getMessage();
+              throw this.parseError(returnedMessage);
             }
           } else {
             throw new Error("No response from the emulator");
@@ -1363,6 +1351,15 @@ export class GdbProxy {
     }
   }
 
+  public async monitor(command: string): Promise<string> {
+    const response = await this.sendPacketString(
+      "qRcmd," + asciiToHex(command),
+      null,
+      false
+    );
+    return response;
+  }
+
   /**
    * Returns a stored thread from it's id.
    */
@@ -1568,4 +1565,26 @@ export class GdbError extends Error {
         break;
     }
   }
+}
+
+export function breakpointToString(bp: GdbBreakpoint): string {
+  let out = "";
+  if (isSourceBreakpoint(bp)) {
+    out = `Source Breakpoint #${bp.id} ${bp.source.name}:${bp.line} ${bp.segmentId}/${bp.offset}`;
+  } else if (isExceptionBreakpoint(bp)) {
+    out = `Exception Breakpoint: #${bp.id} ${bp.exceptionMask}`;
+  } else if (isDataBreakpoint(bp)) {
+    out = `Data Breakpoint #${bp.id} ${bp.offset} ${bp.size} (${bp.accessType}`;
+  } else if (isInstructionBreakpoint(bp)) {
+    out = `Instruction Breakpoint #${bp.id} ${bp.offset}`;
+  } else {
+    out = `Breakpoint #${bp.id}`;
+  }
+  if (bp.condition) {
+    out += " condition: " + bp.condition;
+  }
+  if (bp.hitCondition) {
+    out += " hitCondition: " + bp.hitCondition;
+  }
+  return out;
 }
