@@ -1,12 +1,10 @@
 export class Mutex {
-  private intervalMs = 50;
-  private autoUnlockTimeoutMs = 3000;
   private storage = new Map<string, number>();
 
-  public constructor(intervalMs: number, autoUnlockTimeoutMs: number) {
-    this.intervalMs = intervalMs;
-    this.autoUnlockTimeoutMs = autoUnlockTimeoutMs;
-  }
+  public constructor(
+    private intervalMs: number,
+    private autoUnlockTimeoutMs: number
+  ) {}
 
   public capture(key: string): Promise<() => void> {
     return new Promise<() => void>((resolve, reject) => {
@@ -14,7 +12,7 @@ export class Mutex {
     });
   }
 
-  public checkMutexAndLock(
+  private checkMutexAndLock(
     key: string,
     resolve: (value: (() => void) | PromiseLike<() => void>) => void,
     reject: (value: (() => void) | PromiseLike<() => void>) => void
