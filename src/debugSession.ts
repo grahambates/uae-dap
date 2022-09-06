@@ -12,14 +12,12 @@ import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
 import promiseRetry from "promise-retry";
 
-import { GdbProxy, HaltStatus, Thread } from "./gdb";
+import { GdbClient, HaltSignal } from "./gdbClient";
 import {
   BreakpointManager,
   BreakpointStorage,
   BreakpointStorageMap,
   breakpointToString,
-  isDataBreakpoint,
-  isSourceBreakpoint,
 } from "./breakpoints";
 import {
   base64ToHex,
@@ -35,7 +33,18 @@ import Program, {
   SourceConstantResolver,
 } from "./program";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
-import { FileInfo } from "./fileInfo";
+import { parseHunksFromFile } from "./amigaHunkParser";
+import SourceMap from "./sourceMap";
+import { REGISTER_COPPER_ADDR_INDEX, REGISTER_PC_INDEX } from "./registers";
+
+export const THREAD_ID_CPU = 1;
+export const THREAD_ID_COPPER = 2;
+
+export interface StackPosition {
+  index: number;
+  stackFrameIndex: number;
+  pc: number;
+}
 
 export interface LaunchRequestArguments
   extends DebugProtocol.LaunchRequestArguments {
@@ -99,7 +108,7 @@ export class FsUAEDebugSession extends LoggingDebugSession {
   /** Loaded program */
   protected program?: Program;
   /** Proxy to Gdb */
-  protected gdb: GdbProxy;
+  protected gdb: GdbClient;
   /** Breakpoint manager */
   protected breakpoints: BreakpointManager;
   /** Emulator instance */
@@ -108,8 +117,8 @@ export class FsUAEDebugSession extends LoggingDebugSession {
   protected testMode = false;
   /** trace the communication protocol */
   protected trace = false;
-  /** Track which threads are stopped to avoid invalid events */
-  protected stoppedThreads: boolean[] = [false, false];
+
+  protected stopOnEntry = false;
 
   /**
    * Creates a new debug adapter that is used for one debug session.
@@ -122,65 +131,36 @@ export class FsUAEDebugSession extends LoggingDebugSession {
     this.setDebuggerColumnsStartAt1(false);
 
     this.emulator = new Emulator();
-    this.gdb = this.createGdbProxy();
-    this.gdb.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
-    this.addListeners();
+    this.gdb = new GdbClient();
+    this.addGdbListeners();
     this.breakpoints = new BreakpointManager(this.gdb);
-    this.breakpoints.setMutexTimeout(FsUAEDebugSession.MUTEX_TIMEOUT);
-  }
-
-  protected createGdbProxy(): GdbProxy {
-    return new GdbProxy();
-  }
-
-  /**
-   * Setting the context to run the tests.
-   * @param gdbProxy mocked proxy
-   */
-  public setTestContext(gdbProxy: GdbProxy, emulator: Emulator): void {
-    this.testMode = true;
-    this.gdb = gdbProxy;
-    this.emulator = emulator;
-    this.gdb.setMutexTimeout(1000);
-    this.addListeners();
-    this.breakpoints = new BreakpointManager(this.gdb);
-    this.breakpoints.setMutexTimeout(1000);
   }
 
   /**
    * Bind handlers to GDB events
    */
-  public addListeners(): void {
+  public addGdbListeners(): void {
     // setup event handlers
-    this.gdb.on("stopOnEntry", (threadId) => {
-      logger.log(`[GDB] Stop on entry (thread: ${threadId})`);
-      this.sendStoppedEvent(threadId, "entry", false);
-    });
+    this.gdb.on("stop", async (haltStatus) => {
+      logger.log(`[EVT] Stopped ${JSON.stringify(haltStatus)}`);
 
-    this.gdb.on("stopOnStep", (threadId, preserveFocusHint) => {
-      // Only send step events for stopped threads
-      if (this.stoppedThreads[threadId]) {
-        logger.log(
-          `[GDB] Stop on step (thread: ${threadId}, preserveFocusHint: ${preserveFocusHint})`
-        );
-        this.sendStoppedEvent(threadId, "step", preserveFocusHint);
-      }
-    });
-
-    this.gdb.on("stopOnPause", (threadId) => {
-      // Only send pause evens for running threads
-      if (!this.stoppedThreads[threadId]) {
-        logger.log(`[GDB] Stop on pause (thread: ${threadId})`);
-        this.sendStoppedEvent(threadId, "pause", false);
-      }
-    });
-
-    this.gdb.on("stopOnBreakpoint", async (threadId) => {
-      logger.log(`[EVT] Hit breakpoint on thread ${threadId}`);
-      // Only send breakpoint events for running threads
-      if (this.stoppedThreads[threadId]) {
+      const { threadId, code } = haltStatus;
+      if (!threadId) {
         return;
       }
+
+      if (code !== HaltSignal.TRAP) {
+        this.sendStoppedEvent(threadId, "exception", false);
+        return;
+      }
+
+      if (this.stopOnEntry) {
+        this.stopOnEntry = false;
+        logger.log(`[EVT] Stop on entry`);
+        this.sendStoppedEvent(threadId, "entry", false);
+        return;
+      }
+
       // Should we send a stop message to the client?
       // May want to cancel for conditional or log breakpoints
       let stop = true;
@@ -189,10 +169,9 @@ export class FsUAEDebugSession extends LoggingDebugSession {
 
       // Find the breakpoint that was hit
       // first need to get the source line from the stack trace
-      const thread = await this.getThread(threadId);
-      const positions = await this.gdb.stack(thread);
+      const positions = await this.getStack(threadId);
       assertIsDefined(this.program);
-      const [fr] = await this.program.getStackTrace(thread, positions);
+      const [fr] = await this.program.getStackTrace(threadId, positions);
       // get the breakpoint at this source location:
       const bp = this.breakpoints.findSourceBreakpoint(fr?.source, fr?.line);
 
@@ -200,7 +179,7 @@ export class FsUAEDebugSession extends LoggingDebugSession {
         logger.log(`[EVT] Matched ${breakpointToString(bp)})`);
       }
 
-      if (bp && (isSourceBreakpoint(bp) || isDataBreakpoint(bp))) {
+      if (bp) {
         if (bp.logMessage) {
           // Interpolate variables
           const message = await replaceAsync(
@@ -237,52 +216,12 @@ export class FsUAEDebugSession extends LoggingDebugSession {
 
       // Send stop event or resume execution
       if (stop) {
+        logger.log(`[EVT] stopping at breakpoint`);
         this.sendStoppedEvent(threadId, "breakpoint", false);
       } else {
-        this.gdb.continueExecution(thread);
+        logger.log(`[EVT] continuing execution`);
+        this.gdb.continueExecution(threadId);
       }
-    });
-
-    this.gdb.on("stopOnException", (_, threadId) => {
-      logger.log(`[EVT] Stop on exception (thread: ${threadId})`);
-      this.sendStoppedEvent(threadId, "exception", false);
-    });
-
-    this.gdb.on("continueThread", (threadId, allThreadsContinued) => {
-      logger.log(
-        `[EVT] Continue thread ${threadId} (allThreadsContinued: ${allThreadsContinued})`
-      );
-      this.stoppedThreads[threadId] = false;
-      this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
-    });
-
-    this.gdb.on("segmentsUpdated", (segments) => {
-      logger.log(`[EVT] Segments updated`);
-      this.program?.updateSegments(segments);
-    });
-
-    this.gdb.on("breakpointValidated", (bp) => {
-      logger.log(`[EVT] Validated ${breakpointToString(bp)}`);
-      // Dirty workaround to issue https://github.com/microsoft/vscode/issues/65993
-      setTimeout(async () => {
-        try {
-          this.sendEvent(new BreakpointEvent("changed", bp));
-        } catch (error) {
-          // forget it
-        }
-      }, 100);
-    });
-
-    this.gdb.on("threadStarted", (threadId) => {
-      logger.log(`[EVT] Thread ${threadId} started`);
-      const event = <DebugProtocol.ThreadEvent>{
-        event: "thread",
-        body: {
-          reason: "started",
-          threadId: threadId,
-        },
-      };
-      this.sendEvent(event);
     });
 
     this.gdb.on("end", () => {
@@ -291,10 +230,6 @@ export class FsUAEDebugSession extends LoggingDebugSession {
     });
   }
 
-  /**
-   * The 'initialize' request is the first request called by the frontend
-   * to interrogate the features the debug adapter provides.
-   */
   protected initializeRequest(
     response: DebugProtocol.InitializeResponse
   ): void {
@@ -342,8 +277,8 @@ export class FsUAEDebugSession extends LoggingDebugSession {
   ) {
     const {
       program,
-      sourceFileMap,
-      rootSourceFileMap,
+      // sourceFileMap,
+      // rootSourceFileMap,
       exceptionMask,
       serverName = "localhost",
       serverPort = 6860,
@@ -361,29 +296,8 @@ export class FsUAEDebugSession extends LoggingDebugSession {
         throw new Error("Missing program argument in launch request");
       }
 
-      const fileInfo = await FileInfo.create(
-        program,
-        sourceFileMap,
-        rootSourceFileMap
-      );
-
-      this.program = new Program(
-        this.gdb,
-        fileInfo,
-        this.getSourceConstantResolver(args),
-        {
-          ...defaultMemoryFormats,
-          ...memoryFormats,
-        }
-      );
-
-      this.breakpoints.setProgram(this.program);
-      this.breakpoints.addLocationToPending();
-      if (exceptionMask) {
-        this.breakpoints.setExceptionMask(exceptionMask);
-      }
-
       this.trace = trace;
+      this.stopOnEntry = stopOnEntry;
       logger.init((e) => this.sendEvent(e));
       logger.setup(trace ? LogLevel.Verbose : LogLevel.Error);
 
@@ -395,7 +309,9 @@ export class FsUAEDebugSession extends LoggingDebugSession {
         if (!emulator || !emulatorOptions) {
           throw new Error("Missing emulator configuration");
         }
-        logger.log("Starting emulator: ${emulator} ${args.join(' ')}");
+        logger.log(
+          `Starting emulator: ${emulator} ${emulatorOptions.join(" ")}`
+        );
         await this.emulator.run({
           executable: emulator,
           args: emulatorOptions,
@@ -419,28 +335,61 @@ export class FsUAEDebugSession extends LoggingDebugSession {
       );
       logger.log("Connected to remote debugger");
 
-      // Load the program
-      this.startProgram(program, stopOnEntry);
+      const progPathElms = program.replace(/\\/g, "/").split("/");
+      const remoteProgram = "dh0:" + progPathElms[progPathElms.length - 1];
+
+      logger.log("Starting program: " + remoteProgram);
+      await this.gdb.run(remoteProgram);
+
+      const [segments, hunks] = await Promise.all([
+        this.gdb.getSegments(),
+        parseHunksFromFile(program),
+      ]);
+
+      for (const threadId of [THREAD_ID_CPU, THREAD_ID_COPPER]) {
+        this.sendEvent({
+          event: "thread",
+          body: {
+            reason: "started",
+            threadId,
+          },
+        } as DebugProtocol.Event); // TODO: why missing props?
+      }
+
+      if (stopOnEntry) {
+        // TODO: which is it? This or stop event?
+        await this.gdb.stepIn(THREAD_ID_CPU);
+        await this.breakpoints.sendAllPendingBreakpoints();
+        this.sendStoppedEvent(THREAD_ID_CPU, "entry", false);
+      } else {
+        await this.breakpoints.sendAllPendingBreakpoints();
+        await this.gdb.continueExecution(THREAD_ID_CPU);
+      }
+
+      const sourceMap = new SourceMap(hunks, segments);
+
+      this.program = new Program(
+        this.gdb,
+        sourceMap,
+        this.getSourceConstantResolver(args),
+        {
+          ...defaultMemoryFormats,
+          ...memoryFormats,
+        }
+      );
+
+      this.breakpoints.setProgram(this.program).setSourceMap(sourceMap);
+      // this.breakpoints.addLocationToPending();
+      if (exceptionMask) {
+        this.breakpoints.setExceptionMask(exceptionMask);
+      }
+
+      await this.breakpoints.sendAllPendingBreakpoints();
 
       this.sendResponse(response);
     } catch (err) {
       this.sendEvent(new TerminatedEvent());
       this.sendStringErrorResponse(response, (err as Error).message);
-    }
-  }
-
-  protected async startProgram(_: string, stopOnEntry: boolean): Promise<void> {
-    await this.gdb.initProgram();
-    const thread = this.gdb.getCurrentCpuThread();
-    if (thread) {
-      if (stopOnEntry) {
-        await this.gdb.stepIn(thread);
-        await this.breakpoints.sendAllPendingBreakpoints();
-        this.sendStoppedEvent(thread.getId(), "entry", false);
-      } else {
-        await this.breakpoints.sendAllPendingBreakpoints();
-        await this.gdb.continueExecution(thread);
-      }
     }
   }
 
@@ -597,40 +546,33 @@ Expressions:
   }
 
   protected async threadsRequest(response: DebugProtocol.ThreadsResponse) {
-    this.handleAsyncRequest(response, async () => {
-      assertIsDefined(this.program);
-      const threads = await this.program.getThreads();
-      response.body = { threads };
-    });
+    response.body = {
+      threads: [
+        { id: THREAD_ID_CPU, name: "cpu" },
+        { id: THREAD_ID_COPPER, name: "copper" },
+      ],
+    };
   }
 
   protected async stackTraceRequest(
     response: DebugProtocol.StackTraceResponse,
-    args: DebugProtocol.StackTraceArguments
+    { threadId }: DebugProtocol.StackTraceArguments
   ) {
     this.handleAsyncRequest(response, async () => {
       assertIsDefined(this.program);
-      const thread = await this.getThread(args.threadId);
-      const positions = await this.gdb.stack(thread);
+      const positions = await this.getStack(threadId);
 
-      if (thread.isCPU() && positions[0]) {
-        this.onCpuFrame(positions[0].pc);
+      if (threadId === THREAD_ID_CPU && positions[0]) {
+        this.breakpoints.checkTemporaryBreakpoints(positions[0].pc);
       }
 
-      const stackFrames = await this.program.getStackTrace(thread, positions);
+      const stackFrames = await this.program.getStackTrace(threadId, positions);
       await Promise.all(
         stackFrames.map(({ source }) => this.processSource(source))
       );
 
       response.body = { stackFrames, totalFrames: positions.length };
     });
-  }
-
-  /**
-   * Hook to perform actions when entering a new CPU stack frame
-   */
-  protected async onCpuFrame(address: number) {
-    this.breakpoints.checkTemporaryBreakpoints(address);
   }
 
   /**
@@ -687,43 +629,44 @@ Expressions:
 
   protected async continueRequest(
     response: DebugProtocol.ContinueResponse,
-    args: DebugProtocol.ContinueArguments
+    { threadId }: DebugProtocol.ContinueArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      await this.gdb.continueExecution(thread);
-      response.body = { allThreadsContinued: false };
+      await this.gdb.continueExecution(threadId);
+      response.body = { allThreadsContinued: false }; // TODO: shoule be true?
     });
+    // this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
   }
 
   protected async nextRequest(
     response: DebugProtocol.NextResponse,
-    args: DebugProtocol.NextArguments
+    { threadId }: DebugProtocol.NextArguments
   ): Promise<void> {
     this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      const [frame] = await this.gdb.stack(thread);
-      await this.gdb.stepToRange(thread, frame.pc, frame.pc);
+      const [frame] = await this.getStack(threadId);
+      await this.gdb.stepToRange(threadId, frame.pc, frame.pc);
+      // TODO: stop all threads?
+      this.sendStoppedEvent(threadId, "step");
     });
   }
 
   protected async stepInRequest(
     response: DebugProtocol.StepInResponse,
-    args: DebugProtocol.StepInArguments
+    { threadId }: DebugProtocol.StepInArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      await this.gdb.stepIn(thread);
+      await this.gdb.stepIn(threadId);
+      // TODO: stop all threadsA?
+      this.sendStoppedEvent(threadId, "step");
     });
   }
 
   protected async stepOutRequest(
     response: DebugProtocol.StepOutResponse,
-    args: DebugProtocol.StepOutArguments
+    { threadId }: DebugProtocol.StepOutArguments
   ): Promise<void> {
     this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      const positions = await this.gdb.stack(thread);
+      const positions = await this.getStack(threadId);
       if (positions.length <= 0) {
         throw new Error("No frame to step out");
       }
@@ -735,7 +678,7 @@ Expressions:
           pc + 4,
         ]);
         await this.breakpoints.addTemporaryBreakpointArray(bpArray);
-        await this.gdb.continueExecution(thread);
+        await this.gdb.continueExecution(threadId);
       }
     });
   }
@@ -746,7 +689,7 @@ Expressions:
   ) {
     this.handleAsyncRequest(response, async () => {
       const address = parseInt(args.memoryReference);
-      await this.gdb.waitConnected();
+      // await this.gdb.waitConnected();
       let size = 0;
       let memory = "";
       const DEFAULT_CHUNK_SIZE = 1000;
@@ -756,7 +699,7 @@ Expressions:
         if (remaining < chunkSize) {
           chunkSize = remaining;
         }
-        memory += await this.gdb.getMemory(address + size, chunkSize);
+        memory += await this.gdb.readMemory(address + size, chunkSize);
         remaining -= chunkSize;
         size += chunkSize;
       }
@@ -780,7 +723,7 @@ Expressions:
       if (args.offset) {
         address += args.offset;
       }
-      await this.gdb.waitConnected();
+      // await this.gdb.waitConnected();
       const hexString = base64ToHex(args.data);
       const count = hexString.length;
       const DEFAULT_CHUNK_SIZE = 1000;
@@ -791,7 +734,10 @@ Expressions:
         if (remaining < chunkSize) {
           chunkSize = remaining;
         }
-        await this.gdb.setMemory(address, hexString.substring(size, chunkSize));
+        await this.gdb.writeMemory(
+          address,
+          hexString.substring(size, chunkSize)
+        );
         remaining -= chunkSize;
         size += chunkSize;
       }
@@ -819,11 +765,11 @@ Expressions:
 
   protected async pauseRequest(
     response: DebugProtocol.PauseResponse,
-    args: DebugProtocol.PauseArguments
+    { threadId }: DebugProtocol.PauseArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const thread = await this.getThread(args.threadId);
-      await this.gdb.pause(thread);
+      await this.gdb.pause(threadId);
+      this.sendStoppedEvent(threadId, "pause", false);
     });
   }
 
@@ -831,20 +777,14 @@ Expressions:
     response: DebugProtocol.ExceptionInfoResponse
   ) {
     this.handleAsyncRequest(response, async () => {
-      await this.gdb.waitConnected();
       const haltStatus = await this.gdb.getHaltStatus();
-      let selectedHs: HaltStatus = haltStatus[0];
-      for (const hs of haltStatus) {
-        if (hs.thread && hs.thread.isCPU()) {
-          selectedHs = hs;
-          break;
-        }
+      if (haltStatus) {
+        response.body = {
+          exceptionId: haltStatus.code.toString(),
+          description: haltStatus.details,
+          breakMode: "always",
+        };
       }
-      response.body = {
-        exceptionId: selectedHs.code.toString(),
-        description: selectedHs.details,
-        breakMode: "always",
-      };
     });
   }
 
@@ -983,15 +923,6 @@ Expressions:
     this.terminate();
   }
 
-  protected async getThread(threadId: number): Promise<Thread> {
-    await this.gdb.waitConnected();
-    const thread = this.gdb.getThread(threadId);
-    if (!thread) {
-      throw new Error("Unknown thread");
-    }
-    return thread;
-  }
-
   protected ensureProgramLoaded(
     program: Program | undefined
   ): asserts program is Program {
@@ -1023,7 +954,6 @@ Expressions:
     reason: string,
     preserveFocusHint?: boolean
   ) {
-    this.stoppedThreads[threadId] = true;
     this.sendEvent(<DebugProtocol.StoppedEvent>{
       event: "stopped",
       body: {
@@ -1033,6 +963,60 @@ Expressions:
         allThreadsStopped: true,
       },
     });
+  }
+
+  public async getStack(threadId: number): Promise<StackPosition[]> {
+    const stackPositions: StackPosition[] = [];
+    let stackPosition = await this.getStackPosition(threadId, -1);
+    stackPositions.push(stackPosition);
+    if (threadId === THREAD_ID_CPU) {
+      const currentIndex = stackPosition.stackFrameIndex;
+      for (let i = currentIndex; i > 0; i--) {
+        stackPosition = await this.getStackPosition(threadId, i);
+        stackPositions.push(stackPosition);
+      }
+    }
+    return stackPositions;
+  }
+
+  protected async getStackPosition(
+    threadId: number,
+    frameIndex: number
+  ): Promise<StackPosition> {
+    const stackFrameIndex = await this.gdb.selectFrame(frameIndex);
+    if (threadId === THREAD_ID_CPU) {
+      // Get the current frame
+      const pc = await this.gdb.getRegister(REGISTER_PC_INDEX);
+      return {
+        index: frameIndex,
+        stackFrameIndex,
+        pc,
+      };
+    } else {
+      // Retrieve the stack position from the copper
+      const haltStatuses = [await this.gdb.getHaltStatus()];
+      let finished = false;
+      while (!finished) {
+        const status = await this.gdb.getVStopped();
+        if (status) {
+          haltStatuses.push(status);
+        } else {
+          finished = true;
+        }
+      }
+
+      for (const hs of haltStatuses) {
+        if (hs?.threadId === threadId) {
+          const pc = await this.gdb.getRegister(REGISTER_COPPER_ADDR_INDEX);
+          return {
+            index: frameIndex * 1000,
+            stackFrameIndex: 0,
+            pc,
+          };
+        }
+      }
+    }
+    throw new Error("No frames for thread: " + threadId);
   }
 
   protected sendStringErrorResponse(

@@ -3,11 +3,11 @@ export interface Register {
   value: number;
 }
 
-const REGISTER_D0_INDEX = 0; // -> 0 to 7
-const REGISTER_A0_INDEX = 8; // -> 8 to 15
-const REGISTER_SR_INDEX = 16;
-const REGISTER_PC_INDEX = 17;
-const REGISTER_COPPER_ADDR_INDEX = 28;
+export const REGISTER_D0_INDEX = 0; // -> 0 to 7
+export const REGISTER_A0_INDEX = 8; // -> 8 to 15
+export const REGISTER_SR_INDEX = 16;
+export const REGISTER_PC_INDEX = 17;
+export const REGISTER_COPPER_ADDR_INDEX = 28;
 
 const SR_LABELS = [
   "T1",
@@ -55,7 +55,7 @@ export function nameRegisters(registerValues: number[]): Register[] {
   );
 }
 
-export function getRegisterIndex(name: string): number | null {
+export function getRegisterIndex(name: string): number {
   if (name.length > 1) {
     const type = name.charAt(0);
     const idx = parseInt(name.charAt(1));
@@ -71,7 +71,7 @@ export function getRegisterIndex(name: string): number | null {
       return REGISTER_COPPER_ADDR_INDEX;
     }
   }
-  return null;
+  throw new Error("Invalid register name: " + name);
 }
 
 export function getSRDetailedValues(srValue: number): Register[] {

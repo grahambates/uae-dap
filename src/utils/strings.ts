@@ -117,12 +117,9 @@ export function base64ToHex(base64String: string): string {
  * @param b Second string
  * @return <0 if a>b, 0 if a=b, >0 if a<b
  */
-export function compareStringsLowerCase(
-  a: [string, number],
-  b: [string, number]
-): number {
-  const aL = a[0].toLowerCase();
-  const bL = b[0].toLowerCase();
+export function compareStringsLowerCase(a: string, b: string): number {
+  const aL = a.toLowerCase();
+  const bL = b.toLowerCase();
   if (aL > bL) {
     return 1;
   } else if (aL < bL) {

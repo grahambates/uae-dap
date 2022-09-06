@@ -2,7 +2,7 @@ import { StackFrame, Source, Handles } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 
 import { disassemble } from "./cpuDisassembler";
-import { GdbProxy, StackPosition, Thread } from "../gdb";
+import { GdbClient } from "../gdbClient";
 import { disassembleCopper } from "./copperDisassembler";
 import { formatAddress, formatHexadecimal, splitLines } from "../utils/strings";
 import Program from "../program";
@@ -11,6 +11,8 @@ import {
   disassembledFileToPath,
   disassembledFileFromPath,
 } from "./disassembledFile";
+import { StackPosition, THREAD_ID_COPPER } from "../debugSession";
+import SourceMap from "../sourceMap";
 
 export interface DisassembledLine {
   text: string;
@@ -21,11 +23,15 @@ export class DisassemblyManager {
   private sourceHandles = new Handles<DisassembledFile>();
   protected lineCache = new Map<number, DisassembledLine>();
 
-  public constructor(private gdb: GdbProxy, private program: Program) {}
+  public constructor(
+    private gdb: GdbClient,
+    private program: Program,
+    private sourceMap: SourceMap
+  ) {}
 
   public async disassembleLine(
     pc: number,
-    thread: Thread
+    threadId: number
   ): Promise<DisassembledLine> {
     const cached = this.lineCache.get(pc);
     if (cached) {
@@ -33,14 +39,14 @@ export class DisassemblyManager {
     }
 
     let text = formatAddress(pc) + ": ";
-    const isCopper = thread.isCopper();
+    const isCopper = threadId === THREAD_ID_COPPER;
     try {
-      const memory = await this.gdb.getMemory(pc, 10);
+      const memory = await this.gdb.readMemory(pc, 10);
       if (isCopper) {
         // Copper thread
         const lines = disassembleCopper(memory);
         text += lines[0].toString().split("    ")[0];
-      } else if (thread.isCPU()) {
+      } else {
         // CPU thread
         const { code } = await disassemble(memory);
         const lines = splitLines(code);
@@ -66,10 +72,10 @@ export class DisassemblyManager {
 
   public async getStackFrame(
     stackPosition: StackPosition,
-    thread: Thread
+    threadId: number
   ): Promise<StackFrame> {
     const address = stackPosition.pc;
-    const { text, isCopper } = await this.disassembleLine(address, thread);
+    const { text, isCopper } = await this.disassembleLine(address, threadId);
 
     const dAsmFile: DisassembledFile = {
       copper: isCopper,
@@ -81,7 +87,11 @@ export class DisassemblyManager {
     let line = 1;
 
     // is the pc on a opened segment ?
-    const { segmentId, offset } = this.gdb.absoluteToOffset(address);
+    const location = this.sourceMap.lookupAddress(address);
+    if (!location) {
+      throw new Error("Unable to look up addres " + address);
+    }
+    const { segmentIndex: segmentId, segmentOffset: offset } = location;
     if (segmentId >= 0 && !isCopper) {
       dAsmFile.segmentId = segmentId;
       line = await this.getLineNumberInDisassembledSegment(segmentId, offset);
@@ -135,10 +145,10 @@ export class DisassemblyManager {
     segmentId: number
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
     // ask for memory dump
-    const memory = await this.gdb.getSegmentMemory(segmentId);
-    const startAddress = this.gdb.offsetToAbsolute(segmentId, 0);
+    const { address, size } = this.sourceMap.getSegmentInfo(segmentId);
+    const memory = await this.gdb.readMemory(address, size);
     // disassemble the code
-    const { instructions } = await disassemble(memory, startAddress);
+    const { instructions } = await disassemble(memory, address);
     return instructions;
   }
 
@@ -163,10 +173,10 @@ export class DisassemblyManager {
     length: number,
     isCopper?: boolean
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    if (!this.gdb.isConnected()) {
-      throw new Error("Debugger not started");
-    }
-    const memory = await this.gdb.getMemory(address, length);
+    // if (!this.gdb.isConnected()) {
+    //   throw new Error("Debugger not started");
+    // }
+    const memory = await this.gdb.readMemory(address, length);
     if (isCopper) {
       return disassembleCopper(memory).map((inst, i) => ({
         instructionBytes: inst.getInstructionBytes(),
@@ -224,7 +234,8 @@ export class DisassemblyManager {
     segmentId: number,
     offset: number
   ): Promise<number> {
-    const memory = await this.gdb.getSegmentMemory(segmentId);
+    const { address, size } = this.sourceMap.getSegmentInfo(segmentId);
+    const memory = await this.gdb.readMemory(address, size);
     const { instructions } = await disassemble(memory);
     const index = instructions.findIndex(
       (instr) => parseInt(instr.address) === offset
@@ -243,7 +254,7 @@ export class DisassemblyManager {
 
   private async getCopperAddress(copperIndex: number): Promise<number> {
     const copperHigh = copperIndex === 1 ? 0xdff080 : 0xdff084;
-    const memory = await this.gdb.getMemory(copperHigh, 4);
+    const memory = await this.gdb.readMemory(copperHigh, 4);
     return parseInt(memory, 16);
   }
 }

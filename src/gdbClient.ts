@@ -2,26 +2,7 @@ import { Socket } from "net";
 import { EventEmitter } from "events";
 import { logger } from "@vscode/debugadapter";
 import { Mutex } from "./utils/mutex";
-
-export interface Thread {
-  processId: number;
-  threadId: ThreadId;
-  running: boolean;
-}
-
-/** System Threads numbers (DMA) */
-export enum ThreadId {
-  CPU = 1, // default cpu execution
-  COP = 2, // COPPER interrupt
-  AUD0 = 3, // AUDIO 0 interrupt
-  AUD1 = 4, // AUDIO 1 interrupt
-  AUD2 = 5, // AUDIO 2 interrupt
-  AUD3 = 6, // AUDIO 3 interrupt
-  DSK = 7, // DISK interrupt
-  SPR = 8, // SPRITE interrupt
-  BLT = 9, // BLITTER interrupt
-  BPL = 10, // BIT-PLANE interrupt
-}
+import { REGISTER_PC_INDEX } from "./registers";
 
 export interface Segment {
   address: number;
@@ -67,18 +48,21 @@ export enum PacketType {
   QTSTATUS,
 }
 
+export enum BreakpointCode {
+  SOFTWARE = 0,
+  HARDWARE = 1,
+  WRITE = 2,
+  READ = 3,
+  ACCESS = 4,
+}
+
 type Events = {
-  connected: () => void;
   stop: (haltStatus: HaltStatus) => void;
-  segments: (segments: Segment[]) => void;
   end: () => void;
-  error: (err: Error) => void;
   packet: (packet: Packet) => void;
 };
 
-const REGISTER_PC_INDEX = 17;
 const DEFAULT_FRAME_INDEX = -1;
-const DEFAULT_PROCESS_ID = 1;
 
 // Labels:
 
@@ -92,57 +76,9 @@ const signalLabels: Record<HaltSignal, string> = {
   [HaltSignal.SEGV]: "Segmentation fault",
 };
 
-const threadLabels: Record<ThreadId, string> = {
-  [ThreadId.AUD0]: "audio 0",
-  [ThreadId.AUD1]: "audio 1",
-  [ThreadId.AUD2]: "audio 2",
-  [ThreadId.AUD3]: "audio 3",
-  [ThreadId.BLT]: "blitter",
-  [ThreadId.BPL]: "bit-plane",
-  [ThreadId.COP]: "copper",
-  [ThreadId.CPU]: "cpu",
-  [ThreadId.DSK]: "disk",
-  [ThreadId.SPR]: "sprite",
-};
-
-const errorMessages = {
-  E01: "General error during processing",
-  E02: "Error during the packet parse",
-  E03: "Unsupported / unknown command",
-  E04: "Unknown register",
-  E05: "Invalid Frame Id",
-  E06: "Invalid memory location",
-  E07: "Address not safe for a set memory command",
-  E08: "Unknown breakpoint",
-  E09: "The maximum of breakpoints have been reached",
-  E0F: "Error during the packet parse for command send memory",
-  E10: "Unknown register",
-  E11: "Invalid Frame Id",
-  E12: "Invalid memory location",
-  E20: "Error during the packet parse for command set memory",
-  E21: "Missing end packet for a set memory message",
-  E22: "Address not safe for a set memory command",
-  E25: "Error during the packet parse for command set register",
-  E26: "Error during set register - unsupported register name",
-  E30: "Error during the packet parse for command get register",
-  E31: "Error during the vCont packet parse",
-  E40: "Unable to load segments",
-  E41: "Thread command parse error",
-};
-
-type ErrorType = keyof typeof errorMessages;
-
-/**
- * Class to contact the fs-UAE GDB server.
- */
 export class GdbClient {
   private socket: Socket;
   private mutex = new Mutex(100, 60000);
-
-  // Client capabilities:
-  private supportVCont = false;
-  private supportMultiprocess = false;
-
   private eventEmitter: EventEmitter;
 
   constructor(socket?: Socket) {
@@ -161,32 +97,15 @@ export class GdbClient {
         }
       });
 
-      this.socket.on("error", (err) => {
-        // Don't send events for connection error so we can retry
-        if (!err.message.includes("ECONNREFUSED")) {
-          this.sendEvent("error", err);
-        }
-        reject(err);
-      });
+      this.socket.on("error", reject);
 
       this.socket.once("connect", async () => {
         try {
-          const data = await this.request(
+          await this.request(
             "qSupported:QStartNoAckMode+;multiprocess+;vContSupported+;QNonStop+",
             PacketType.UNKNOWN
           );
-          const returnedData = data;
-          if (returnedData.indexOf("multiprocess+") >= 0) {
-            this.supportMultiprocess = true;
-          }
-          if (returnedData.indexOf("vContSupported+") >= 0) {
-            this.supportVCont = true;
-          }
-          if (returnedData.indexOf("QStartNoAckMode+") >= 0) {
-            await this.request("QStartNoAckMode", PacketType.OK);
-          } else {
-            throw new Error("QStartNoAckMode not active in remote debug");
-          }
+          await this.request("QStartNoAckMode", PacketType.OK);
           resolve();
         } catch (error) {
           reject(error);
@@ -199,6 +118,14 @@ export class GdbClient {
 
   public destroy(): void {
     this.socket.destroy();
+  }
+
+  public async run(program: string): Promise<HaltStatus> {
+    const message = await this.request(
+      `vRun;${stringToHex(program)};`,
+      PacketType.STOP
+    );
+    return this.parseHaltStatus(message);
   }
 
   // Segments:
@@ -225,7 +152,7 @@ export class GdbClient {
 
   public async setBreakpoint(
     address: number,
-    type = 0,
+    type = BreakpointCode.SOFTWARE,
     size?: number
   ): Promise<void> {
     let message = `Z${type},${address}`;
@@ -244,7 +171,7 @@ export class GdbClient {
 
   public async removeBreakpoint(
     address: number,
-    type = 0,
+    type = BreakpointCode.SOFTWARE,
     size?: number
   ): Promise<void> {
     let message = `z${type},${formatNumber(address)}`;
@@ -256,71 +183,54 @@ export class GdbClient {
 
   // Navigation:
 
-  public async pause(thread: Thread): Promise<void> {
-    const message = this.supportVCont
-      ? "vCont;t:" + this.formatThread(thread)
-      : "vCtrlC";
-    thread.running = false;
-    await this.request(message, PacketType.STOP);
+  public async pause(threadId: number): Promise<void> {
+    await this.request("vCont;t:" + threadId, PacketType.STOP);
   }
 
-  public async continueExecution(thread: Thread): Promise<void> {
-    const message = this.supportVCont
-      ? "vCont;c:" + this.formatThread(thread)
-      : "c";
-    thread.running = true;
-    await this.request(message, null, false);
+  public async continueExecution(threadId: number): Promise<void> {
+    await this.request("vCont;c:" + threadId, null, false);
   }
 
-  public async stepIn(thread: Thread): Promise<void> {
-    const message = this.supportVCont
-      ? "vCont;s:" + this.formatThread(thread)
-      : "s";
-    thread.running = false;
-    await this.request(message, PacketType.STOP);
+  public async stepIn(threadId: number): Promise<void> {
+    await this.request("vCont;s:" + threadId, PacketType.STOP);
   }
 
   public async stepToRange(
-    thread: Thread,
+    threadId: number,
     startAddress: number,
     endAddress: number
   ): Promise<void> {
-    let message: string;
-    if (this.supportVCont) {
-      message =
-        "vCont;r" +
-        formatNumber(startAddress) +
-        "," +
-        formatNumber(endAddress) +
-        ":" +
-        this.formatThread(thread);
-    } else {
-      // Not a real GDB command...
-      message = "n";
-    }
-    thread.running = false;
+    const message =
+      "vCont;r" +
+      formatNumber(startAddress) +
+      "," +
+      formatNumber(endAddress) +
+      ":" +
+      threadId;
     await this.request(message, PacketType.STOP);
   }
 
-  public async getHaltStatus(): Promise<HaltStatus[]> {
-    const returnedHaltStatus: HaltStatus[] = [];
+  public async getHaltStatus(): Promise<HaltStatus | null> {
     const response = await this.request("?", PacketType.STOP);
-    if (response.indexOf("OK") < 0) {
-      returnedHaltStatus.push(this.parseHaltStatus(response));
-    }
-    return returnedHaltStatus;
+    return response.indexOf("OK") < 0 ? this.parseHaltStatus(response) : null;
+  }
+
+  public async getVStopped(): Promise<HaltStatus | null> {
+    const response = await this.request("vStopped", null);
+    return response.indexOf("OK") < 0 ? this.parseHaltStatus(response) : null;
   }
 
   // Memory:
 
-  public async getMemory(address: number, length: number): Promise<string> {
-    return this.request(
+  public async readMemory(address: number, length: number): Promise<string> {
+    const hex = await this.request(
       "m" + formatNumber(address) + "," + formatNumber(length),
       PacketType.UNKNOWN
     );
+    return hex;
   }
 
-  public async setMemory(address: number, dataToSend: string): Promise<void> {
+  public async writeMemory(address: number, dataToSend: string): Promise<void> {
     const size = Math.ceil(dataToSend.length / 2);
     await this.request(
       "M" + formatNumber(address) + "," + size + ":" + dataToSend,
@@ -330,8 +240,8 @@ export class GdbClient {
 
   // Registers:
 
-  public async getRegisters(thread?: Thread | null): Promise<number[]> {
-    const command = thread ? "Hg" + thread.threadId : "g";
+  public async getRegisters(threadId?: number | null): Promise<number[]> {
+    const command = threadId ? "Hg" + threadId : "g";
     const message = await this.request(command, PacketType.UNKNOWN);
     const registers: number[] = [];
 
@@ -364,92 +274,40 @@ export class GdbClient {
     }
   }
 
-  // Threads:
-
-  public async getThreads(): Promise<Thread[]> {
-    const unlock = await this.mutex.capture("getThreads");
-    try {
-      let data = await this.request("qfThreadInfo", PacketType.UNKNOWN);
-      if (data.startsWith("m")) {
-        data = data.substring(1).trim();
-      }
-      if (data.endsWith("l")) {
-        data = data.substring(0, data.length - 1);
-      }
-      if (data.endsWith(",")) {
-        data = data.substring(0, data.length - 1);
-      }
-      return data.split(",").map((elm) => {
-        // Thread id has the form : "p<process id in hex>.<thread id in hex>"
-        const pth = elm.split(".");
-        let processId = DEFAULT_PROCESS_ID;
-        let threadId = 0;
-        if (pth.length > 1) {
-          processId = parseInt(pth[0].substring(1), 16);
-          threadId = parseInt(pth[1], 16);
-        } else {
-          threadId = parseInt(pth[0], 16);
-        }
-        return { processId, threadId, running: true };
-      });
-    } finally {
-      unlock();
-    }
-  }
-
   // Stack Frames:
 
-  public async getFramesCount(thread: Thread): Promise<number> {
-    if (thread.threadId === ThreadId.CPU) {
-      const message = "qTStatus";
-      const data = await this.request(message, PacketType.QTSTATUS);
-      const frameCountPosition = data.indexOf("tframes");
-      if (frameCountPosition > 0) {
-        let endFrameCountPosition = data.indexOf(";", frameCountPosition);
-        if (endFrameCountPosition <= 0) {
-          endFrameCountPosition = data.length;
-        }
-        const v = data.substring(frameCountPosition + 8, endFrameCountPosition);
-        return parseInt(v, 16);
+  public async getFramesCount(): Promise<number> {
+    const data = await this.request("qTStatus", PacketType.QTSTATUS);
+    const frameCountPosition = data.indexOf("tframes");
+    if (frameCountPosition > 0) {
+      let endFrameCountPosition = data.indexOf(";", frameCountPosition);
+      if (endFrameCountPosition <= 0) {
+        endFrameCountPosition = data.length;
       }
+      const v = data.substring(frameCountPosition + 8, endFrameCountPosition);
+      return parseInt(v, 16);
     }
     return 1;
   }
 
-  public async selectFrame(
-    num: number | null,
-    pc: number | null
-  ): Promise<number> {
-    try {
-      let message = "QTFrame:";
-      if (num !== null) {
-        if (num < 0) {
-          message += "ffffffff";
-          await this.request(message, PacketType.OK);
-          return DEFAULT_FRAME_INDEX;
-        } else {
-          message += formatNumber(num);
-        }
-      } else if (pc !== null) {
-        message += "pc:" + formatNumber(pc);
-      } else {
-        throw new Error("No arguments to select a frame");
-      }
-      const data = await this.request(message, PacketType.FRAME);
-      if (data === "F-1") {
-        // No frame found
-        return DEFAULT_FRAME_INDEX;
-      } else {
-        let v = data.substring(1);
-        const tPos = v.indexOf("T");
-        if (tPos >= 0) {
-          v = v.substring(0, tPos);
-        }
-        return parseInt(v, 16);
-      }
-    } catch (err) {
+  public async selectFrame(num: number): Promise<number> {
+    if (num < 0) {
+      await this.request("QTFrame:ffffffff", PacketType.OK);
       return DEFAULT_FRAME_INDEX;
     }
+    const message = "QTFrame:" + formatNumber(num);
+    const data = await this.request(message, PacketType.FRAME);
+
+    if (data === "F-1") {
+      // No frame found
+      return DEFAULT_FRAME_INDEX;
+    }
+    let v = data.substring(1);
+    const tPos = v.indexOf("T");
+    if (tPos >= 0) {
+      v = v.substring(0, tPos);
+    }
+    return parseInt(v, 16);
   }
 
   // Commands:
@@ -498,38 +356,25 @@ export class GdbClient {
 
     const unlock = await this.mutex.capture("request");
     try {
-      const expectedTypeName = responseType ? PacketType[responseType] : "null";
-      logger.log(`[GDB] --> ${requestText} / ${expectedTypeName}`);
-
+      logger.log(`[GDB] --> ${requestText}`);
       this.socket.write(formatString(requestText));
 
       if (responseExpected) {
-        const packet = await new Promise<Packet>((res) => {
+        const packet = await new Promise<Packet>((resolve, reject) => {
           const testPacket = (testedPacket: Packet) => {
-            if (
-              responseType === null ||
-              testedPacket.type === PacketType.ERROR ||
-              responseType === testedPacket.type
-            ) {
+            if (!responseType || responseType === testedPacket.type) {
               this.off("packet", testPacket);
-              res(testedPacket);
+              return resolve(testedPacket);
+            }
+            if (packet.type === PacketType.ERROR) {
+              this.off("packet", testPacket);
+              return reject(new GdbError(response));
             }
           };
           this.on("packet", testPacket);
         });
 
-        if (!packet) {
-          throw new Error("No response from the emulator");
-        }
-
         const response = packet.message;
-        logger.log(`[GDB] <-- req: ${requestText} res: ${response}`);
-
-        if (packet.type === PacketType.ERROR) {
-          const error = new GdbError(response);
-          this.sendEvent("error", error);
-          throw error;
-        }
 
         return response;
       }
@@ -539,7 +384,8 @@ export class GdbClient {
     return "";
   }
 
-  private handlePacket = (packet: Packet) => {
+  private handlePacket(packet: Packet) {
+    logger.log(`[GDB] <-- ${packet.message}`);
     switch (packet.type) {
       case PacketType.OUTPUT: {
         const msg = hexToString(packet.message.substring(1));
@@ -552,25 +398,13 @@ export class GdbClient {
       case PacketType.END:
         this.sendEvent("end");
         break;
-      case PacketType.MINUS:
-        this.sendEvent("error", new Error("Unsupported packet : '-'"));
-        break;
       default:
         break;
     }
-  };
-
-  private formatThread(thread: Thread): string {
-    return this.supportMultiprocess
-      ? "p" + thread.processId.toString(16) + "." + thread.threadId.toString(16)
-      : thread.threadId.toString(16);
   }
 
-  /**
-   * Parses the halt status
-   * ‘TAAn1:r1;n2:r2;…’
-   */
   private parseHaltStatus(message: string): HaltStatus {
+    // ‘TAAn1:r1;n2:r2;…’
     const code = parseInt(message.substring(1, 3), 16) as HaltSignal;
     let parameters: string | null = null;
     if (message.length > 3) {
@@ -611,6 +445,35 @@ export class GdbClient {
   }
 }
 
+// Errors:
+
+const errorMessages = {
+  E01: "General error during processing",
+  E02: "Error during the packet parse",
+  E03: "Unsupported / unknown command",
+  E04: "Unknown register",
+  E05: "Invalid Frame Id",
+  E06: "Invalid memory location",
+  E07: "Address not safe for a set memory command",
+  E08: "Unknown breakpoint",
+  E09: "The maximum of breakpoints have been reached",
+  E0F: "Error during the packet parse for command send memory",
+  E10: "Unknown register",
+  E11: "Invalid Frame Id",
+  E12: "Invalid memory location",
+  E20: "Error during the packet parse for command set memory",
+  E21: "Missing end packet for a set memory message",
+  E22: "Address not safe for a set memory command",
+  E25: "Error during the packet parse for command set register",
+  E26: "Error during set register - unsupported register name",
+  E30: "Error during the packet parse for command get register",
+  E31: "Error during the vCont packet parse",
+  E40: "Unable to load segments",
+  E41: "Thread command parse error",
+};
+
+type ErrorType = keyof typeof errorMessages;
+
 export class GdbError extends Error {
   public errorType: ErrorType;
   constructor(errorType: string) {
@@ -620,10 +483,6 @@ export class GdbError extends Error {
     const msg = errorMessages[this.errorType as keyof typeof errorMessages];
     this.message = msg || "Error code received: '" + this.errorType + "'";
   }
-}
-
-export function threadDisplayName(thread: Thread): string {
-  return threadLabels[thread.threadId];
 }
 
 // Utils:
@@ -688,6 +547,7 @@ function parsePackets(data: Buffer): Packet[] {
   }
   const parsedData: Packet[] = [];
   let s = data.toString();
+  logger.log("[GDB] <-- data: " + s);
   if (s.startsWith("+")) {
     parsedData.push({
       type: PacketType.PLUS,

@@ -57,7 +57,7 @@ describe("Breakpoint Manager", () => {
         source,
         line: sourceLine,
         type: BreakpointType.SOURCE,
-        offset: 0,
+        address: 0,
         verified: false,
         defaultMessage: "",
         hitCount: 0,
@@ -77,7 +77,7 @@ describe("Breakpoint Manager", () => {
             when(mockedGdbProxy.setBreakpoint(anything())).thenResolve();
             await bpManager.setBreakpoint(bp);
             expect(bp.segmentId).toBe(segmentId);
-            expect(bp.offset).toBe(offset);
+            expect(bp.address).toBe(offset);
           });
 
           it("should react on proxy error", async () => {
@@ -152,7 +152,7 @@ describe("Breakpoint Manager", () => {
           when(mockedGdbProxy.setBreakpoint(anything())).thenResolve();
           await bpManager.setBreakpoint(bp);
           expect(bp.segmentId).toBeUndefined();
-          expect(bp.offset).toBe(address);
+          expect(bp.address).toBe(address);
         });
 
         it("should react on proxy error", async () => {

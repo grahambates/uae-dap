@@ -22,8 +22,7 @@ import {
   disassembledFileFromPath,
   DisassemblyManager,
 } from "./disassembly";
-import { GdbProxy, Segment, StackPosition, Thread } from "./gdb";
-import { FileInfo, LineInfo, SegmentOffset } from "./fileInfo";
+import { GdbClient } from "./gdbClient";
 import {
   bitValue,
   chunk,
@@ -34,6 +33,9 @@ import {
   hexStringToASCII,
   NumberFormat,
 } from "./utils/strings";
+import SourceMap from "./sourceMap";
+import { getRegisterIndex, nameRegisters } from "./registers";
+import { StackPosition } from "./debugSession";
 
 export enum ScopeType {
   Registers,
@@ -78,8 +80,6 @@ class Program {
   private scopes = new Handles<ScopeReference>();
   /** Variables lookup by handle */
   private referencedVariables = new Map<number, DebugProtocol.Variable[]>();
-  /** All the symbols in the file */
-  private symbols = new Map<string, number>();
   /** Manager of disassembled code */
   private disassemblyManager: DisassemblyManager;
   /** Lazy loaded constants extracted from current file source */
@@ -88,51 +88,12 @@ class Program {
   private variableFormatterMap = new Map<string, NumberFormat>();
 
   constructor(
-    private gdb: GdbProxy,
-    private fileInfo: FileInfo,
+    private gdb: GdbClient,
+    private sourceMap: SourceMap,
     private constantResolver?: SourceConstantResolver,
     private memoryFormats: Record<string, MemoryFormat> = {}
   ) {
-    this.disassemblyManager = new DisassemblyManager(gdb, this);
-  }
-
-  /**
-   * Updates the segment addresses of the hunks
-   *
-   * Called when segments change in GdbProxy
-   *
-   * @param segments The list of returned segments from the debugger
-   */
-  public updateSegments(segments: Segment[]): void {
-    const lastPos = this.fileInfo.hunks.length;
-    for (let posSegment = 0; posSegment < lastPos; posSegment++) {
-      // Segments in order of file
-      const hunk = this.fileInfo.hunks[posSegment];
-      let segment: Segment;
-      let address: number;
-      if (posSegment >= segments.length) {
-        // Segment not declared by the protocol
-        segment = {
-          id: posSegment,
-          address: 0,
-          name: "",
-          size: hunk.allocSize,
-        };
-        address = this.gdb.addSegment(segment);
-      } else {
-        segment = segments[posSegment];
-        address = segment.address;
-        segment.size = hunk.allocSize;
-      }
-      hunk.segmentsId = posSegment;
-      hunk.segmentsAddress = address;
-      // Retrieve the symbols
-      if (hunk.symbols) {
-        for (const s of hunk.symbols) {
-          this.symbols.set(s.name, s.offset + address);
-        }
-      }
-    }
+    this.disassemblyManager = new DisassemblyManager(gdb, this, this.sourceMap);
   }
 
   /**
@@ -140,10 +101,10 @@ class Program {
    *
    * @param length Length of data to read in bytes
    */
-  public async getMemory(address: number, length = 4): Promise<number> {
-    await this.gdb.waitConnected();
-    const mem = await this.gdb.getMemory(address, length);
-    return parseInt(mem, 16);
+  private async getMemory(address: number, length = 4): Promise<number> {
+    // await this.gdb.waitConnected();
+    const hex = await this.gdb.readMemory(address, length);
+    return parseInt(hex, 16);
   }
 
   /**
@@ -185,45 +146,28 @@ class Program {
   }
 
   /**
-   * Get all threads
-   */
-  public async getThreads(): Promise<DebugProtocol.Thread[]> {
-    await this.gdb.waitConnected();
-    const threadIds = await this.gdb.getThreadIds();
-    const threads = threadIds.map((t) => ({
-      id: t.getId(),
-      name: t.getDisplayName(),
-    }));
-    logger.log(`Threads: ${JSON.stringify(threads)}`);
-    return threads;
-  }
-
-  /**
    * Get stack trace for thread
    */
   public async getStackTrace(
-    thread: Thread,
+    threadId: number,
     stackPositions: StackPosition[]
   ): Promise<StackFrame[]> {
-    await this.gdb.waitConnected();
+    // await this.gdb.waitConnected();
     const stackFrames = [];
 
     for (const p of stackPositions) {
       let sf: StackFrame | undefined;
 
-      if (p.segmentId >= 0) {
-        const line = await this.fileInfo.findLineAtLocation(
-          p.segmentId,
-          p.offset
-        );
-        if (line) {
-          const label = this.symbolName(p.pc);
-          const source = new Source(basename(line.filename), line.filename);
+      if (p.pc >= 0) {
+        const location = this.sourceMap.lookupAddress(p.pc);
+        if (location) {
+          // const label = this.symbolName(p.pc);
+          const source = new Source(basename(location.path), location.path);
           sf = new StackFrame(
             p.index,
-            label ?? "__MAIN__",
+            location.symbol ?? "__MAIN__",
             source,
-            line.lineNumber
+            location.line
           );
           sf.instructionPointerReference = formatHexadecimal(p.pc);
         }
@@ -231,7 +175,7 @@ class Program {
 
       // Get disassembled stack frame if not set
       if (!sf) {
-        sf = await this.disassemblyManager.getStackFrame(p, thread);
+        sf = await this.disassemblyManager.getStackFrame(p, threadId);
       }
       // Only include frames with a source, but make sure we have at least one frame
       // Others are likely to be ROM system calls
@@ -251,20 +195,19 @@ class Program {
   public async disassemble(
     args: DebugProtocol.DisassembleArguments & DisassembledFile
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    const segments = this.gdb.getSegments();
-
     let { memoryReference } = args;
     let firstAddress: number | undefined;
     const hasOffset = args.offset || args.instructionOffset;
-    if (memoryReference && hasOffset && segments) {
+    if (memoryReference && hasOffset) {
       // Apply offset to address
       firstAddress = parseInt(args.memoryReference);
       if (args.offset) {
         firstAddress -= args.offset;
       }
       // Set memoryReference to segment address if found
-      const segment = this.findSegmentContainingAddress(firstAddress, segments);
-      if (segment) {
+      const location = this.sourceMap.lookupAddress(firstAddress);
+      if (location) {
+        const segment = this.sourceMap.getSegmentInfo(location.segmentIndex);
         memoryReference = segment.address.toString();
       }
     }
@@ -293,17 +236,12 @@ class Program {
           );
 
     // Add source line data to instructions
-    if (segments) {
-      for (const instruction of instructions) {
-        const line = await this.findSourceLine(
-          parseInt(instruction.address),
-          segments
-        );
-        if (line) {
-          const filename = line.filename;
-          instruction.location = new Source(basename(filename), filename);
-          instruction.line = line.lineNumber;
-        }
+    for (const instruction of instructions) {
+      const line = this.sourceMap.lookupAddress(parseInt(instruction.address));
+      if (line) {
+        const filename = line.path;
+        instruction.location = new Source(basename(filename), filename);
+        instruction.line = line.line;
       }
     }
 
@@ -424,9 +362,14 @@ class Program {
   public async getVariables(
     frameId?: number
   ): Promise<Record<string, number | Record<string, number>>> {
-    await this.gdb.waitConnected();
-    const registers = await this.gdb.registers(frameId || null);
-    const registerEntries = registers.reduce<
+    // await this.gdb.waitConnected();
+    if (frameId) {
+      // TODO: mutex
+      await this.gdb.selectFrame(frameId);
+    }
+    const registers = await this.gdb.getRegisters();
+    const namedRegisters = nameRegisters(registers);
+    const registerEntries = namedRegisters.reduce<
       Record<string, number | Record<string, number>>
     >((acc, v) => {
       acc[v.name] = v.value;
@@ -441,7 +384,7 @@ class Program {
 
     return {
       ...customRegisterAddresses,
-      ...Object.fromEntries(this.symbols),
+      ...this.sourceMap.getSymbols(),
       ...sourceConstants,
       ...registerEntries,
     };
@@ -451,7 +394,7 @@ class Program {
     text: string,
     frameId?: number
   ): Promise<DebugProtocol.CompletionItem[]> {
-    await this.gdb.waitConnected();
+    // await this.gdb.waitConnected();
     const words = text.split(/[^\w.]/);
     const lastWord = words.pop();
     if (!lastWord) {
@@ -471,7 +414,12 @@ class Program {
       return vars.filter((v) => v.label.startsWith(parts[1]));
     }
 
-    const registers = await this.gdb.registers(frameId || null);
+    if (frameId) {
+      // TODO: mutex
+      await this.gdb.selectFrame(frameId);
+    }
+    const registers = await this.gdb.getRegisters();
+    const namedRegisters = nameRegisters(registers);
     const sourceConstants = await this.getSourceConstants();
 
     const vars: DebugProtocol.CompletionItem[] = [
@@ -479,7 +427,7 @@ class Program {
         label,
         detail: "Custom",
       })),
-      ...Object.keys(this.symbols).map((label) => ({
+      ...Object.keys(this.sourceMap.getSymbols()).map((label) => ({
         label,
         detail: "Symbol",
       })),
@@ -487,7 +435,7 @@ class Program {
         label,
         detail: "Constant",
       })),
-      ...registers.map((reg) => ({ label: reg.name, detail: "Register" })),
+      ...namedRegisters.map((reg) => ({ label: reg.name, detail: "Register" })),
     ];
     return vars.filter((v) => v.label.startsWith(lastWord));
   }
@@ -509,7 +457,7 @@ class Program {
     if (this.sourceConstants) {
       return this.sourceConstants;
     }
-    const sourceFiles = await this.fileInfo.getSourceFiles();
+    const sourceFiles = this.sourceMap.getSourceFiles();
     const sourceConstants = await this.constantResolver?.getSourceConstants(
       sourceFiles
     );
@@ -531,7 +479,7 @@ class Program {
 
     // Get reference info in order to populate variables
     const { type, frameId } = this.getScopeReference(variablesReference);
-    await this.gdb.waitConnected();
+    // await this.gdb.waitConnected();
 
     switch (type) {
       case ScopeType.Registers:
@@ -564,10 +512,12 @@ class Program {
   private async getRegisterVariables(
     frameId: number
   ): Promise<DebugProtocol.Variable[]> {
-    const registers = await this.gdb.registers(frameId);
+    await this.gdb.selectFrame(frameId); // TODO: mutex
+    const registers = await this.gdb.getRegisters();
+    const namedRegisters = nameRegisters(registers);
 
     // Stack register properties go in their own variables array to be fetched later by reference
-    const sr = registers
+    const sr = namedRegisters
       .filter(({ name }) => name.startsWith("SR_"))
       .map(({ name, value }) => ({
         name: name.substring(3),
@@ -584,7 +534,7 @@ class Program {
     this.referencedVariables.set(srScope, sr);
 
     // All other registers returned
-    return registers
+    return namedRegisters
       .filter(({ name }) => !name.startsWith("SR_"))
       .map(({ name, value }) => {
         let formatted = this.formatVariable(
@@ -695,9 +645,9 @@ class Program {
   }
 
   private getSegmentVariables(): DebugProtocol.Variable[] {
-    const segments = this.gdb.getSegments() ?? [];
-    return segments.map((s, i) => {
-      const name = `Segment #${i}`;
+    const segments = this.sourceMap.getSegmentsInfo();
+    return segments.map((s) => {
+      const name = s.name;
       return {
         name,
         type: "segment",
@@ -714,20 +664,26 @@ class Program {
   }
 
   private getSymbolVariables(): DebugProtocol.Variable[] {
-    return Array.from(this.symbols.entries())
+    const symbols = this.sourceMap.getSymbols();
+    return Object.keys(symbols)
       .sort(compareStringsLowerCase)
-      .map(([name, value]) => ({
+      .map((name) => ({
         name,
         type: "symbol",
-        value: this.formatVariable(name, value, NumberFormat.HEXADECIMAL, 4),
+        value: this.formatVariable(
+          name,
+          symbols[name],
+          NumberFormat.HEXADECIMAL,
+          4
+        ),
         variablesReference: 0,
-        memoryReference: value.toString(),
+        memoryReference: symbols[name].toString(),
       }));
   }
 
   private async getVectorVariables(): Promise<DebugProtocol.Variable[]> {
-    await this.gdb.waitConnected();
-    const memory = await this.gdb.getMemory(0, 0xc0);
+    // await this.gdb.waitConnected();
+    const memory = await this.gdb.readMemory(0, 0xc0);
     const chunks = chunk(memory.toString(), 8).map((chunk) =>
       parseInt(chunk, 16)
     );
@@ -770,8 +726,8 @@ class Program {
     frameId: number
   ): Promise<DebugProtocol.Variable[]> {
     // Read memory starting at $dff000 and chunk into words
-    await this.gdb.waitConnected();
-    const memory = await this.gdb.getMemory(CUSTOM_BASE, 0x1fe);
+    // await this.gdb.waitConnected();
+    const memory = await this.gdb.readMemory(CUSTOM_BASE, 0x1fe);
     const chunks = chunk(memory.toString(), 4);
 
     // Unwanted / duplicate registers to skip
@@ -1206,12 +1162,15 @@ class Program {
     }
     switch (scopeRef?.type) {
       case ScopeType.Registers:
-        await this.gdb.setRegister(name, numValue.toString(16));
+        await this.gdb.setRegister(
+          getRegisterIndex(name),
+          numValue.toString(16)
+        );
         return this.formatVariable(name, numValue, NumberFormat.HEXADECIMAL, 4);
 
       case ScopeType.Vectors: {
         const [addr] = name.split(" ");
-        await this.gdb.setMemory(
+        await this.gdb.writeMemory(
           parseInt(addr, 16),
           numValue.toString(16).padStart(8, "0")
         );
@@ -1239,7 +1198,7 @@ class Program {
         const isLong = name.endsWith("PT") || name.endsWith("LC");
         const size = isLong ? 8 : 4;
 
-        await this.gdb.setMemory(
+        await this.gdb.writeMemory(
           address,
           numValue.toString(16).padStart(size, "0")
         );
@@ -1302,7 +1261,7 @@ class Program {
       }
     | undefined
   > {
-    await this.gdb.waitConnected();
+    // await this.gdb.waitConnected();
     let variables: DebugProtocol.Variable[] | undefined;
     let result: string | undefined;
 
@@ -1310,7 +1269,8 @@ class Program {
 
     // Find expression type:
     const isRegister = expression.match(/^([ad][0-7]|pc|sr)$/i) !== null;
-    const isSymbol = this.symbols.has(expression);
+    const symbols = this.sourceMap.getSymbols();
+    const isSymbol = symbols[expression] !== undefined;
 
     const commandMatch = expression.match(/([mdcph?])(\s|$)/i);
     const command = commandMatch?.[1];
@@ -1334,7 +1294,12 @@ class Program {
         return;
       default:
         if (isRegister) {
-          const [address] = await this.gdb.getRegister(expression, frameId);
+          if (frameId) {
+            await this.gdb.selectFrame(frameId);
+          }
+          const address = await this.gdb.getRegister(
+            getRegisterIndex(expression)
+          );
           if (expression.startsWith("a") && context === "watch") {
             variables = await this.readMemoryAsVariables(
               address,
@@ -1351,7 +1316,7 @@ class Program {
             );
           }
         } else if (isSymbol && (context === "watch" || context === "hover")) {
-          const address = <number>this.symbols.get(expression);
+          const address = symbols[expression];
           variables = await this.readMemoryAsVariables(
             address,
             length,
@@ -1490,7 +1455,7 @@ class Program {
     if (typeof address !== "number") {
       throw new Error("address is not numeric");
     }
-    await this.gdb.setMemory(address, groups.data);
+    await this.gdb.writeMemory(address, groups.data);
     return this.readMemoryAsVariables(address, groups.data.length / 2);
   }
 
@@ -1606,7 +1571,7 @@ class Program {
     rowLength = 4,
     mode = "ab"
   ): Promise<DebugProtocol.Variable[]> {
-    const memory = await this.gdb.getMemory(address, length);
+    const memory = await this.gdb.readMemory(address, length);
     let firstRow = "";
     const variables = new Array<DebugProtocol.Variable>();
     const chunks = chunk(memory.toString(), wordLength * 2);
@@ -1661,7 +1626,7 @@ class Program {
     address: number,
     length: number
   ): Promise<DebugProtocol.Variable[]> {
-    const memory = await this.gdb.getMemory(address, length);
+    const memory = await this.gdb.readMemory(address, length);
     const { instructions } = await disassemble(memory, address);
 
     return instructions.map(({ instruction, address, instructionBytes }) => ({
@@ -1675,7 +1640,7 @@ class Program {
     address: number,
     length: number
   ): Promise<DebugProtocol.Variable[]> {
-    const memory = await this.gdb.getMemory(address, length);
+    const memory = await this.gdb.readMemory(address, length);
 
     return disassembleCopper(memory).map((inst, i) => ({
       value: inst.toString(),
@@ -1685,52 +1650,6 @@ class Program {
   }
 
   // Location utils
-
-  private async findSourceLine(
-    address: number,
-    segments: Segment[]
-  ): Promise<LineInfo | null> {
-    const segment = this.findSegmentContainingAddress(address, segments);
-    if (!segment) {
-      return null;
-    }
-    return this.fileInfo.findLineAtLocation(
-      segment.id,
-      address - segment.address
-    );
-  }
-
-  private findSegmentContainingAddress(
-    address: number,
-    segments: Segment[]
-  ): Segment | undefined {
-    return segments.find(
-      (s) => address >= s.address && address < s.address + s.size
-    );
-  }
-
-  /**
-   * Get numeric memory address for a given source line
-   */
-  public getAddressForFileEditorLine(
-    filePath: string,
-    lineNumber: number
-  ): Promise<number> {
-    return this.disassemblyManager.getAddressForFileEditorLine(
-      filePath,
-      lineNumber
-    );
-  }
-
-  /**
-   * Get segment ID and offset in exe for a given  source line
-   */
-  public findLocationForLine(
-    filename: string,
-    lineNumber: number
-  ): Promise<SegmentOffset | null> {
-    return this.fileInfo.findLocationForLine(filename, lineNumber);
-  }
 
   // Helpers to build variables from byte ranges:
 
@@ -1786,24 +1705,14 @@ class Program {
   }
 
   /**
-   * Get symbol name for address
-   */
-  private symbolName(address: number): string | undefined {
-    let symbolName;
-    for (const [name, value] of this.symbols.entries()) {
-      if (value > address) break;
-      symbolName = name;
-    }
-    return symbolName;
-  }
-
-  /**
    * Get symbol name and offset for address
    */
   private symbolOffset(address: number): string | null {
     let symbolName;
     let symbolAddress;
-    for (const [name, value] of this.symbols.entries()) {
+    const symbols = this.sourceMap.getSymbols();
+    for (const name of Object.keys(symbols)) {
+      const value = symbols[name];
       if (value > address) break;
       symbolName = name;
       symbolAddress = value;
