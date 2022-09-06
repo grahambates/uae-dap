@@ -15,7 +15,6 @@ export interface Breakpoint extends DebugProtocol.Breakpoint {
   logMessage?: string;
   size?: number;
   accessType?: DebugProtocol.DataBreakpointAccessType;
-  exceptionMask?: number;
   temporary?: boolean;
 }
 
@@ -23,7 +22,6 @@ export enum BreakpointType {
   SOURCE,
   DATA,
   INSTRUCTION,
-  EXCEPTION,
   TEMPORARY,
 }
 
@@ -53,16 +51,10 @@ export class BreakpointStorageMap implements BreakpointStorage {
  * Handles adding and removing breakpoints to program
  */
 export class BreakpointManager {
-  /** Default selection mask for exception : each bit is a exception code */
-  static readonly DEFAULT_EXCEPTION_MASK = 0b111100;
-  /** exception mask */
-  private exceptionMask = BreakpointManager.DEFAULT_EXCEPTION_MASK;
   /** Breakpoints selected */
   private breakpoints: Breakpoint[] = [];
   /** Pending breakpoint not yet sent to debugger */
   private pendingBreakpoints: Breakpoint[] = [];
-  /** Debug information for the loaded program */
-  private program?: Program;
   /** Next breakpoint id - used to assign unique IDs to created breakpoints */
   private nextBreakpointId = 0;
   /** Temporary breakpoints arrays */
@@ -79,35 +71,11 @@ export class BreakpointManager {
   // Setters:
 
   /**
-   * Set exception mask
-   */
-  public setExceptionMask(exceptionMask: number): BreakpointManager {
-    this.exceptionMask = exceptionMask;
-    return this;
-  }
-
-  /**
-   * Set program
-   */
-  public setProgram(program: Program): BreakpointManager {
-    this.program = program;
-    return this;
-  }
-
-  /**
    * Set source map
    */
   public setSourceMap(sourceMap: SourceMap): BreakpointManager {
     this.sourceMap = sourceMap;
     return this;
-  }
-
-  /**
-   * Set the mutex timeout
-   * @param timeout Mutex timeout
-   */
-  public setMutexTimeout(timeout: number): void {
-    this.mutex = new Mutex(100, timeout);
   }
 
   /**
@@ -119,7 +87,7 @@ export class BreakpointManager {
    */
   public async setBreakpoint(bp: Breakpoint): Promise<boolean> {
     try {
-      if (!this.program || !this.sourceMap) {
+      if (!this.sourceMap) {
         throw new Error("Program not loaded");
       }
       // Resolve source location
@@ -128,8 +96,6 @@ export class BreakpointManager {
         const location = this.sourceMap.lookupSourceLine(path, bp.line);
         bp.offset = location.address;
         await this.gdb.setBreakpoint(location.address, BreakpointCode.SOFTWARE);
-      } else if (bp.exceptionMask) {
-        await this.gdb.setExceptionBreakpoint(bp.exceptionMask);
       } else if (bp.accessType && bp.offset) {
         const type = bp.accessType
           ? accessTypeMap[bp.accessType]
@@ -142,9 +108,7 @@ export class BreakpointManager {
       bp.verified = true;
       logger.log(`[BP] Set ${breakpointToString(bp)}`);
 
-      if (!bp.exceptionMask) {
-        this.breakpoints.push(bp);
-      }
+      this.breakpoints.push(bp);
       return true;
     } catch (err) {
       // Add as pending if any error encountered
@@ -278,37 +242,6 @@ export class BreakpointManager {
       message,
       hitCount: 0,
     };
-  }
-
-  public createExceptionBreakpoint(): Breakpoint {
-    return {
-      id: this.nextBreakpointId++,
-      type: BreakpointType.EXCEPTION,
-      exceptionMask: this.exceptionMask,
-      verified: false,
-      hitCount: 0,
-    };
-  }
-
-  // Exception breakpoints:
-
-  /**
-   * Ask for an exception breakpoint
-   */
-  public setExceptionBreakpoint(): Promise<boolean> {
-    const breakpoint = this.createExceptionBreakpoint();
-    return this.setBreakpoint(breakpoint);
-  }
-
-  /**
-   * Ask to remove an exception breakpoint
-   */
-  public async removeExceptionBreakpoint(): Promise<void> {
-    try {
-      await this.gdb.removeBreakpoint(this.exceptionMask);
-    } finally {
-      this.releaseLock();
-    }
   }
 
   /**
@@ -471,9 +404,6 @@ export function breakpointToString(bp: Breakpoint): string {
   switch (bp.type) {
     case BreakpointType.SOURCE:
       out = `Source Breakpoint #${bp.id} ${bp.source?.name}:${bp.line}`;
-      break;
-    case BreakpointType.EXCEPTION:
-      out = `Exception Breakpoint: #${bp.id} ${bp.exceptionMask}`;
       break;
     case BreakpointType.DATA:
       out = `Data Breakpoint #${bp.id} ${bp.offset} ${bp.size} (${bp.accessType}`;

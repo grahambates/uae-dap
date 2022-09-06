@@ -120,14 +120,6 @@ export class GdbClient {
     this.socket.destroy();
   }
 
-  public async run(program: string): Promise<HaltStatus> {
-    const message = await this.request(
-      `vRun;${stringToHex(program)};`,
-      PacketType.STOP
-    );
-    return this.parseHaltStatus(message);
-  }
-
   // Segments:
 
   public async getSegments(): Promise<Segment[]> {

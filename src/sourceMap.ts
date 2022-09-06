@@ -9,7 +9,6 @@ export interface Location {
   symbolOffset?: number;
   address: number;
   segmentIndex: number;
-  segmentSize: number;
   segmentOffset: number;
 }
 
@@ -45,7 +44,8 @@ class SourceMap {
 
       for (const debugInfo of hunk.lineDebugInfo) {
         const path = normalize(debugInfo.sourceFilename);
-        const linesMap = new Map<number, Location>();
+        const linesMap =
+          this.locationsBySource.get(path) || new Map<number, Location>();
         for (const lineInfo of debugInfo.lines) {
           const address = seg.address + debugInfo.baseOffset + lineInfo.offset;
           let symbol;
@@ -61,7 +61,6 @@ class SourceMap {
             symbol,
             symbolOffset,
             segmentIndex: i,
-            segmentSize: seg.size,
             segmentOffset: lineInfo.offset,
             address,
           };
@@ -107,7 +106,7 @@ class SourceMap {
     }
     let location = fileMap.get(line);
     if (!location) {
-      for (const [ln, loc] of this.locationsByAddress.entries()) {
+      for (const [ln, loc] of fileMap.entries()) {
         if (ln > line) break;
         location = loc;
       }

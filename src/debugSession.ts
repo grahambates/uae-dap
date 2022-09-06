@@ -12,7 +12,7 @@ import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
 import promiseRetry from "promise-retry";
 
-import { GdbClient, HaltSignal } from "./gdbClient";
+import { GdbClient, HaltSignal, HaltStatus } from "./gdbClient";
 import {
   BreakpointManager,
   BreakpointStorage,
@@ -101,7 +101,7 @@ export const defaultMemoryFormats = {
   },
 };
 
-export class FsUAEDebugSession extends LoggingDebugSession {
+export class UAEDebugSession extends LoggingDebugSession {
   /** Timeout of the mutex */
   protected static readonly MUTEX_TIMEOUT = 100000;
 
@@ -118,8 +118,6 @@ export class FsUAEDebugSession extends LoggingDebugSession {
   /** trace the communication protocol */
   protected trace = false;
 
-  protected stopOnEntry = false;
-
   /**
    * Creates a new debug adapter that is used for one debug session.
    * We configure the default implementation of a debug adapter here.
@@ -132,102 +130,9 @@ export class FsUAEDebugSession extends LoggingDebugSession {
 
     this.emulator = new Emulator();
     this.gdb = new GdbClient();
-    this.addGdbListeners();
+    this.gdb.on("stop", this.handleStop.bind(this));
+    this.gdb.on("end", this.shutdown.bind(this));
     this.breakpoints = new BreakpointManager(this.gdb);
-  }
-
-  /**
-   * Bind handlers to GDB events
-   */
-  public addGdbListeners(): void {
-    // setup event handlers
-    this.gdb.on("stop", async (haltStatus) => {
-      logger.log(`[EVT] Stopped ${JSON.stringify(haltStatus)}`);
-
-      const { threadId, code } = haltStatus;
-      if (!threadId) {
-        return;
-      }
-
-      if (code !== HaltSignal.TRAP) {
-        this.sendStoppedEvent(threadId, "exception", false);
-        return;
-      }
-
-      if (this.stopOnEntry) {
-        this.stopOnEntry = false;
-        logger.log(`[EVT] Stop on entry`);
-        this.sendStoppedEvent(threadId, "entry", false);
-        return;
-      }
-
-      // Should we send a stop message to the client?
-      // May want to cancel for conditional or log breakpoints
-      let stop = true;
-
-      // Check for conditional or log breakpoints:
-
-      // Find the breakpoint that was hit
-      // first need to get the source line from the stack trace
-      const positions = await this.getStack(threadId);
-      assertIsDefined(this.program);
-      const [fr] = await this.program.getStackTrace(threadId, positions);
-      // get the breakpoint at this source location:
-      const bp = this.breakpoints.findSourceBreakpoint(fr?.source, fr?.line);
-
-      if (bp) {
-        logger.log(`[EVT] Matched ${breakpointToString(bp)})`);
-      }
-
-      if (bp) {
-        if (bp.logMessage) {
-          // Interpolate variables
-          const message = await replaceAsync(
-            bp.logMessage,
-            /\{((#\{((#\{[^}]*\})|[^}])*\})|[^}])*\}/g, // Up to two levels of nesting
-            (match) => {
-              assertIsDefined(this.program);
-              return this.program
-                .evaluate(match.substring(1, match.length - 1), fr.id)
-                .then((v) => formatHexadecimal(v, 0))
-                .catch(() => "#error");
-            }
-          );
-          this.output(message + "\n");
-          stop = false;
-        } else if (bp.condition) {
-          const result = await this.program.evaluate(bp.condition, fr.id);
-          stop = !!result;
-          logger.log(
-            `[EVT] Evaluating conditional breakpoint #${bp.id}: ${bp.condition} = ${stop}`
-          );
-        } else if (bp.hitCondition) {
-          const result = await this.program.evaluate(bp.hitCondition, fr.id);
-          if (++bp.hitCount === result) {
-            logger.log(
-              `[EVT] Removing breakpoint #${bp.id} after reaching hit count ${result}`
-            );
-            this.breakpoints.removeBreakpoint(bp);
-          } else {
-            stop = false;
-          }
-        }
-      }
-
-      // Send stop event or resume execution
-      if (stop) {
-        logger.log(`[EVT] stopping at breakpoint`);
-        this.sendStoppedEvent(threadId, "breakpoint", false);
-      } else {
-        logger.log(`[EVT] continuing execution`);
-        this.gdb.continueExecution(threadId);
-      }
-    });
-
-    this.gdb.on("end", () => {
-      logger.log(`[EVT] Remote debugger ended`);
-      this.terminate();
-    });
   }
 
   protected initializeRequest(
@@ -264,11 +169,6 @@ export class FsUAEDebugSession extends LoggingDebugSession {
     };
 
     this.sendResponse(response);
-
-    // since this debug adapter can accept configuration requests like 'setBreakpoint' at any time,
-    // we request them early by sending an 'initializeRequest' to the frontend.
-    // The frontend will end the configuration sequence by calling 'configurationDone' request.
-    this.sendEvent(new InitializedEvent());
   }
 
   protected async launchRequest(
@@ -277,9 +177,7 @@ export class FsUAEDebugSession extends LoggingDebugSession {
   ) {
     const {
       program,
-      // sourceFileMap,
-      // rootSourceFileMap,
-      exceptionMask,
+      exceptionMask = 0b111100,
       serverName = "localhost",
       serverPort = 6860,
       startEmulator = true,
@@ -297,7 +195,6 @@ export class FsUAEDebugSession extends LoggingDebugSession {
       }
 
       this.trace = trace;
-      this.stopOnEntry = stopOnEntry;
       logger.init((e) => this.sendEvent(e));
       logger.setup(trace ? LogLevel.Verbose : LogLevel.Error);
 
@@ -335,17 +232,6 @@ export class FsUAEDebugSession extends LoggingDebugSession {
       );
       logger.log("Connected to remote debugger");
 
-      const progPathElms = program.replace(/\\/g, "/").split("/");
-      const remoteProgram = "dh0:" + progPathElms[progPathElms.length - 1];
-
-      logger.log("Starting program: " + remoteProgram);
-      await this.gdb.run(remoteProgram);
-
-      const [segments, hunks] = await Promise.all([
-        this.gdb.getSegments(),
-        parseHunksFromFile(program),
-      ]);
-
       for (const threadId of [THREAD_ID_CPU, THREAD_ID_COPPER]) {
         this.sendEvent({
           event: "thread",
@@ -357,14 +243,15 @@ export class FsUAEDebugSession extends LoggingDebugSession {
       }
 
       if (stopOnEntry) {
-        // TODO: which is it? This or stop event?
+        logger.log("Stopping on entry");
+        this.sendStoppedEvent(THREAD_ID_CPU, "entry");
         await this.gdb.stepIn(THREAD_ID_CPU);
-        await this.breakpoints.sendAllPendingBreakpoints();
-        this.sendStoppedEvent(THREAD_ID_CPU, "entry", false);
-      } else {
-        await this.breakpoints.sendAllPendingBreakpoints();
-        await this.gdb.continueExecution(THREAD_ID_CPU);
       }
+
+      const [segments, hunks] = await Promise.all([
+        this.gdb.getSegments(),
+        parseHunksFromFile(program),
+      ]);
 
       const sourceMap = new SourceMap(hunks, segments);
 
@@ -378,13 +265,18 @@ export class FsUAEDebugSession extends LoggingDebugSession {
         }
       );
 
+      // Set up breakpoints:
       this.breakpoints.setProgram(this.program).setSourceMap(sourceMap);
-      // this.breakpoints.addLocationToPending();
       if (exceptionMask) {
-        this.breakpoints.setExceptionMask(exceptionMask);
+        this.gdb.setExceptionBreakpoint(exceptionMask);
       }
+      // await this.breakpoints.sendAllPendingBreakpoints();
 
-      await this.breakpoints.sendAllPendingBreakpoints();
+      this.sendEvent(new InitializedEvent());
+
+      if (!stopOnEntry) {
+        await this.gdb.continueExecution(THREAD_ID_CPU);
+      }
 
       this.sendResponse(response);
     } catch (err) {
@@ -552,6 +444,7 @@ Expressions:
         { id: THREAD_ID_COPPER, name: "copper" },
       ],
     };
+    this.sendResponse(response);
   }
 
   protected async stackTraceRequest(
@@ -889,11 +782,13 @@ Expressions:
     args: DebugProtocol.SetExceptionBreakpointsArguments
   ) {
     this.handleAsyncRequest(response, async () => {
+      // TODO
+      /*
       if (args.filters.length > 0) {
-        await this.breakpoints.setExceptionBreakpoint();
+        await this.gdb.setExceptionBreakpoint();
       } else {
-        await this.breakpoints.removeExceptionBreakpoint();
       }
+      */
       response.success = true;
     });
   }
@@ -912,15 +807,86 @@ Expressions:
     });
   }
 
-  public terminate(): void {
-    logger.log(`Terminating`);
-    this.gdb.destroy();
-    this.emulator.destroy();
+  private async handleStop(haltStatus: HaltStatus) {
+    logger.log(`[EVT] Stopped ${JSON.stringify(haltStatus)}`);
+
+    const { threadId, code } = haltStatus;
+    if (!threadId) {
+      return;
+    }
+
+    if (code !== HaltSignal.TRAP) {
+      this.sendStoppedEvent(threadId, "exception", false);
+      return;
+    }
+
+    // Should we send a stop message to the client?
+    // May want to cancel for conditional or log breakpoints
+    let stop = true;
+
+    // Check for conditional or log breakpoints:
+
+    // Find the breakpoint that was hit
+    // first need to get the source line from the stack trace
+    const positions = await this.getStack(threadId);
+    assertIsDefined(this.program);
+    const [fr] = await this.program.getStackTrace(threadId, positions);
+    // get the breakpoint at this source location:
+    const bp = this.breakpoints.findSourceBreakpoint(fr?.source, fr?.line);
+
+    if (bp) {
+      logger.log(`[EVT] Matched ${breakpointToString(bp)})`);
+    }
+
+    if (bp) {
+      if (bp.logMessage) {
+        // Interpolate variables
+        const message = await replaceAsync(
+          bp.logMessage,
+          /\{((#\{((#\{[^}]*\})|[^}])*\})|[^}])*\}/g, // Up to two levels of nesting
+          (match) => {
+            assertIsDefined(this.program);
+            return this.program
+              .evaluate(match.substring(1, match.length - 1), fr.id)
+              .then((v) => formatHexadecimal(v, 0))
+              .catch(() => "#error");
+          }
+        );
+        this.output(message + "\n");
+        stop = false;
+      } else if (bp.condition) {
+        const result = await this.program.evaluate(bp.condition, fr.id);
+        stop = !!result;
+        logger.log(
+          `[EVT] Evaluating conditional breakpoint #${bp.id}: ${bp.condition} = ${stop}`
+        );
+      } else if (bp.hitCondition) {
+        const result = await this.program.evaluate(bp.hitCondition, fr.id);
+        if (++bp.hitCount === result) {
+          logger.log(
+            `[EVT] Removing breakpoint #${bp.id} after reaching hit count ${result}`
+          );
+          this.breakpoints.removeBreakpoint(bp);
+        } else {
+          stop = false;
+        }
+      }
+    }
+
+    // Send stop event or resume execution
+    if (stop) {
+      logger.log(`[EVT] stopping at breakpoint`);
+      this.sendStoppedEvent(threadId, "breakpoint", false);
+    } else {
+      logger.log(`[EVT] continuing execution`);
+      this.gdb.continueExecution(threadId);
+    }
   }
 
   public shutdown(): void {
     logger.log(`Shutting down`);
-    this.terminate();
+    this.gdb.destroy();
+    this.emulator.destroy();
   }
 
   protected ensureProgramLoaded(
