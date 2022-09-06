@@ -1,11 +1,11 @@
 import { Mutex } from "./utils/mutex";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { BreakpointCode, GdbClient } from "./gdbClient";
-import Program from "./program";
 import { isDisassembledFile } from "./disassembly";
 import { normalize } from "./utils/files";
 import { logger } from "@vscode/debugadapter";
 import SourceMap from "./sourceMap";
+import { formatAddress } from "./utils/strings";
 
 export interface Breakpoint extends DebugProtocol.Breakpoint {
   type: BreakpointType;
@@ -53,8 +53,6 @@ export class BreakpointStorageMap implements BreakpointStorage {
 export class BreakpointManager {
   /** Breakpoints selected */
   private breakpoints: Breakpoint[] = [];
-  /** Pending breakpoint not yet sent to debugger */
-  private pendingBreakpoints: Breakpoint[] = [];
   /** Next breakpoint id - used to assign unique IDs to created breakpoints */
   private nextBreakpointId = 0;
   /** Temporary breakpoints arrays */
@@ -67,8 +65,6 @@ export class BreakpointManager {
   private sourceMap?: SourceMap;
 
   public constructor(private gdb: GdbClient) {}
-
-  // Setters:
 
   /**
    * Set source map
@@ -85,43 +81,29 @@ export class BreakpointManager {
    *
    * @returns Added immediately?
    */
-  public async setBreakpoint(bp: Breakpoint): Promise<boolean> {
-    try {
-      if (!this.sourceMap) {
-        throw new Error("Program not loaded");
-      }
-      // Resolve source location
-      if (bp.source && bp.line !== undefined) {
-        const path = bp.source.path ?? "";
-        const location = this.sourceMap.lookupSourceLine(path, bp.line);
-        bp.offset = location.address;
-        await this.gdb.setBreakpoint(location.address, BreakpointCode.SOFTWARE);
-      } else if (bp.accessType && bp.offset) {
-        const type = bp.accessType
-          ? accessTypeMap[bp.accessType]
-          : BreakpointCode.ACCESS;
-        await this.gdb.setBreakpoint(bp.offset, type, bp.size);
-      } else {
-        throw new Error("Unsupported breakpoint");
-      }
-
-      bp.verified = true;
-      logger.log(`[BP] Set ${breakpointToString(bp)}`);
-
-      this.breakpoints.push(bp);
-      return true;
-    } catch (err) {
-      // Add as pending if any error encountered
-      // If a breakpoint can't be added to the program yet e.g. because the program hasn't started or the breakpoint can't
-      // be resolved, it's added to an array to be sent later.
-      if (err instanceof Error) {
-        logger.log(`[BP] Pending breakpoint #${bp.id}: ${err.message}`);
-        bp.message = err.message;
-      }
-      bp.verified = false;
-      this.pendingBreakpoints.push(bp);
-      return false;
+  public async setBreakpoint(bp: Breakpoint): Promise<void> {
+    if (!this.sourceMap) {
+      throw new Error("Program not loaded");
     }
+    // Resolve source location
+    if (bp.source && bp.line !== undefined) {
+      const path = bp.source.path ?? "";
+      const location = this.sourceMap.lookupSourceLine(path, bp.line);
+      bp.offset = location.address;
+      await this.gdb.setBreakpoint(location.address, BreakpointCode.SOFTWARE);
+    } else if (bp.accessType && bp.offset) {
+      const type = bp.accessType
+        ? accessTypeMap[bp.accessType]
+        : BreakpointCode.ACCESS;
+      await this.gdb.setBreakpoint(bp.offset, type, bp.size);
+    } else {
+      throw new Error("Unsupported breakpoint");
+    }
+
+    bp.verified = true;
+    logger.log(`[BP] Set ${breakpointToString(bp)}`);
+
+    this.breakpoints.push(bp);
   }
 
   // Pending breakpoints:
@@ -161,20 +143,6 @@ export class BreakpointManager {
   //     }
   //   }
   // }
-
-  /**
-   * Send pending breakpoints to program
-   */
-  public sendAllPendingBreakpoints = async (): Promise<void> => {
-    logger.log(`[BP] Sending pending breakpoints`);
-    if (this.pendingBreakpoints.length > 0) {
-      await this.acquireLock();
-      const pending = this.pendingBreakpoints;
-      this.pendingBreakpoints = [];
-      await Promise.all(pending.map((bp) => this.setBreakpoint(bp)));
-      this.releaseLock();
-    }
-  };
 
   // Breakpoint factories:
 
@@ -406,14 +374,17 @@ export function breakpointToString(bp: Breakpoint): string {
       out = `Source Breakpoint #${bp.id} ${bp.source?.name}:${bp.line}`;
       break;
     case BreakpointType.DATA:
-      out = `Data Breakpoint #${bp.id} ${bp.offset} ${bp.size} (${bp.accessType}`;
+      out = `Data Breakpoint #${bp.id} size: ${bp.size} accessType: ${bp.accessType}`;
       break;
     case BreakpointType.INSTRUCTION:
-      out = `Instruction Breakpoint #${bp.id} ${bp.offset}`;
+      out = `Instruction Breakpoint #${bp.id}`;
       break;
     case BreakpointType.TEMPORARY:
-      out = `Instruction Breakpoint #${bp.id} ${bp.offset}`;
+      out = `Instruction Breakpoint #${bp.id}`;
       break;
+  }
+  if (bp.offset) {
+    out += ` at ${formatAddress(bp.offset)}`;
   }
   if (bp.condition) {
     out += " condition: " + bp.condition;

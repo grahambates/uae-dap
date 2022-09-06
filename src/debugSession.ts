@@ -130,8 +130,6 @@ export class UAEDebugSession extends LoggingDebugSession {
 
     this.emulator = new Emulator();
     this.gdb = new GdbClient();
-    this.gdb.on("stop", this.handleStop.bind(this));
-    this.gdb.on("end", this.shutdown.bind(this));
     this.breakpoints = new BreakpointManager(this.gdb);
   }
 
@@ -217,20 +215,15 @@ export class UAEDebugSession extends LoggingDebugSession {
         });
       }
 
-      let retries = 30;
-
       // Delay before connecting to emulator
       if (!this.testMode) {
-        await new Promise((resolve) => setTimeout(resolve, 4000));
-        retries = 0;
+        await new Promise((resolve) => setTimeout(resolve, 10000));
       }
 
       // Connect to the emulator
-      await promiseRetry(
-        (retry) => this.gdb.connect(serverName, serverPort).catch(retry),
-        { minTimeout: 500, retries, factor: 1.1 }
-      );
-      logger.log("Connected to remote debugger");
+      logger.log(`Connecting to remote debugger...`);
+      await this.gdb.connect(serverName, serverPort);
+      logger.log("Connected");
 
       for (const threadId of [THREAD_ID_CPU, THREAD_ID_COPPER]) {
         this.sendEvent({
@@ -253,6 +246,9 @@ export class UAEDebugSession extends LoggingDebugSession {
         parseHunksFromFile(program),
       ]);
 
+      this.gdb.on("stop", this.handleStop.bind(this));
+      this.gdb.on("end", this.shutdown.bind(this));
+
       const sourceMap = new SourceMap(hunks, segments);
 
       this.program = new Program(
@@ -266,11 +262,10 @@ export class UAEDebugSession extends LoggingDebugSession {
       );
 
       // Set up breakpoints:
-      this.breakpoints.setProgram(this.program).setSourceMap(sourceMap);
+      this.breakpoints.setSourceMap(sourceMap);
       if (exceptionMask) {
         this.gdb.setExceptionBreakpoint(exceptionMask);
       }
-      // await this.breakpoints.sendAllPendingBreakpoints();
 
       this.sendEvent(new InitializedEvent());
 
@@ -526,9 +521,8 @@ Expressions:
   ) {
     this.handleAsyncRequest(response, async () => {
       await this.gdb.continueExecution(threadId);
-      response.body = { allThreadsContinued: false }; // TODO: shoule be true?
+      response.body = { allThreadsContinued: true };
     });
-    // this.sendEvent(new ContinuedEvent(threadId, allThreadsContinued));
   }
 
   protected async nextRequest(
@@ -809,13 +803,9 @@ Expressions:
 
   private async handleStop(haltStatus: HaltStatus) {
     logger.log(`[EVT] Stopped ${JSON.stringify(haltStatus)}`);
+    const threadId = haltStatus.threadId ?? THREAD_ID_CPU;
 
-    const { threadId, code } = haltStatus;
-    if (!threadId) {
-      return;
-    }
-
-    if (code !== HaltSignal.TRAP) {
+    if (haltStatus.code !== HaltSignal.TRAP) {
       this.sendStoppedEvent(threadId, "exception", false);
       return;
     }

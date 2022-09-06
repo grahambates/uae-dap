@@ -147,9 +147,9 @@ export class GdbClient {
     type = BreakpointCode.SOFTWARE,
     size?: number
   ): Promise<void> {
-    let message = `Z${type},${address}`;
+    let message = `Z${type},${formatNumber(address)}`;
     if (size !== undefined) {
-      message += `,${size}`;
+      message += `,${formatNumber(size)}`;
     }
     await this.request(message, PacketType.OK);
   }
@@ -353,12 +353,19 @@ export class GdbClient {
 
       if (responseExpected) {
         const packet = await new Promise<Packet>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            this.off("packet", testPacket);
+            reject(new Error("Request timeout"));
+          }, 500);
+
           const testPacket = (testedPacket: Packet) => {
             if (!responseType || responseType === testedPacket.type) {
+              clearTimeout(timeout);
               this.off("packet", testPacket);
               return resolve(testedPacket);
             }
             if (packet.type === PacketType.ERROR) {
+              clearTimeout(timeout);
               this.off("packet", testPacket);
               return reject(new GdbError(response));
             }
