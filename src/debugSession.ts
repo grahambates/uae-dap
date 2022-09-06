@@ -414,19 +414,10 @@ Expressions:
     args: DebugProtocol.SetBreakpointsArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      // clear all breakpoints for this file
-      await this.breakpoints.clearBreakpoints(args.source);
-      // set and verify breakpoint locations
-      const breakpoints = args.breakpoints
-        ? await Promise.all(
-            args.breakpoints.map(async (reqBp) => {
-              const bp = this.breakpoints.createBreakpoint(args.source, reqBp);
-              await this.breakpoints.setBreakpoint(bp);
-              return bp;
-            })
-          )
-        : [];
-      // send back the actual breakpoint positions
+      const breakpoints = await this.breakpoints.setSourceBreakpoints(
+        args.source,
+        args.breakpoints || []
+      );
       response.body = { breakpoints };
       response.success = true;
     });

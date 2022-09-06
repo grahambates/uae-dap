@@ -3,7 +3,7 @@ import { DebugProtocol } from "@vscode/debugprotocol";
 import { BreakpointCode, GdbClient } from "./gdbClient";
 import { isDisassembledFile } from "./disassembly";
 import { normalize } from "./utils/files";
-import { logger } from "@vscode/debugadapter";
+import { logger, Source } from "@vscode/debugadapter";
 import SourceMap from "./sourceMap";
 import { formatAddress } from "./utils/strings";
 
@@ -62,6 +62,8 @@ export class BreakpointManager {
   /** Lock for breakpoint management function */
   protected breakpointLock?: () => void;
 
+  protected sourceBreakpoints = new Map<string, number[]>();
+
   private sourceMap?: SourceMap;
 
   public constructor(private gdb: GdbClient) {}
@@ -72,6 +74,58 @@ export class BreakpointManager {
   public setSourceMap(sourceMap: SourceMap): BreakpointManager {
     this.sourceMap = sourceMap;
     return this;
+  }
+
+  public async setSourceBreakpoints(
+    source: DebugProtocol.Source,
+    breakpoints: DebugProtocol.SourceBreakpoint[]
+  ): Promise<DebugProtocol.Breakpoint[]> {
+    const key = source.path || source.sourceReference?.toString();
+    if (!key) {
+      throw new Error("Invalid source");
+    }
+
+    const existing = this.sourceBreakpoints.get(key);
+    if (existing) {
+      logger.log("Removing existing breakpoints for source " + key);
+      for (const addr of existing) {
+        await this.gdb.removeBreakpoint(addr);
+      }
+    }
+
+    const outBreakpoints: DebugProtocol.Breakpoint[] = [];
+    const addresses: number[] = [];
+
+    for (const bp of breakpoints) {
+      const outBp: DebugProtocol.Breakpoint = {
+        ...bp,
+        verified: false,
+      };
+      try {
+        if (!this.sourceMap) {
+          throw new Error("Program not loaded");
+        }
+        if (source.path) {
+          const location = this.sourceMap.lookupSourceLine(
+            source.path,
+            bp.line
+          );
+          logger.log(`Source breakoint at ${JSON.stringify(location)}`);
+          await this.gdb.setBreakpoint(location.address);
+          addresses.push(location.address);
+        } else if (source.sourceReference) {
+          // TODO
+        }
+        outBp.verified = true;
+      } catch (err) {
+        if (err instanceof Error) outBp.message = err.message;
+      }
+      outBreakpoints.push(outBp);
+    }
+
+    this.sourceBreakpoints.set(key, addresses);
+
+    return outBreakpoints;
   }
 
   /**
