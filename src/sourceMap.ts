@@ -1,5 +1,4 @@
-import { Hunk, MemoryType } from "./amigaHunkParser";
-import { Segment } from "./gdbClient";
+import { Hunk, HunkType, MemoryType } from "./amigaHunkParser";
 import { normalize } from "./utils/files";
 
 export interface Location {
@@ -12,7 +11,9 @@ export interface Location {
   segmentOffset: number;
 }
 
-export interface SegmentInfo extends Segment {
+export interface SegmentInfo {
+  name: string;
+  address: number;
   size: number;
   memType: MemoryType;
 }
@@ -24,11 +25,14 @@ class SourceMap {
   private locationsBySource = new Map<string, Map<number, Location>>();
   private locationsByAddress = new Map<number, Location>();
 
-  constructor(hunks: Hunk[], segments: Segment[]) {
-    this.segmentsInfo = segments.map((segment, i) => {
+  constructor(hunks: Hunk[], offsets: number[]) {
+    this.segmentsInfo = offsets.map((address, i) => {
       const hunk = hunks[i];
+      const type = HunkType[hunk.hunkType];
+      const mem = MemoryType[hunk.memType];
       return {
-        ...segment,
+        address,
+        name: `S${i}_${type}_${mem}`,
         size: hunk.dataSize ?? hunk.allocSize,
         memType: hunk.memType,
       };

@@ -4,11 +4,6 @@ import { logger } from "@vscode/debugadapter";
 import { Mutex } from "./utils/mutex";
 import { REGISTER_PC_INDEX } from "./registers";
 
-export interface Segment {
-  address: number;
-  name: string;
-}
-
 export interface HaltStatus {
   code: HaltSignal;
   details: string;
@@ -120,24 +115,9 @@ export class GdbClient {
     this.socket.destroy();
   }
 
-  // Segments:
-
-  public async getSegments(): Promise<Segment[]> {
-    const segmentReply = await this.request("qOffsets", PacketType.UNKNOWN);
-    // expected return message : TextSeg=00c03350;DataSeg=00c03350
-    return segmentReply.split(";").map((seg, i) => {
-      const segElms = seg.split("=");
-      let name: string;
-      let address: string;
-      if (segElms.length > 1) {
-        name = segElms[0];
-        address = segElms[1];
-      } else {
-        name = `Segment${i + 1}`;
-        address = segElms[0];
-      }
-      return { name, address: parseInt(address, 16) };
-    });
+  public async getOffsets(): Promise<number[]> {
+    const res = await this.request("qOffsets", PacketType.UNKNOWN);
+    return res.split(";").map((a) => parseInt(a, 16));
   }
 
   // Breakpoints:

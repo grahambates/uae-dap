@@ -1,51 +1,10 @@
-import { Mutex } from "./utils/mutex";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { BreakpointCode, GdbClient } from "./gdbClient";
-import { isDisassembledFile } from "./disassembly";
-import { normalize } from "./utils/files";
-import { logger, Source } from "@vscode/debugadapter";
+import { logger } from "@vscode/debugadapter";
 import SourceMap from "./sourceMap";
 import { formatAddress } from "./utils/strings";
 
-export interface Breakpoint extends DebugProtocol.Breakpoint {
-  type: BreakpointType;
-  condition?: string;
-  hitCondition?: string;
-  hitCount: number;
-  logMessage?: string;
-  size?: number;
-  accessType?: DebugProtocol.DataBreakpointAccessType;
-  temporary?: boolean;
-}
-
-export enum BreakpointType {
-  SOURCE,
-  DATA,
-  INSTRUCTION,
-  TEMPORARY,
-}
-
-export interface BreakpointStorage {
-  getSize(id: string): number | undefined;
-  setSize(id: string, size: number): void;
-  clear(): void;
-}
-
-export class BreakpointStorageMap implements BreakpointStorage {
-  private static map = new Map<string, number>();
-
-  getSize(id: string): number | undefined {
-    return BreakpointStorageMap.map.get(id);
-  }
-  setSize(id: string, size: number): void {
-    BreakpointStorageMap.map.set(id, size);
-  }
-  clear(): void {
-    BreakpointStorageMap.map = new Map<string, number>();
-  }
-}
-
-export interface SourceBreakpointReference {
+export interface BreakpointReference {
   breakpoint: DebugProtocol.SourceBreakpoint;
   address: number;
   hitCount: number;
@@ -57,60 +16,39 @@ export interface SourceBreakpointReference {
  * Handles adding and removing breakpoints to program
  */
 export class BreakpointManager {
-  /** Breakpoints selected */
-  private breakpoints: Breakpoint[] = [];
-  /** Next breakpoint id - used to assign unique IDs to created breakpoints */
-  private nextBreakpointId = 0;
-  /** Temporary breakpoints arrays */
-  private temporaryBreakpointArrays: Breakpoint[][] = [];
-  /** Mutex to just have one call to gdb */
-  protected mutex = new Mutex(100, 180000);
-  /** Lock for breakpoint management function */
-  protected breakpointLock?: () => void;
-
-  protected sourceBreakpoints = new Map<
+  private sourceBreakpoints = new Map<
     string,
-    Map<number, SourceBreakpointReference>
+    Map<number, BreakpointReference>
   >();
+  private sourceBreakpointsByAddress = new Map<number, BreakpointReference>();
+  private dataBreakpoints = new Map<number, DebugProtocol.DataBreakpoint>();
+  private instructionBreakpoints = new Set<number>();
+  private temporaryBreakpointGroups = new Set<number[]>();
 
-  protected sourceBreakpointsByAddress = new Map<
-    number,
-    SourceBreakpointReference
-  >();
-
-  private sourceMap?: SourceMap;
-
-  public constructor(private gdb: GdbClient) {}
-
-  /**
-   * Set source map
-   */
-  public setSourceMap(sourceMap: SourceMap): BreakpointManager {
-    this.sourceMap = sourceMap;
-    return this;
-  }
+  public constructor(private gdb: GdbClient, private sourceMap: SourceMap) {}
 
   public async setSourceBreakpoints(
     source: DebugProtocol.Source,
     breakpoints: DebugProtocol.SourceBreakpoint[]
   ): Promise<DebugProtocol.Breakpoint[]> {
-    const key = source.path || source.sourceReference?.toString();
-    if (!key) {
+    const sourceKey = source.path || source.sourceReference?.toString();
+    if (!sourceKey) {
       throw new Error("Invalid source");
     }
 
-    const existing = this.sourceBreakpoints.get(key);
+    // Remove existing breakpoints for source
+    const existing = this.sourceBreakpoints.get(sourceKey);
     if (existing) {
-      logger.log("Removing existing breakpoints for source " + key);
+      logger.log("Removing existing breakpoints for source " + sourceKey);
       for (const { address } of existing.values()) {
         this.sourceBreakpointsByAddress.delete(address);
         await this.gdb.removeBreakpoint(address);
       }
     }
 
+    // Add new breakpoints
     const outBreakpoints: DebugProtocol.Breakpoint[] = [];
-    const newRefs = new Map<number, SourceBreakpointReference>();
-
+    const newRefs = new Map<number, BreakpointReference>();
     for (const bp of breakpoints) {
       const outBp: DebugProtocol.Breakpoint = {
         ...bp,
@@ -121,19 +59,20 @@ export class BreakpointManager {
           throw new Error("Program not loaded");
         }
         if (source.path) {
-          const location = this.sourceMap.lookupSourceLine(
-            source.path,
-            bp.line
+          const loc = this.sourceMap.lookupSourceLine(source.path, bp.line);
+          logger.log(
+            `Source breakoint at ${loc.path}:${loc.line} ${formatAddress(
+              loc.address
+            )}`
           );
-          logger.log(`Source breakoint at ${JSON.stringify(location)}`);
-          await this.gdb.setBreakpoint(location.address);
-          const ref: SourceBreakpointReference = {
-            address: location.address,
+          await this.gdb.setBreakpoint(loc.address);
+          const ref: BreakpointReference = {
+            address: loc.address,
             breakpoint: bp,
             hitCount: 0,
           };
           newRefs.set(bp.line, ref);
-          this.sourceBreakpointsByAddress.set(location.address, ref);
+          this.sourceBreakpointsByAddress.set(loc.address, ref);
         } else if (source.sourceReference) {
           // TODO
         }
@@ -144,305 +83,128 @@ export class BreakpointManager {
       outBreakpoints.push(outBp);
     }
 
-    this.sourceBreakpoints.set(key, newRefs);
+    this.sourceBreakpoints.set(sourceKey, newRefs);
 
+    return outBreakpoints;
+  }
+
+  public async setDataBreakpoints(
+    breakpoints: DebugProtocol.DataBreakpoint[]
+  ): Promise<DebugProtocol.Breakpoint[]> {
+    const outBreakpoints: DebugProtocol.Breakpoint[] = [];
+
+    const types = {
+      read: BreakpointCode.READ,
+      write: BreakpointCode.WRITE,
+      readWrite: BreakpointCode.ACCESS,
+    };
+
+    // Clear existing data points:
+    for (const [address, bp] of this.dataBreakpoints.entries()) {
+      const type = bp.accessType ? types[bp.accessType] : BreakpointCode.ACCESS;
+      const size = 2; // TODO
+      await this.gdb.removeBreakpoint(address, type, size);
+    }
+    this.dataBreakpoints.clear();
+
+    // Process new data points:
+    for (const bp of breakpoints) {
+      const outBp: DebugProtocol.Breakpoint = {
+        ...bp,
+        verified: false,
+      };
+      outBreakpoints.push(outBp);
+      try {
+        // Parse dataId to get address
+        const match = bp.dataId.match(/(?<name>.+)\((?<displayValue>.+)\)/);
+        if (!match?.groups) {
+          throw new Error("DataId format invalid");
+        }
+        const { displayValue } = match.groups;
+        const size = 2; // TODO
+        outBp.message = `${size} bytes watched starting at ${displayValue}`;
+
+        logger.log(`Data breakoint: ${outBp.message}`);
+
+        // Set in GDB:
+        const address = parseInt(displayValue);
+        const type = bp.accessType
+          ? types[bp.accessType]
+          : BreakpointCode.ACCESS;
+        await this.gdb.setBreakpoint(address, type, size);
+
+        this.dataBreakpoints.set(address, bp);
+        outBp.verified = true;
+      } catch (err) {
+        if (err instanceof Error) outBp.message = err.message;
+      }
+    }
+    return outBreakpoints;
+  }
+
+  public async setInstructionBreakpoints(
+    breakpoints: DebugProtocol.InstructionBreakpoint[]
+  ): Promise<DebugProtocol.Breakpoint[]> {
+    const outBreakpoints: DebugProtocol.Breakpoint[] = [];
+
+    // Clear existing breakpoints:
+    for (const address of this.instructionBreakpoints.values()) {
+      await this.gdb.removeBreakpoint(address);
+    }
+    this.instructionBreakpoints.clear();
+
+    // Process new breakpoints:
+    for (const bp of breakpoints) {
+      const outBp: DebugProtocol.Breakpoint = {
+        ...bp,
+        verified: false,
+      };
+      outBreakpoints.push(outBp);
+
+      try {
+        const address = parseInt(bp.instructionReference);
+        logger.log(`Instruction Breakpoint at ${formatAddress(address)}`);
+
+        // Set in GDB:
+        await this.gdb.setBreakpoint(address);
+
+        this.instructionBreakpoints.add(address);
+        outBp.verified = true;
+      } catch (err) {
+        if (err instanceof Error) outBp.message = err.message;
+      }
+    }
     return outBreakpoints;
   }
 
   public sourceBreakpointAtAddress(
     address: number
-  ): SourceBreakpointReference | undefined {
+  ): BreakpointReference | undefined {
     return this.sourceBreakpointsByAddress.get(address);
   }
 
-  /**
-   * Set breakpoint
-   *
-   * Breakpoint will be sent to the program if ready and can be resolved, otherwise added to pending array.
-   *
-   * @returns Added immediately?
-   */
-  public async setBreakpoint(bp: Breakpoint): Promise<void> {
-    if (!this.sourceMap) {
-      throw new Error("Program not loaded");
-    }
-    // Resolve source location
-    if (bp.source && bp.line !== undefined) {
-      const path = bp.source.path ?? "";
-      const location = this.sourceMap.lookupSourceLine(path, bp.line);
-      bp.offset = location.address;
-      await this.gdb.setBreakpoint(location.address, BreakpointCode.SOFTWARE);
-    } else if (bp.accessType && bp.offset) {
-      const type = bp.accessType
-        ? accessTypeMap[bp.accessType]
-        : BreakpointCode.ACCESS;
-      await this.gdb.setBreakpoint(bp.offset, type, bp.size);
-    } else {
-      throw new Error("Unsupported breakpoint");
-    }
+  // Temporary breakpoints:
 
-    bp.verified = true;
-    logger.log(`[BP] Set ${breakpointToString(bp)}`);
-
-    this.breakpoints.push(bp);
-  }
-
-  // Breakpoint factories:
-
-  /**
-   * Create a new source breakpoint object
-   */
-  public createBreakpoint(
-    source: DebugProtocol.Source,
-    reqBp: DebugProtocol.SourceBreakpoint
-  ): Breakpoint {
-    return {
-      ...reqBp,
-      id: this.nextBreakpointId++,
-      type: BreakpointType.SOURCE,
-      source,
-      verified: false,
-      offset: 0,
-      hitCount: 0,
-    };
-  }
-
-  /**
-   * Create a new temporary breakpoint object
-   */
-  public createTemporaryBreakpoint(address: number): Breakpoint {
-    return {
-      id: this.nextBreakpointId++,
-      type: BreakpointType.TEMPORARY,
-      offset: address,
-      verified: false,
-      hitCount: 0,
-      temporary: true,
-    };
-  }
-
-  /**
-   * Create a new instruction breakpoint object
-   */
-  public createInstructionBreakpoint(address: number): Breakpoint {
-    return {
-      id: this.nextBreakpointId++,
-      type: BreakpointType.INSTRUCTION,
-      offset: address,
-      verified: false,
-      hitCount: 0,
-    };
-  }
-
-  /**
-   * Create a new data breakpoint object
-   */
-  public createDataBreakpoint(
-    offset: number,
-    size: number,
-    accessType: DebugProtocol.DataBreakpointAccessType = "readWrite",
-    message?: string
-  ): Breakpoint {
-    return {
-      id: this.nextBreakpointId++,
-      type: BreakpointType.DATA,
-      offset,
-      verified: false,
-      size,
-      accessType,
-      message,
-      hitCount: 0,
-    };
-  }
-
-  /**
-   * Ask to remove a breakpoint
-   */
-  public async removeBreakpoint(breakpoint: Breakpoint): Promise<void> {
-    logger.log(`[BP] Removing breakpoint #${breakpoint.id}`);
-    await this.acquireLock();
-    try {
-      if (breakpoint.offset) {
-        await this.gdb.removeBreakpoint(breakpoint.offset);
-      }
-      this.breakpoints = this.breakpoints.filter(
-        (bp) => bp.id !== breakpoint.id
-      );
-    } finally {
-      this.releaseLock();
-    }
-  }
-
-  // Clearing breakpoints:
-
-  /**
-   * Clear source breakpoints
-   */
-  public clearBreakpoints(source: DebugProtocol.Source): Promise<void> {
-    logger.log(`[BP] Clearing source breakpoints (source: ${source.name})`);
-    return this.clearBreakpointsType(BreakpointType.SOURCE, source);
-  }
-
-  /**
-   * Clear data breakpoints
-   */
-  public clearDataBreakpoints(): Promise<void> {
-    logger.log(`[BP] Clearing data breakpoints`);
-    return this.clearBreakpointsType(BreakpointType.DATA);
-  }
-
-  /**
-   * Clear instruction breakpoints
-   */
-  public clearInstructionBreakpoints(): Promise<void> {
-    logger.log(`[BP] Clearing instruction breakpoints`);
-    return this.clearBreakpointsType(BreakpointType.INSTRUCTION);
-  }
-
-  private async clearBreakpointsType(
-    type: BreakpointType,
-    source?: DebugProtocol.Source
-  ): Promise<void> {
-    let hasError = false;
-    const remainingBreakpoints = [];
-    await this.acquireLock();
-
-    for (const bp of this.breakpoints) {
-      const isCorrectType = bp.type === type;
-      const isSameSource =
-        source && bp.source && this.isSameSource(bp.source, source);
-
-      if (isCorrectType && (!source || isSameSource)) {
-        try {
-          if (bp.offset) {
-            await this.gdb.removeBreakpoint(bp.offset);
-          }
-        } catch (err) {
-          remainingBreakpoints.push(bp);
-          hasError = true;
-        }
-      } else {
-        remainingBreakpoints.push(bp);
-      }
-    }
-    this.breakpoints = remainingBreakpoints;
-
-    this.releaseLock();
-    if (hasError) {
-      throw new Error("Some breakpoints cannot be removed");
-    }
-  }
-
-  // Temporary breakpoints
-
-  public async addTemporaryBreakpointArray(
-    tmpBreakpoints: Breakpoint[]
-  ): Promise<void> {
-    this.temporaryBreakpointArrays.push(tmpBreakpoints);
-    for (const bp of tmpBreakpoints) {
-      if (bp.offset) {
-        await this.gdb.setBreakpoint(bp.offset);
-      }
+  public async addTemporaryBreakpoints(pc: number): Promise<void> {
+    const tmpBreakpoints = [pc + 1, pc + 2, pc + 4];
+    this.temporaryBreakpointGroups.add(tmpBreakpoints);
+    for (const offset of tmpBreakpoints) {
+      logger.log(`Temporary Breakpoint at ${formatAddress(offset)}`);
+      await this.gdb.setBreakpoint(offset);
     }
   }
 
   /**
-   * Remove temporary breakpoints which contain PC address
+   * Remove temporary breakpoints which contain current PC address
    */
   public async checkTemporaryBreakpoints(pc: number): Promise<void> {
-    await Promise.all(
-      this.temporaryBreakpointArrays
-        .filter((bps) => bps.some((bp) => bp.offset === pc))
-        .map((bps) => this.removeTemporaryBreakpointArray(bps))
-    );
-  }
-
-  public async removeTemporaryBreakpointArray(
-    tmpBreakpoints: Breakpoint[]
-  ): Promise<void> {
-    try {
-      await this.acquireLock();
-      for (const bp of tmpBreakpoints) {
-        if (bp.offset) {
-          await this.gdb.removeBreakpoint(bp.offset);
+    for (const tmpArray of this.temporaryBreakpointGroups.values()) {
+      if (tmpArray.includes(pc)) {
+        for (const offset of tmpArray) {
+          await this.gdb.removeBreakpoint(offset);
         }
+        this.temporaryBreakpointGroups.delete(tmpArray);
       }
-      this.temporaryBreakpointArrays = this.temporaryBreakpointArrays.filter(
-        (item) => item !== tmpBreakpoints
-      );
-    } finally {
-      this.releaseLock();
-    }
-  }
-
-  public createTemporaryBreakpointArray(offsets: Array<number>): Breakpoint[] {
-    return offsets.map((o) => this.createTemporaryBreakpoint(o));
-  }
-
-  // Utils:
-
-  private isSameSource(
-    source: DebugProtocol.Source,
-    other: DebugProtocol.Source
-  ): boolean {
-    return (
-      (source.path !== undefined &&
-        other.path !== undefined &&
-        normalize(source.path) === normalize(other.path)) ||
-      (source.name !== undefined &&
-        isDisassembledFile(source.name) &&
-        source.name === other.name)
-    );
-  }
-
-  private async acquireLock() {
-    this.breakpointLock = await this.mutex.capture("breakpointLock");
-  }
-
-  private releaseLock() {
-    if (this.breakpointLock) {
-      this.breakpointLock();
-      this.breakpointLock = undefined;
     }
   }
 }
-
-/**
- * Format as string for logging
- */
-export function breakpointToString(bp: Breakpoint): string {
-  let out = "";
-  switch (bp.type) {
-    case BreakpointType.SOURCE:
-      out = `Source Breakpoint #${bp.id} ${bp.source?.name}:${bp.line}`;
-      break;
-    case BreakpointType.DATA:
-      out = `Data Breakpoint #${bp.id} size: ${bp.size} accessType: ${bp.accessType}`;
-      break;
-    case BreakpointType.INSTRUCTION:
-      out = `Instruction Breakpoint #${bp.id}`;
-      break;
-    case BreakpointType.TEMPORARY:
-      out = `Instruction Breakpoint #${bp.id}`;
-      break;
-  }
-  if (bp.offset) {
-    out += ` at ${formatAddress(bp.offset)}`;
-  }
-  if (bp.condition) {
-    out += " condition: " + bp.condition;
-  }
-  if (bp.hitCondition) {
-    out += " hitCondition: " + bp.hitCondition;
-  }
-  return out;
-}
-
-const accessTypeMap: Record<
-  DebugProtocol.DataBreakpointAccessType,
-  BreakpointCode
-> = {
-  read: BreakpointCode.READ,
-  write: BreakpointCode.WRITE,
-  readWrite: BreakpointCode.ACCESS,
-};
