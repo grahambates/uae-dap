@@ -45,6 +45,12 @@ export class BreakpointStorageMap implements BreakpointStorage {
   }
 }
 
+export interface SourceBreakpointReference {
+  breakpoint: DebugProtocol.SourceBreakpoint;
+  address: number;
+  hitCount: number;
+}
+
 /**
  * Breakpoint manager
  *
@@ -62,7 +68,15 @@ export class BreakpointManager {
   /** Lock for breakpoint management function */
   protected breakpointLock?: () => void;
 
-  protected sourceBreakpoints = new Map<string, number[]>();
+  protected sourceBreakpoints = new Map<
+    string,
+    Map<number, SourceBreakpointReference>
+  >();
+
+  protected sourceBreakpointsByAddress = new Map<
+    number,
+    SourceBreakpointReference
+  >();
 
   private sourceMap?: SourceMap;
 
@@ -88,13 +102,14 @@ export class BreakpointManager {
     const existing = this.sourceBreakpoints.get(key);
     if (existing) {
       logger.log("Removing existing breakpoints for source " + key);
-      for (const addr of existing) {
-        await this.gdb.removeBreakpoint(addr);
+      for (const { address } of existing.values()) {
+        this.sourceBreakpointsByAddress.delete(address);
+        await this.gdb.removeBreakpoint(address);
       }
     }
 
     const outBreakpoints: DebugProtocol.Breakpoint[] = [];
-    const addresses: number[] = [];
+    const newRefs = new Map<number, SourceBreakpointReference>();
 
     for (const bp of breakpoints) {
       const outBp: DebugProtocol.Breakpoint = {
@@ -112,7 +127,13 @@ export class BreakpointManager {
           );
           logger.log(`Source breakoint at ${JSON.stringify(location)}`);
           await this.gdb.setBreakpoint(location.address);
-          addresses.push(location.address);
+          const ref: SourceBreakpointReference = {
+            address: location.address,
+            breakpoint: bp,
+            hitCount: 0,
+          };
+          newRefs.set(bp.line, ref);
+          this.sourceBreakpointsByAddress.set(location.address, ref);
         } else if (source.sourceReference) {
           // TODO
         }
@@ -123,9 +144,15 @@ export class BreakpointManager {
       outBreakpoints.push(outBp);
     }
 
-    this.sourceBreakpoints.set(key, addresses);
+    this.sourceBreakpoints.set(key, newRefs);
 
     return outBreakpoints;
+  }
+
+  public sourceBreakpointAtAddress(
+    address: number
+  ): SourceBreakpointReference | undefined {
+    return this.sourceBreakpointsByAddress.get(address);
   }
 
   /**
@@ -159,44 +186,6 @@ export class BreakpointManager {
 
     this.breakpoints.push(bp);
   }
-
-  // Pending breakpoints:
-
-  /**
-   * Find the breakpoint corresponding to a source line
-   */
-  public findSourceBreakpoint(source?: DebugProtocol.Source, line?: number) {
-    const bp = this.breakpoints.find(
-      (bp) =>
-        bp.source &&
-        source &&
-        this.isSameSource(bp.source, source) &&
-        bp.line === line
-    );
-    if (bp) {
-      logger.log(`[BP] Found breakpoint ${bp.id} for ${source?.name}:${line}`);
-    } else {
-      logger.log(`[BP] Could not find breakpoint for ${source?.name}:${line}`);
-    }
-    return bp;
-  }
-
-  // /**
-  //  * Add segment and offset to pending breakpoints
-  //  */
-  // public async addLocationToPending(): Promise<void> {
-  //   if (!this.program) {
-  //     return;
-  //   }
-  //   for (const bp of this.pendingBreakpoints) {
-  //     if (bp.source && bp.line) {
-  //       const path = bp.source.path ?? "";
-  //       if (!isDisassembledFile(path)) {
-  //         await this.addLocation(bp, path, bp.line);
-  //       }
-  //     }
-  //   }
-  // }
 
   // Breakpoint factories:
 

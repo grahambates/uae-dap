@@ -21,6 +21,7 @@ import {
 } from "./breakpoints";
 import {
   base64ToHex,
+  formatAddress,
   formatHexadecimal,
   hexToBase64,
   NumberFormat,
@@ -795,72 +796,78 @@ Expressions:
   private async handleStop(haltStatus: HaltStatus) {
     logger.log(`[EVT] Stopped ${JSON.stringify(haltStatus)}`);
     const threadId = haltStatus.threadId ?? THREAD_ID_CPU;
+    assertIsDefined(this.program);
 
     if (haltStatus.code !== HaltSignal.TRAP) {
       this.sendStoppedEvent(threadId, "exception", false);
       return;
     }
 
-    // Should we send a stop message to the client?
-    // May want to cancel for conditional or log breakpoints
-    let stop = true;
+    const { pc, stackFrameIndex } = await this.getStackPosition(threadId, -1);
+
+    const sourceBpRef = this.breakpoints.sourceBreakpointAtAddress(pc);
 
     // Check for conditional or log breakpoints:
+    let stop = true;
 
-    // Find the breakpoint that was hit
-    // first need to get the source line from the stack trace
-    const positions = await this.getStack(threadId);
-    assertIsDefined(this.program);
-    const [fr] = await this.program.getStackTrace(threadId, positions);
-    // get the breakpoint at this source location:
-    const bp = this.breakpoints.findSourceBreakpoint(fr?.source, fr?.line);
-
-    if (bp) {
-      logger.log(`[EVT] Matched ${breakpointToString(bp)})`);
-    }
-
-    if (bp) {
+    if (sourceBpRef) {
+      logger.log(
+        `[EVT] Matched source breakpoint at address ${formatAddress(pc)}`
+      );
+      const bp = sourceBpRef.breakpoint;
       if (bp.logMessage) {
         // Interpolate variables
         const message = await replaceAsync(
           bp.logMessage,
           /\{((#\{((#\{[^}]*\})|[^}])*\})|[^}])*\}/g, // Up to two levels of nesting
-          (match) => {
-            assertIsDefined(this.program);
-            return this.program
-              .evaluate(match.substring(1, match.length - 1), fr.id)
-              .then((v) => formatHexadecimal(v, 0))
-              .catch(() => "#error");
+          async (match) => {
+            try {
+              assertIsDefined(this.program);
+              const v = await this.program.evaluate(
+                match.substring(1, match.length - 1),
+                stackFrameIndex
+              );
+              return formatHexadecimal(v, 0);
+            } catch {
+              return "#error";
+            }
           }
         );
         this.output(message + "\n");
         stop = false;
-      } else if (bp.condition) {
-        const result = await this.program.evaluate(bp.condition, fr.id);
-        stop = !!result;
-        logger.log(
-          `[EVT] Evaluating conditional breakpoint #${bp.id}: ${bp.condition} = ${stop}`
+      }
+      if (bp.condition) {
+        const result = await this.program.evaluate(
+          bp.condition,
+          stackFrameIndex
         );
-      } else if (bp.hitCondition) {
-        const result = await this.program.evaluate(bp.hitCondition, fr.id);
-        if (++bp.hitCount === result) {
-          logger.log(
-            `[EVT] Removing breakpoint #${bp.id} after reaching hit count ${result}`
-          );
-          this.breakpoints.removeBreakpoint(bp);
+        const stop = !!result;
+        logger.log(
+          `[EVT] Evaluated conditional breakpoint ${bp.condition} = ${stop}`
+        );
+      }
+      if (bp.hitCondition) {
+        const evaluatedCondition = await this.program.evaluate(
+          bp.hitCondition,
+          stackFrameIndex
+        );
+        if (++sourceBpRef.hitCount === evaluatedCondition) {
+          logger.log(`[EVT] Hit count reached: ${evaluatedCondition}`);
+          this.gdb.removeBreakpoint(pc);
         } else {
+          logger.log(
+            `[EVT] Hit count not reached: ${sourceBpRef.hitCount}/${evaluatedCondition}`
+          );
           stop = false;
         }
       }
     }
 
-    // Send stop event or resume execution
     if (stop) {
       logger.log(`[EVT] stopping at breakpoint`);
       this.sendStoppedEvent(threadId, "breakpoint", false);
     } else {
-      logger.log(`[EVT] continuing execution`);
-      this.gdb.continueExecution(threadId);
+      await this.gdb.continueExecution(threadId);
     }
   }
 
@@ -912,7 +919,7 @@ Expressions:
     });
   }
 
-  public async getStack(threadId: number): Promise<StackPosition[]> {
+  private async getStack(threadId: number): Promise<StackPosition[]> {
     const stackPositions: StackPosition[] = [];
     let stackPosition = await this.getStackPosition(threadId, -1);
     stackPositions.push(stackPosition);
@@ -926,7 +933,7 @@ Expressions:
     return stackPositions;
   }
 
-  protected async getStackPosition(
+  private async getStackPosition(
     threadId: number,
     frameIndex: number
   ): Promise<StackPosition> {
