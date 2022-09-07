@@ -10,7 +10,7 @@ import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
 
 import { BreakpointCode, GdbClient, HaltSignal, HaltStatus } from "./gdbClient";
-import { BreakpointManager } from "./breakpoints";
+import BreakpointManager from "./breakpoints";
 import {
   base64ToHex,
   formatAddress,

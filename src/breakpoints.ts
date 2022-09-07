@@ -15,14 +15,19 @@ export interface BreakpointReference {
  *
  * Handles adding and removing breakpoints to program
  */
-export class BreakpointManager {
+class BreakpointManager {
+  /** Source breakpoints mapped by source and line number */
   private sourceBreakpoints = new Map<
     string,
     Map<number, BreakpointReference>
   >();
+  /** Source breakpoints mapped by address */
   private sourceBreakpointsByAddress = new Map<number, BreakpointReference>();
+  /** Data breakpoints mapped by address */
   private dataBreakpoints = new Map<number, DebugProtocol.DataBreakpoint>();
+  /** Instruction breakoint addresses */
   private instructionBreakpoints = new Set<number>();
+  /** Temporary breakoint address groups */
   private temporaryBreakpointGroups = new Set<number[]>();
 
   public constructor(private gdb: GdbClient, private sourceMap: SourceMap) {}
@@ -186,6 +191,7 @@ export class BreakpointManager {
   // Temporary breakpoints:
 
   public async addTemporaryBreakpoints(pc: number): Promise<void> {
+    // Set breakpoints at three possible offsets from PC
     const tmpBreakpoints = [pc + 1, pc + 2, pc + 4];
     this.temporaryBreakpointGroups.add(tmpBreakpoints);
     for (const offset of tmpBreakpoints) {
@@ -198,6 +204,7 @@ export class BreakpointManager {
    * Remove temporary breakpoints which contain current PC address
    */
   public async checkTemporaryBreakpoints(pc: number): Promise<void> {
+    // Remove the breakpoints once any of the possbile offsets is reached.
     for (const tmpArray of this.temporaryBreakpointGroups.values()) {
       if (tmpArray.includes(pc)) {
         for (const offset of tmpArray) {
@@ -208,3 +215,5 @@ export class BreakpointManager {
     }
   }
 }
+
+export default BreakpointManager;
