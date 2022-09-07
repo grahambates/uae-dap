@@ -11,9 +11,10 @@ import {
   disassembledFileToPath,
   disassembledFileFromPath,
 } from "./disassembledFile";
-import { StackPosition, THREAD_ID_COPPER } from "../debugSession";
 import SourceMap from "../sourceMap";
 import { basename } from "path";
+import { Threads } from "../hardware";
+import { StackPosition } from "../stackManager";
 
 export interface DisassembledLine {
   text: string;
@@ -204,7 +205,7 @@ export class DisassemblyManager {
     }
 
     let text = formatAddress(pc) + ": ";
-    const isCopper = threadId === THREAD_ID_COPPER;
+    const isCopper = threadId === Threads.COPPER;
     try {
       const memory = await this.gdb.readMemory(pc, 10);
       if (isCopper) {

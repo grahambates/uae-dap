@@ -28,11 +28,9 @@ class SourceMap {
   constructor(hunks: Hunk[], offsets: number[]) {
     this.segmentsInfo = offsets.map((address, i) => {
       const hunk = hunks[i];
-      const type = HunkType[hunk.hunkType];
-      const mem = MemoryType[hunk.memType];
       return {
         address,
-        name: `S${i}_${type}_${mem}`,
+        name: `Seg${i}_${hunk.hunkType}_${hunk.memType}`,
         size: hunk.dataSize ?? hunk.allocSize,
         memType: hunk.memType,
       };

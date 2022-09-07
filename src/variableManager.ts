@@ -8,11 +8,7 @@ import {
   CUSTOM_BASE,
   vectors,
 } from "./hardware";
-import {
-  disassemble,
-  disassembleCopper,
-  DisassemblyManager,
-} from "./disassembly";
+import { disassemble, disassembleCopper } from "./disassembly";
 import { GdbClient } from "./gdbClient";
 import {
   bitValue,
@@ -69,8 +65,6 @@ class VariableManager {
   private scopes = new Handles<ScopeReference>();
   /** Variables lookup by handle */
   private referencedVariables = new Map<number, DebugProtocol.Variable[]>();
-  /** Manager of disassembled code */
-  private disassemblyManager: DisassemblyManager;
   /** Lazy loaded constants extracted from current file source */
   private sourceConstants?: Record<string, number>;
   /** Store format options for specific variables */
@@ -81,9 +75,7 @@ class VariableManager {
     private sourceMap: SourceMap,
     private constantResolver?: SourceConstantResolver,
     private memoryFormats: Record<string, MemoryFormat> = {}
-  ) {
-    this.disassemblyManager = new DisassemblyManager(gdb, this, this.sourceMap);
-  }
+  ) {}
 
   /**
    * Read memory from address
@@ -91,7 +83,6 @@ class VariableManager {
    * @param length Length of data to read in bytes
    */
   private async getMemory(address: number, length = 4): Promise<number> {
-    // await this.gdb.waitConnected();
     const hex = await this.gdb.readMemory(address, length);
     return parseInt(hex, 16);
   }
@@ -142,39 +133,35 @@ class VariableManager {
   public async getVariables(
     frameId?: number
   ): Promise<Record<string, number | Record<string, number>>> {
-    // await this.gdb.waitConnected();
-    if (frameId) {
-      // TODO: mutex
-      await this.gdb.selectFrame(frameId);
-    }
-    const registers = await this.gdb.getRegisters();
-    const namedRegisters = nameRegisters(registers);
-    const registerEntries = namedRegisters.reduce<
-      Record<string, number | Record<string, number>>
-    >((acc, v) => {
-      acc[v.name] = v.value;
-      // Store size/sign fields in prefixed object
-      // The prefix will be stripped out later when evaluating the expression
-      if (v.name.match(/^[ad]/i)) {
-        acc["__OBJ__" + v.name] = this.registerFields(v.value);
-      }
-      return acc;
-    }, {});
-    const sourceConstants = await this.getSourceConstants();
+    return this.gdb.withFrame(frameId, async () => {
+      const registers = await this.gdb.getRegisters();
+      const namedRegisters = nameRegisters(registers);
+      const registerEntries = namedRegisters.reduce<
+        Record<string, number | Record<string, number>>
+      >((acc, v) => {
+        acc[v.name] = v.value;
+        // Store size/sign fields in prefixed object
+        // The prefix will be stripped out later when evaluating the expression
+        if (v.name.match(/^[ad]/i)) {
+          acc["__OBJ__" + v.name] = this.registerFields(v.value);
+        }
+        return acc;
+      }, {});
+      const sourceConstants = await this.getSourceConstants();
 
-    return {
-      ...customRegisterAddresses,
-      ...this.sourceMap.getSymbols(),
-      ...sourceConstants,
-      ...registerEntries,
-    };
+      return {
+        ...customRegisterAddresses,
+        ...this.sourceMap.getSymbols(),
+        ...sourceConstants,
+        ...registerEntries,
+      };
+    });
   }
 
   public async getCompletions(
     text: string,
     frameId?: number
   ): Promise<DebugProtocol.CompletionItem[]> {
-    // await this.gdb.waitConnected();
     const words = text.split(/[^\w.]/);
     const lastWord = words.pop();
     if (!lastWord) {
@@ -194,30 +181,31 @@ class VariableManager {
       return vars.filter((v) => v.label.startsWith(parts[1]));
     }
 
-    if (frameId) {
-      // TODO: mutex
-      await this.gdb.selectFrame(frameId);
-    }
-    const registers = await this.gdb.getRegisters();
-    const namedRegisters = nameRegisters(registers);
-    const sourceConstants = await this.getSourceConstants();
+    return this.gdb.withFrame(frameId, async () => {
+      const registers = await this.gdb.getRegisters();
+      const namedRegisters = nameRegisters(registers);
+      const sourceConstants = await this.getSourceConstants();
 
-    const vars: DebugProtocol.CompletionItem[] = [
-      ...Object.values(customRegisterNames).map((label) => ({
-        label,
-        detail: "Custom",
-      })),
-      ...Object.keys(this.sourceMap.getSymbols()).map((label) => ({
-        label,
-        detail: "Symbol",
-      })),
-      ...Object.keys(sourceConstants).map((label) => ({
-        label,
-        detail: "Constant",
-      })),
-      ...namedRegisters.map((reg) => ({ label: reg.name, detail: "Register" })),
-    ];
-    return vars.filter((v) => v.label.startsWith(lastWord));
+      const vars: DebugProtocol.CompletionItem[] = [
+        ...Object.values(customRegisterNames).map((label) => ({
+          label,
+          detail: "Custom",
+        })),
+        ...Object.keys(this.sourceMap.getSymbols()).map((label) => ({
+          label,
+          detail: "Symbol",
+        })),
+        ...Object.keys(sourceConstants).map((label) => ({
+          label,
+          detail: "Constant",
+        })),
+        ...namedRegisters.map((reg) => ({
+          label: reg.name,
+          detail: "Register",
+        })),
+      ];
+      return vars.filter((v) => v.label.startsWith(lastWord));
+    });
   }
 
   private registerFields(value: number) {
@@ -259,7 +247,6 @@ class VariableManager {
 
     // Get reference info in order to populate variables
     const { type, frameId } = this.getScopeReference(variablesReference);
-    // await this.gdb.waitConnected();
 
     switch (type) {
       case ScopeType.Registers:
@@ -292,136 +279,137 @@ class VariableManager {
   private async getRegisterVariables(
     frameId: number
   ): Promise<DebugProtocol.Variable[]> {
-    await this.gdb.selectFrame(frameId); // TODO: mutex
-    const registers = await this.gdb.getRegisters();
-    const namedRegisters = nameRegisters(registers);
+    return this.gdb.withFrame(frameId, async () => {
+      const registers = await this.gdb.getRegisters();
+      const namedRegisters = nameRegisters(registers);
 
-    // Stack register properties go in their own variables array to be fetched later by reference
-    const sr = namedRegisters
-      .filter(({ name }) => name.startsWith("SR_"))
-      .map(({ name, value }) => ({
-        name: name.substring(3),
-        type: "register",
-        value: this.formatVariable(name, value, NumberFormat.DECIMAL),
-        variablesReference: 0,
-        memoryReference: value.toString(),
-      }));
-
-    const srScope = this.scopes.create({
-      type: ScopeType.StatusRegister,
-      frameId,
-    });
-    this.referencedVariables.set(srScope, sr);
-
-    // All other registers returned
-    return namedRegisters
-      .filter(({ name }) => !name.startsWith("SR_"))
-      .map(({ name, value }) => {
-        let formatted = this.formatVariable(
-          name,
-          value,
-          NumberFormat.HEXADECIMAL,
-          4
-        );
-        // Add offset to address registers
-        if (name.startsWith("a") || name === "pc") {
-          const offset = this.symbolOffset(value);
-          if (offset) {
-            formatted += ` (${offset})`;
-          }
-        }
-
-        let variablesReference = 0;
-
-        if (name.startsWith("sr")) {
-          // Reference to stack register fields
-          variablesReference = srScope;
-        } else if (name !== "pc") {
-          // Size / sign variants as fields
-          const fields = this.registerFields(value);
-          const fieldVars: DebugProtocol.Variable[] = [
-            {
-              name: "b",
-              type: "register",
-              value: this.formatVariable(
-                "b",
-                fields.b,
-                NumberFormat.HEXADECIMAL,
-                1
-              ),
-              variablesReference: 0,
-            },
-            {
-              name: "bs",
-              type: "register",
-              value: this.formatVariable(
-                "bs",
-                fields.bs,
-                NumberFormat.HEXADECIMAL,
-                1
-              ),
-              variablesReference: 0,
-            },
-            {
-              name: "w",
-              type: "register",
-              value: this.formatVariable(
-                "w",
-                fields.w,
-                NumberFormat.HEXADECIMAL,
-                2
-              ),
-              variablesReference: 0,
-            },
-            {
-              name: "ws",
-              type: "register",
-              value: this.formatVariable(
-                "ws",
-                fields.ws,
-                NumberFormat.HEXADECIMAL,
-                2
-              ),
-              variablesReference: 0,
-            },
-            {
-              name: "l",
-              type: "register",
-              value: this.formatVariable(
-                "l",
-                fields.l,
-                NumberFormat.HEXADECIMAL,
-                4
-              ),
-              variablesReference: 0,
-            },
-            {
-              name: "ls",
-              type: "register",
-              value: this.formatVariable(
-                "ls",
-                fields.ls,
-                NumberFormat.HEXADECIMAL,
-                4
-              ),
-              variablesReference: 0,
-            },
-          ];
-          variablesReference = this.scopes.create({
-            type: ScopeType.Registers,
-            frameId,
-          });
-          this.referencedVariables.set(variablesReference, fieldVars);
-        }
-
-        return {
-          name,
+      // Stack register properties go in their own variables array to be fetched later by reference
+      const sr = namedRegisters
+        .filter(({ name }) => name.startsWith("SR_"))
+        .map(({ name, value }) => ({
+          name: name.substring(3),
           type: "register",
-          value: formatted,
-          variablesReference,
+          value: this.formatVariable(name, value, NumberFormat.DECIMAL),
+          variablesReference: 0,
           memoryReference: value.toString(),
-        };
+        }));
+
+      const srScope = this.scopes.create({
+        type: ScopeType.StatusRegister,
+        frameId,
       });
+      this.referencedVariables.set(srScope, sr);
+
+      // All other registers returned
+      return namedRegisters
+        .filter(({ name }) => !name.startsWith("SR_"))
+        .map(({ name, value }) => {
+          let formatted = this.formatVariable(
+            name,
+            value,
+            NumberFormat.HEXADECIMAL,
+            4
+          );
+          // Add offset to address registers
+          if (name.startsWith("a") || name === "pc") {
+            const offset = this.symbolOffset(value);
+            if (offset) {
+              formatted += ` (${offset})`;
+            }
+          }
+
+          let variablesReference = 0;
+
+          if (name.startsWith("sr")) {
+            // Reference to stack register fields
+            variablesReference = srScope;
+          } else if (name !== "pc") {
+            // Size / sign variants as fields
+            const fields = this.registerFields(value);
+            const fieldVars: DebugProtocol.Variable[] = [
+              {
+                name: "b",
+                type: "register",
+                value: this.formatVariable(
+                  "b",
+                  fields.b,
+                  NumberFormat.HEXADECIMAL,
+                  1
+                ),
+                variablesReference: 0,
+              },
+              {
+                name: "bs",
+                type: "register",
+                value: this.formatVariable(
+                  "bs",
+                  fields.bs,
+                  NumberFormat.HEXADECIMAL,
+                  1
+                ),
+                variablesReference: 0,
+              },
+              {
+                name: "w",
+                type: "register",
+                value: this.formatVariable(
+                  "w",
+                  fields.w,
+                  NumberFormat.HEXADECIMAL,
+                  2
+                ),
+                variablesReference: 0,
+              },
+              {
+                name: "ws",
+                type: "register",
+                value: this.formatVariable(
+                  "ws",
+                  fields.ws,
+                  NumberFormat.HEXADECIMAL,
+                  2
+                ),
+                variablesReference: 0,
+              },
+              {
+                name: "l",
+                type: "register",
+                value: this.formatVariable(
+                  "l",
+                  fields.l,
+                  NumberFormat.HEXADECIMAL,
+                  4
+                ),
+                variablesReference: 0,
+              },
+              {
+                name: "ls",
+                type: "register",
+                value: this.formatVariable(
+                  "ls",
+                  fields.ls,
+                  NumberFormat.HEXADECIMAL,
+                  4
+                ),
+                variablesReference: 0,
+              },
+            ];
+            variablesReference = this.scopes.create({
+              type: ScopeType.Registers,
+              frameId,
+            });
+            this.referencedVariables.set(variablesReference, fieldVars);
+          }
+
+          return {
+            name,
+            type: "register",
+            value: formatted,
+            variablesReference,
+            memoryReference: value.toString(),
+          };
+        });
+    });
   }
 
   private getSegmentVariables(): DebugProtocol.Variable[] {
@@ -462,7 +450,6 @@ class VariableManager {
   }
 
   private async getVectorVariables(): Promise<DebugProtocol.Variable[]> {
-    // await this.gdb.waitConnected();
     const memory = await this.gdb.readMemory(0, 0xc0);
     const chunks = chunk(memory.toString(), 8).map((chunk) =>
       parseInt(chunk, 16)
@@ -506,7 +493,6 @@ class VariableManager {
     frameId: number
   ): Promise<DebugProtocol.Variable[]> {
     // Read memory starting at $dff000 and chunk into words
-    // await this.gdb.waitConnected();
     const memory = await this.gdb.readMemory(CUSTOM_BASE, 0x1fe);
     const chunks = chunk(memory.toString(), 4);
 
@@ -1041,7 +1027,6 @@ class VariableManager {
       }
     | undefined
   > {
-    // await this.gdb.waitConnected();
     let variables: DebugProtocol.Variable[] | undefined;
     let result: string | undefined;
 
@@ -1074,27 +1059,26 @@ class VariableManager {
         return;
       default:
         if (isRegister) {
-          if (frameId) {
-            await this.gdb.selectFrame(frameId);
-          }
-          const address = await this.gdb.getRegister(
-            getRegisterIndex(expression)
-          );
-          if (expression.startsWith("a") && context === "watch") {
-            variables = await this.readMemoryAsVariables(
-              address,
-              length,
-              wordLength,
-              rowLength
+          await this.gdb.withFrame(frameId, async () => {
+            const address = await this.gdb.getRegister(
+              getRegisterIndex(expression)
             );
-          } else {
-            result = this.formatVariable(
-              expression,
-              address,
-              NumberFormat.HEXADECIMAL,
-              4
-            );
-          }
+            if (expression.startsWith("a") && context === "watch") {
+              variables = await this.readMemoryAsVariables(
+                address,
+                length,
+                wordLength,
+                rowLength
+              );
+            } else {
+              result = this.formatVariable(
+                expression,
+                address,
+                NumberFormat.HEXADECIMAL,
+                4
+              );
+            }
+          });
         } else if (isSymbol && (context === "watch" || context === "hover")) {
           const address = symbols[expression];
           variables = await this.readMemoryAsVariables(

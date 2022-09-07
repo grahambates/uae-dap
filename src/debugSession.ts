@@ -5,13 +5,17 @@ import {
   InvalidatedEvent,
   logger,
   LoggingDebugSession,
-  StackFrame,
-  Source,
 } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
 
-import { BreakpointCode, GdbClient, HaltSignal, HaltStatus } from "./gdbClient";
+import {
+  BreakpointCode,
+  GdbClient,
+  HaltSignal,
+  HaltStatus,
+  DEFAULT_FRAME_INDEX,
+} from "./gdbClient";
 import BreakpointManager from "./breakpointManager";
 import {
   base64ToHex,
@@ -30,18 +34,10 @@ import VariableManager, {
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
 import { parseHunksFromFile } from "./amigaHunkParser";
 import SourceMap from "./sourceMap";
-import { REGISTER_COPPER_ADDR_INDEX, REGISTER_PC_INDEX } from "./registers";
-import { basename } from "path";
 import { DisassemblyManager } from "./disassembly";
-
-export const THREAD_ID_CPU = 1;
-export const THREAD_ID_COPPER = 2;
-
-export interface StackPosition {
-  index: number;
-  stackFrameIndex: number;
-  pc: number;
-}
+import { Threads } from "./hardware";
+import StackManager from "./stackManager";
+import promiseRetry from "promise-retry";
 
 export interface LaunchRequestArguments
   extends DebugProtocol.LaunchRequestArguments {
@@ -104,10 +100,13 @@ export class UAEDebugSession extends LoggingDebugSession {
   protected testMode = false;
   protected trace = false;
   protected exceptionMask?: number;
-  protected sourceMap?: SourceMap;
   protected breakpoints?: BreakpointManager;
   protected variables?: VariableManager;
   protected disassembly?: DisassemblyManager;
+  protected stack?: StackManager;
+  protected firstStop = true;
+  protected stopOnEntry = false;
+  protected stepping = false;
 
   public constructor() {
     super();
@@ -117,6 +116,8 @@ export class UAEDebugSession extends LoggingDebugSession {
 
     this.emulator = new Emulator();
     this.gdb = new GdbClient();
+    this.gdb.on("stop", this.handleStop.bind(this));
+    this.gdb.on("end", this.shutdown.bind(this));
   }
 
   protected initializeRequest(
@@ -177,6 +178,10 @@ export class UAEDebugSession extends LoggingDebugSession {
       if (!program) {
         throw new Error("Missing program argument in launch request");
       }
+      const hunks = await parseHunksFromFile(program);
+
+      this.firstStop = true;
+      this.stopOnEntry = stopOnEntry;
 
       this.trace = trace;
       logger.init((e) => this.sendEvent(e));
@@ -201,17 +206,43 @@ export class UAEDebugSession extends LoggingDebugSession {
         });
       }
 
-      // Delay before connecting to emulator
-      if (!this.testMode) {
-        await new Promise((resolve) => setTimeout(resolve, 8000));
-      }
+      //       // Delay before connecting to emulator
+      //       if (!this.testMode) {
+      //         await new Promise((resolve) => setTimeout(resolve, 1000));
+      //       }
 
       // Connect to the emulator
-      logger.log(`Connecting to remote debugger...`);
-      await this.gdb.connect(serverName, serverPort);
-      logger.log("Connected");
+      await promiseRetry(
+        (retry, attempt) => {
+          logger.log(`Connecting to remote debugger... [${attempt}]`);
+          return this.gdb.connect(serverName, serverPort).catch(retry);
+        },
+        { retries: 5, factor: 1.1 }
+      );
 
-      for (const threadId of [THREAD_ID_CPU, THREAD_ID_COPPER]) {
+      const offsets = await this.gdb.getOffsets();
+      const sourceMap = new SourceMap(hunks, offsets);
+      this.variables = new VariableManager(
+        this.gdb,
+        sourceMap,
+        this.getSourceConstantResolver(args),
+        {
+          ...defaultMemoryFormats,
+          ...memoryFormats,
+        }
+      );
+      this.breakpoints = new BreakpointManager(this.gdb, sourceMap);
+      this.disassembly = new DisassemblyManager(
+        this.gdb,
+        this.variables,
+        sourceMap
+      );
+      this.stack = new StackManager(this.gdb, sourceMap, this.disassembly);
+
+      this.gdb.setExceptionBreakpoint(exceptionMask);
+      this.exceptionMask = exceptionMask;
+
+      for (const threadId of [Threads.CPU, Threads.COPPER]) {
         this.sendEvent({
           event: "thread",
           body: {
@@ -221,47 +252,15 @@ export class UAEDebugSession extends LoggingDebugSession {
         } as DebugProtocol.Event); // TODO: why missing props?
       }
 
-      if (stopOnEntry) {
+      if (this.stopOnEntry) {
         logger.log("Stopping on entry");
-        this.sendStoppedEvent(THREAD_ID_CPU, "entry");
-        await this.gdb.stepIn(THREAD_ID_CPU);
+        await this.gdb.stepIn(Threads.CPU);
+      } else {
+        logger.log("Continuing on entry");
+        await this.gdb.continueExecution(Threads.CPU);
       }
-
-      const [offsets, hunks] = await Promise.all([
-        this.gdb.getOffsets(),
-        parseHunksFromFile(program),
-      ]);
-
-      this.gdb.on("stop", this.handleStop.bind(this));
-      this.gdb.on("end", this.shutdown.bind(this));
-
-      this.sourceMap = new SourceMap(hunks, offsets);
-
-      // Initialise managers:
-      this.variables = new VariableManager(
-        this.gdb,
-        this.sourceMap,
-        this.getSourceConstantResolver(args),
-        {
-          ...defaultMemoryFormats,
-          ...memoryFormats,
-        }
-      );
-      this.breakpoints = new BreakpointManager(this.gdb, this.sourceMap);
-      this.disassembly = new DisassemblyManager(
-        this.gdb,
-        this.variables,
-        this.sourceMap
-      );
-
-      this.gdb.setExceptionBreakpoint(exceptionMask);
-      this.exceptionMask = exceptionMask;
 
       this.sendEvent(new InitializedEvent());
-
-      if (!stopOnEntry) {
-        await this.gdb.continueExecution(THREAD_ID_CPU);
-      }
 
       this.sendResponse(response);
     } catch (err) {
@@ -487,8 +486,8 @@ Expressions:
   protected async threadsRequest(response: DebugProtocol.ThreadsResponse) {
     response.body = {
       threads: [
-        { id: THREAD_ID_CPU, name: "cpu" },
-        { id: THREAD_ID_COPPER, name: "copper" },
+        { id: Threads.CPU, name: "cpu" },
+        { id: Threads.COPPER, name: "copper" },
       ],
     };
     this.sendResponse(response);
@@ -499,13 +498,14 @@ Expressions:
     { threadId }: DebugProtocol.StackTraceArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const positions = await this.getStack(threadId);
-
-      if (threadId === THREAD_ID_CPU && positions[0]) {
+      const positions = await this.stackManager().getPositions(threadId);
+      if (threadId === Threads.CPU && positions[0]) {
         this.breakpointManager().checkTemporaryBreakpoints(positions[0].pc);
       }
-
-      const stackFrames = await this.getStackTrace(threadId, positions);
+      const stackFrames = await this.stackManager().getStackTrace(
+        threadId,
+        positions
+      );
       await Promise.all(
         stackFrames.map(({ source }) => this.processSource(source))
       );
@@ -520,9 +520,67 @@ Expressions:
   ): void {
     this.handleAsyncRequest(response, async () => {
       response.body = {
-        scopes: this.variables?.getScopes(frameId) ?? [],
+        scopes: this.variableManager().getScopes(frameId),
       };
     });
+  }
+
+  // Navigation:
+
+  protected async pauseRequest(
+    response: DebugProtocol.PauseResponse,
+    { threadId }: DebugProtocol.PauseArguments
+  ) {
+    this.sendResponse(response);
+    await this.gdb.pause(threadId);
+    this.stepping = true;
+    this.sendStoppedEvent(threadId, "pause", false);
+  }
+
+  protected async continueRequest(
+    response: DebugProtocol.ContinueResponse,
+    { threadId }: DebugProtocol.ContinueArguments
+  ) {
+    response.body = { allThreadsContinued: true };
+    this.sendResponse(response);
+    this.stepping = false;
+    await this.gdb.continueExecution(threadId);
+  }
+
+  protected async nextRequest(
+    response: DebugProtocol.NextResponse,
+    { threadId }: DebugProtocol.NextArguments
+  ): Promise<void> {
+    this.sendResponse(response);
+    const [frame] = await this.stackManager().getPositions(threadId);
+    this.stepping = true;
+    await this.gdb.stepToRange(threadId, frame.pc, frame.pc);
+  }
+
+  protected async stepInRequest(
+    response: DebugProtocol.StepInResponse,
+    { threadId }: DebugProtocol.StepInArguments
+  ) {
+    this.sendResponse(response);
+    this.stepping = true;
+    await this.gdb.stepIn(threadId);
+  }
+
+  protected async stepOutRequest(
+    response: DebugProtocol.StepOutResponse,
+    { threadId }: DebugProtocol.StepOutArguments
+  ): Promise<void> {
+    const positions = await this.stackManager().getPositions(threadId);
+    if (positions[1]) {
+      this.sendResponse(response);
+      this.stepping = true;
+      await this.breakpointManager().addTemporaryBreakpoints(positions[1].pc);
+      await this.gdb.continueExecution(threadId);
+    } else {
+      response.body.success = false;
+      this.sendResponse(response);
+      logger.log(`No frame to step out to ${JSON.stringify(positions)}`);
+    }
   }
 
   // Variables:
@@ -556,128 +614,6 @@ Expressions:
     });
   }
 
-  // Navigation:
-
-  protected async pauseRequest(
-    response: DebugProtocol.PauseResponse,
-    { threadId }: DebugProtocol.PauseArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      await this.gdb.pause(threadId);
-      this.sendStoppedEvent(threadId, "pause", false);
-    });
-  }
-
-  protected async continueRequest(
-    response: DebugProtocol.ContinueResponse,
-    { threadId }: DebugProtocol.ContinueArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      await this.gdb.continueExecution(threadId);
-      response.body = { allThreadsContinued: true };
-    });
-  }
-
-  protected async nextRequest(
-    response: DebugProtocol.NextResponse,
-    { threadId }: DebugProtocol.NextArguments
-  ): Promise<void> {
-    this.handleAsyncRequest(response, async () => {
-      const [frame] = await this.getStack(threadId);
-      await this.gdb.stepToRange(threadId, frame.pc, frame.pc);
-      this.sendStoppedEvent(threadId, "step");
-    });
-  }
-
-  protected async stepInRequest(
-    response: DebugProtocol.StepInResponse,
-    { threadId }: DebugProtocol.StepInArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      await this.gdb.stepIn(threadId);
-      this.sendStoppedEvent(threadId, "step");
-    });
-  }
-
-  protected async stepOutRequest(
-    response: DebugProtocol.StepOutResponse,
-    { threadId }: DebugProtocol.StepOutArguments
-  ): Promise<void> {
-    this.handleAsyncRequest(response, async () => {
-      const positions = await this.getStack(threadId);
-      if (positions[1]) {
-        await this.breakpointManager().addTemporaryBreakpoints(positions[1].pc);
-        await this.gdb.continueExecution(threadId);
-      }
-    });
-  }
-
-  // Memory:
-
-  protected async readMemoryRequest(
-    response: DebugProtocol.ReadMemoryResponse,
-    args: DebugProtocol.ReadMemoryArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      const address = parseInt(args.memoryReference);
-      // await this.gdb.waitConnected();
-      let size = 0;
-      let memory = "";
-      const DEFAULT_CHUNK_SIZE = 1000;
-      let remaining = args.count;
-      while (remaining > 0) {
-        let chunkSize = DEFAULT_CHUNK_SIZE;
-        if (remaining < chunkSize) {
-          chunkSize = remaining;
-        }
-        memory += await this.gdb.readMemory(address + size, chunkSize);
-        remaining -= chunkSize;
-        size += chunkSize;
-      }
-      let unreadable = args.count - size;
-      if (unreadable < 0) {
-        unreadable = 0;
-      }
-      response.body = {
-        address: address.toString(16),
-        data: hexToBase64(memory),
-      };
-    });
-  }
-
-  protected async writeMemoryRequest(
-    response: DebugProtocol.WriteMemoryResponse,
-    args: DebugProtocol.WriteMemoryArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      let address = parseInt(args.memoryReference);
-      if (args.offset) {
-        address += args.offset;
-      }
-      // await this.gdb.waitConnected();
-      const hexString = base64ToHex(args.data);
-      const count = hexString.length;
-      const DEFAULT_CHUNK_SIZE = 1000;
-      let remaining = count;
-      let size = 0;
-      while (remaining > 0) {
-        let chunkSize = DEFAULT_CHUNK_SIZE;
-        if (remaining < chunkSize) {
-          chunkSize = remaining;
-        }
-        await this.gdb.writeMemory(
-          address,
-          hexString.substring(size, chunkSize)
-        );
-        remaining -= chunkSize;
-        size += chunkSize;
-      }
-      response.body = {
-        bytesWritten: size,
-      };
-    });
-  }
-
   protected async evaluateRequest(
     response: DebugProtocol.EvaluateResponse,
     args: DebugProtocol.EvaluateArguments
@@ -706,16 +642,94 @@ Expressions:
     });
   }
 
+  // Memory:
+
+  protected async readMemoryRequest(
+    response: DebugProtocol.ReadMemoryResponse,
+    args: DebugProtocol.ReadMemoryArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const address = parseInt(args.memoryReference);
+      let size = 0;
+      let memory = "";
+      const maxChunkSize = 1000;
+      let remaining = args.count;
+      while (remaining > 0) {
+        let chunkSize = maxChunkSize;
+        if (remaining < chunkSize) {
+          chunkSize = remaining;
+        }
+        memory += await this.gdb.readMemory(address + size, chunkSize);
+        remaining -= chunkSize;
+        size += chunkSize;
+      }
+      let unreadable = args.count - size;
+      if (unreadable < 0) {
+        unreadable = 0;
+      }
+      response.body = {
+        address: address.toString(16),
+        data: hexToBase64(memory),
+      };
+    });
+  }
+
+  protected async writeMemoryRequest(
+    response: DebugProtocol.WriteMemoryResponse,
+    args: DebugProtocol.WriteMemoryArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      let address = parseInt(args.memoryReference);
+      if (args.offset) {
+        address += args.offset;
+      }
+      const hexString = base64ToHex(args.data);
+      const count = hexString.length;
+      const maxChunkSize = 1000;
+      let remaining = count;
+      let size = 0;
+      while (remaining > 0) {
+        let chunkSize = maxChunkSize;
+        if (remaining < chunkSize) {
+          chunkSize = remaining;
+        }
+        await this.gdb.writeMemory(
+          address,
+          hexString.substring(size, chunkSize)
+        );
+        remaining -= chunkSize;
+        size += chunkSize;
+      }
+      response.body = {
+        bytesWritten: size,
+      };
+    });
+  }
+
   private async handleStop(haltStatus: HaltStatus) {
     logger.log(`[EVT] Stopped ${JSON.stringify(haltStatus)}`);
-    const threadId = haltStatus.threadId ?? THREAD_ID_CPU;
+    const threadId = haltStatus.threadId ?? Threads.CPU;
+
+    if (this.firstStop && this.stopOnEntry) {
+      this.firstStop = false;
+      this.sendStoppedEvent(Threads.CPU, "entry");
+      return;
+    }
 
     if (haltStatus.code !== HaltSignal.TRAP) {
       this.sendStoppedEvent(threadId, "exception", false);
       return;
     }
 
-    const { pc, stackFrameIndex } = await this.getStackPosition(threadId, -1);
+    if (this.stepping) {
+      this.sendStoppedEvent(threadId, "step", false);
+      return;
+    }
+
+    const { pc, stackFrameIndex } = await this.stackManager().getStackPosition(
+      threadId,
+      DEFAULT_FRAME_INDEX
+    );
 
     const sourceBpRef = this.breakpointManager().sourceBreakpointAtAddress(pc);
 
@@ -772,13 +786,13 @@ Expressions:
           stop = false;
         }
       }
-    }
 
-    if (stop) {
-      logger.log(`[EVT] stopping at breakpoint`);
-      this.sendStoppedEvent(threadId, "breakpoint", false);
-    } else {
-      await this.gdb.continueExecution(threadId);
+      if (stop) {
+        logger.log(`[EVT] stopping at breakpoint`);
+        this.sendStoppedEvent(threadId, "breakpoint", false);
+      } else {
+        await this.gdb.continueExecution(threadId);
+      }
     }
   }
 
@@ -822,113 +836,16 @@ Expressions:
     });
   }
 
-  /**
-   * Get stack trace for thread
-   */
-  public async getStackTrace(
-    threadId: number,
-    stackPositions: StackPosition[]
-  ): Promise<StackFrame[]> {
-    // await this.gdb.waitConnected();
-    const stackFrames = [];
-
-    for (const p of stackPositions) {
-      let sf: StackFrame | undefined;
-
-      if (p.pc >= 0) {
-        const location = this.sourceMap?.lookupAddress(p.pc);
-        if (location) {
-          const source = new Source(basename(location.path), location.path);
-          sf = new StackFrame(
-            p.index,
-            location.symbol ?? "__MAIN__",
-            source,
-            location.line
-          );
-          sf.instructionPointerReference = formatHexadecimal(p.pc);
-        }
-      }
-
-      // Get disassembled stack frame if not set
-      if (!sf) {
-        sf = await this.disasseblyManager().getStackFrame(p, threadId);
-      }
-      // Only include frames with a source, but make sure we have at least one frame
-      // Others are likely to be ROM system calls
-      if (sf.source || !stackFrames.length) {
-        stackFrames.push(sf);
-      }
-    }
-
-    logger.log(`Stack trace: ${JSON.stringify(stackFrames)}`);
-
-    return stackFrames;
-  }
-
-  private async getStack(threadId: number): Promise<StackPosition[]> {
-    const stackPositions: StackPosition[] = [];
-    let stackPosition = await this.getStackPosition(threadId, -1);
-    stackPositions.push(stackPosition);
-    if (threadId === THREAD_ID_CPU) {
-      const currentIndex = stackPosition.stackFrameIndex;
-      for (let i = currentIndex; i > 0; i--) {
-        stackPosition = await this.getStackPosition(threadId, i);
-        stackPositions.push(stackPosition);
-      }
-    }
-    return stackPositions;
-  }
-
-  private async getStackPosition(
-    threadId: number,
-    frameIndex: number
-  ): Promise<StackPosition> {
-    const stackFrameIndex = await this.gdb.selectFrame(frameIndex);
-    if (threadId === THREAD_ID_CPU) {
-      // Get the current frame
-      const pc = await this.gdb.getRegister(REGISTER_PC_INDEX);
-      return {
-        index: frameIndex,
-        stackFrameIndex,
-        pc,
-      };
-    } else {
-      // Retrieve the stack position from the copper
-      const haltStatuses = [await this.gdb.getHaltStatus()];
-      let finished = false;
-      while (!finished) {
-        const status = await this.gdb.getVStopped();
-        if (status) {
-          haltStatuses.push(status);
-        } else {
-          finished = true;
-        }
-      }
-
-      for (const hs of haltStatuses) {
-        if (hs?.threadId === threadId) {
-          const pc = await this.gdb.getRegister(REGISTER_COPPER_ADDR_INDEX);
-          return {
-            index: frameIndex * 1000,
-            stackFrameIndex: 0,
-            pc,
-          };
-        }
-      }
-    }
-    throw new Error("No frames for thread: " + threadId);
-  }
-
   private breakpointManager(): BreakpointManager {
     if (!this.breakpoints) {
-      throw new Error("Breakpoint Manager not initialized");
+      throw new Error("BreakpointManager not initialized");
     }
     return this.breakpoints;
   }
 
   private variableManager(): VariableManager {
     if (!this.variables) {
-      throw new Error("Variable Manager not initialized");
+      throw new Error("VariableManager not initialized");
     }
     return this.variables;
   }
@@ -938,6 +855,13 @@ Expressions:
       throw new Error("DisassemblyManager not initialized");
     }
     return this.disassembly;
+  }
+
+  private stackManager(): StackManager {
+    if (!this.stack) {
+      throw new Error("StackManager not initialized");
+    }
+    return this.stack;
   }
 
   /**

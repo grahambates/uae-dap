@@ -32,7 +32,7 @@ export function nameRegisters(registerValues: number[]): Register[] {
   const registers: Register[] = [];
   registers.push({
     name: "pc",
-    value: registerValues[REGISTER_SR_INDEX],
+    value: registerValues[REGISTER_PC_INDEX],
   });
   for (let i = 0; i < 8; i++) {
     registers.push({

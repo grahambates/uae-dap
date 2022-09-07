@@ -57,7 +57,8 @@ type Events = {
   packet: (packet: Packet) => void;
 };
 
-const DEFAULT_FRAME_INDEX = -1;
+export const DEFAULT_FRAME_INDEX = -1;
+const TIMEOUT = 5000;
 
 // Labels:
 
@@ -80,33 +81,38 @@ export class GdbClient {
     this.eventEmitter = new EventEmitter();
     this.socket = socket || new Socket();
     this.on("packet", this.handlePacket.bind(this));
+    this.socket.on("data", (data) => {
+      for (const packet of parsePackets(data)) {
+        if (packet.type !== PacketType.PLUS) {
+          this.sendEvent("packet", packet);
+        }
+      }
+    });
   }
 
   public async connect(host: string, port: number): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.socket.on("data", (data) => {
-        for (const packet of parsePackets(data)) {
-          if (packet.type !== PacketType.PLUS) {
-            this.sendEvent("packet", packet);
-          }
-        }
-      });
-
-      this.socket.on("error", reject);
-
-      this.socket.once("connect", async () => {
+      const cb = async () => {
         try {
+          logger.log("Connected: initializing");
           await this.request(
-            "qSupported:QStartNoAckMode+;multiprocess+;vContSupported+;QNonStop+",
-            PacketType.UNKNOWN
+            "qSupported:QStartNoAckMode+;multiprocess+;vContSupported+;QNonStop+"
           );
-          await this.request("QStartNoAckMode", PacketType.OK);
+          await this.request("QStartNoAckMode");
           resolve();
         } catch (error) {
+          this.socket.destroy();
+          this.socket = new Socket();
           reject(error);
         }
+      };
+
+      this.socket.once("error", () => {
+        this.socket.off("ready", cb);
+        reject();
       });
 
+      this.socket.once("ready", cb);
       this.socket.connect(port, host);
     });
   }
@@ -262,12 +268,12 @@ export class GdbClient {
     return 1;
   }
 
-  public async selectFrame(num: number): Promise<number> {
-    if (num < 0) {
+  public async selectFrame(frameIndex: number): Promise<number> {
+    if (frameIndex < 0) {
       await this.request("QTFrame:ffffffff", PacketType.OK);
       return DEFAULT_FRAME_INDEX;
     }
-    const message = "QTFrame:" + formatNumber(num);
+    const message = "QTFrame:" + formatNumber(frameIndex);
     const data = await this.request(message, PacketType.FRAME);
 
     if (data === "F-1") {
@@ -328,18 +334,20 @@ export class GdbClient {
 
     const unlock = await this.mutex.capture("request");
     try {
-      logger.log(`[GDB] --> ${requestText}`);
+      logger.log(`[GDB] ${requestText} -->`);
       this.socket.write(formatString(requestText));
 
       if (responseExpected) {
         const packet = await new Promise<Packet>((resolve, reject) => {
           const timeout = setTimeout(() => {
+            logger.log(`[GDB] ${requestText} <-- TIMEOUT`);
             this.off("packet", testPacket);
             reject(new Error("Request timeout"));
-          }, 500);
+          }, TIMEOUT);
 
           const testPacket = (testedPacket: Packet) => {
             if (!responseType || responseType === testedPacket.type) {
+              `[GDB] ${requestText} <-- ${testedPacket.message}`;
               clearTimeout(timeout);
               this.off("packet", testPacket);
               return resolve(testedPacket);
@@ -347,8 +355,12 @@ export class GdbClient {
             if (packet.type === PacketType.ERROR) {
               clearTimeout(timeout);
               this.off("packet", testPacket);
+              logger.log(
+                `[GDB] ${requestText} <-- ERROR ${testedPacket.message}`
+              );
               return reject(new GdbError(response));
             }
+            `[GDB] ignoring packet ${testedPacket.message}`;
           };
           this.on("packet", testPacket);
         });
@@ -421,6 +433,21 @@ export class GdbClient {
       threadId,
       registers,
     };
+  }
+
+  public async withFrame<T>(
+    requestedFrame: number | undefined,
+    cb: (returnedFrame: number) => Promise<T>
+  ): Promise<T> {
+    const unlock = await this.mutex.capture("frame");
+    try {
+      const returnedFrame = await this.selectFrame(
+        requestedFrame || DEFAULT_FRAME_INDEX
+      );
+      return cb(returnedFrame);
+    } finally {
+      unlock();
+    }
   }
 }
 
@@ -526,7 +553,6 @@ function parsePackets(data: Buffer): Packet[] {
   }
   const parsedData: Packet[] = [];
   let s = data.toString();
-  logger.log("[GDB] <-- data: " + s);
   if (s.startsWith("+")) {
     parsedData.push({
       type: PacketType.PLUS,
