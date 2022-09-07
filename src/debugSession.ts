@@ -5,12 +5,14 @@ import {
   InvalidatedEvent,
   logger,
   LoggingDebugSession,
+  StackFrame,
+  Source,
 } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
 
 import { BreakpointCode, GdbClient, HaltSignal, HaltStatus } from "./gdbClient";
-import BreakpointManager from "./breakpoints";
+import BreakpointManager from "./breakpointManager";
 import {
   base64ToHex,
   formatAddress,
@@ -20,15 +22,17 @@ import {
   replaceAsync,
 } from "./utils/strings";
 import { Emulator } from "./emulator";
-import Program, {
+import VariableManager, {
   MemoryFormat,
   ScopeType,
   SourceConstantResolver,
-} from "./program";
+} from "./variableManager";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
 import { parseHunksFromFile } from "./amigaHunkParser";
 import SourceMap from "./sourceMap";
 import { REGISTER_COPPER_ADDR_INDEX, REGISTER_PC_INDEX } from "./registers";
+import { basename } from "path";
+import { DisassemblyManager } from "./disassembly";
 
 export const THREAD_ID_CPU = 1;
 export const THREAD_ID_COPPER = 2;
@@ -100,8 +104,10 @@ export class UAEDebugSession extends LoggingDebugSession {
   protected testMode = false;
   protected trace = false;
   protected exceptionMask?: number;
+  protected sourceMap?: SourceMap;
   protected breakpoints?: BreakpointManager;
-  protected program?: Program;
+  protected variables?: VariableManager;
+  protected disassembly?: DisassemblyManager;
 
   public constructor() {
     super();
@@ -229,20 +235,25 @@ export class UAEDebugSession extends LoggingDebugSession {
       this.gdb.on("stop", this.handleStop.bind(this));
       this.gdb.on("end", this.shutdown.bind(this));
 
-      const sourceMap = new SourceMap(hunks, offsets);
+      this.sourceMap = new SourceMap(hunks, offsets);
 
-      this.program = new Program(
+      // Initialise managers:
+      this.variables = new VariableManager(
         this.gdb,
-        sourceMap,
+        this.sourceMap,
         this.getSourceConstantResolver(args),
         {
           ...defaultMemoryFormats,
           ...memoryFormats,
         }
       );
+      this.breakpoints = new BreakpointManager(this.gdb, this.sourceMap);
+      this.disassembly = new DisassemblyManager(
+        this.gdb,
+        this.variables,
+        this.sourceMap
+      );
 
-      // Set up breakpoints:
-      this.breakpoints = new BreakpointManager(this.gdb, sourceMap);
       this.gdb.setExceptionBreakpoint(exceptionMask);
       this.exceptionMask = exceptionMask;
 
@@ -314,7 +325,7 @@ Expressions:
     args: DebugProtocol.SourceArguments
   ): void {
     this.handleAsyncRequest(response, async () => {
-      const content = await this.program?.getDisassembledFileContentsByRef(
+      const content = await this.disassembly?.getDisassembledFileContentsByRef(
         args.sourceReference
       );
       if (!content) {
@@ -332,15 +343,16 @@ Expressions:
   ) {
     if (command === "disassembledFileContents") {
       const fileReq: DisassembledFileContentsRequest = args;
-      const content = await this.getProgram().getDisassembledFileContentsByPath(
-        fileReq.path
-      );
+      const content =
+        await this.disasseblyManager().getDisassembledFileContentsByPath(
+          fileReq.path
+        );
       response.body = { content };
       return this.sendResponse(response);
     }
     if (command === "modifyVariableFormat") {
       const variableReq: VariableDisplayFormatRequest = args;
-      this.getProgram().setVariableFormat(
+      this.variableManager().setVariableFormat(
         variableReq.variableInfo.variable.name,
         variableReq.variableDisplayFormat
       );
@@ -355,7 +367,7 @@ Expressions:
     args: DebugProtocol.DisassembleArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const instructions = await this.getProgram().disassemble(args);
+      const instructions = await this.disasseblyManager().disassemble(args);
       await Promise.all(
         instructions.map(({ location }) => this.processSource(location))
       );
@@ -370,7 +382,7 @@ Expressions:
     args: DebugProtocol.SetBreakpointsArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const breakpoints = await this.getBreakpoints().setSourceBreakpoints(
+      const breakpoints = await this.breakpointManager().setSourceBreakpoints(
         args.source,
         args.breakpoints || []
       );
@@ -384,9 +396,10 @@ Expressions:
     args: DebugProtocol.SetInstructionBreakpointsArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const breakpoints = await this.getBreakpoints().setInstructionBreakpoints(
-        args.breakpoints
-      );
+      const breakpoints =
+        await this.breakpointManager().setInstructionBreakpoints(
+          args.breakpoints
+        );
       response.body = { breakpoints };
       response.success = true;
     });
@@ -400,14 +413,14 @@ Expressions:
       if (!args.variablesReference || !args.name) {
         return;
       }
-      const program = this.getProgram();
-      const { type } = program.getScopeReference(args.variablesReference);
+      const variables = this.variableManager();
+      const { type } = variables.getScopeReference(args.variablesReference);
       if (type === ScopeType.Symbols || type === ScopeType.Registers) {
         const variableName = args.name;
-        const vars = await program.getVariables();
+        const vars = await variables.getVariables();
         const value = vars[variableName];
         if (typeof value === "number") {
-          const displayValue = program.formatVariable(variableName, value);
+          const displayValue = variables.formatVariable(variableName, value);
 
           const isRegister = type === ScopeType.Registers;
           const dataId = `${variableName}(${displayValue})`;
@@ -428,7 +441,7 @@ Expressions:
     args: DebugProtocol.SetDataBreakpointsArguments
   ): Promise<void> {
     this.handleAsyncRequest(response, async () => {
-      const breakpoints = await this.getBreakpoints().setDataBreakpoints(
+      const breakpoints = await this.breakpointManager().setDataBreakpoints(
         args.breakpoints
       );
       response.body = { breakpoints };
@@ -489,13 +502,10 @@ Expressions:
       const positions = await this.getStack(threadId);
 
       if (threadId === THREAD_ID_CPU && positions[0]) {
-        this.getBreakpoints().checkTemporaryBreakpoints(positions[0].pc);
+        this.breakpointManager().checkTemporaryBreakpoints(positions[0].pc);
       }
 
-      const stackFrames = await this.getProgram().getStackTrace(
-        threadId,
-        positions
-      );
+      const stackFrames = await this.getStackTrace(threadId, positions);
       await Promise.all(
         stackFrames.map(({ source }) => this.processSource(source))
       );
@@ -510,7 +520,7 @@ Expressions:
   ): void {
     this.handleAsyncRequest(response, async () => {
       response.body = {
-        scopes: this.program?.getScopes(frameId) ?? [],
+        scopes: this.variables?.getScopes(frameId) ?? [],
       };
     });
   }
@@ -523,7 +533,7 @@ Expressions:
   ) {
     this.handleAsyncRequest(response, async () => {
       // Try to look up stored reference
-      const variables = await this.getProgram().getVariablesByReference(
+      const variables = await this.variableManager().getVariablesByReference(
         args.variablesReference
       );
       response.body = { variables };
@@ -535,7 +545,7 @@ Expressions:
     { variablesReference, name, value }: DebugProtocol.SetVariableArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const newValue = await this.getProgram().setVariable(
+      const newValue = await this.variableManager().setVariable(
         variablesReference,
         name,
         value
@@ -596,7 +606,7 @@ Expressions:
     this.handleAsyncRequest(response, async () => {
       const positions = await this.getStack(threadId);
       if (positions[1]) {
-        await this.getBreakpoints().addTemporaryBreakpoints(positions[1].pc);
+        await this.breakpointManager().addTemporaryBreakpoints(positions[1].pc);
         await this.gdb.continueExecution(threadId);
       }
     });
@@ -673,7 +683,7 @@ Expressions:
     args: DebugProtocol.EvaluateArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const body = await this.getProgram().evaluateExpression(args);
+      const body = await this.variableManager().evaluateExpression(args);
       if (body) {
         response.body = body;
       } else {
@@ -688,7 +698,7 @@ Expressions:
     args: DebugProtocol.CompletionsArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const targets = await this.getProgram().getCompletions(
+      const targets = await this.variableManager().getCompletions(
         args.text,
         args.frameId
       );
@@ -707,7 +717,7 @@ Expressions:
 
     const { pc, stackFrameIndex } = await this.getStackPosition(threadId, -1);
 
-    const sourceBpRef = this.getBreakpoints().sourceBreakpointAtAddress(pc);
+    const sourceBpRef = this.breakpointManager().sourceBreakpointAtAddress(pc);
 
     // Check for conditional or log breakpoints:
     let stop = true;
@@ -724,7 +734,7 @@ Expressions:
           /\{((#\{((#\{[^}]*\})|[^}])*\})|[^}])*\}/g, // Up to two levels of nesting
           async (match) => {
             try {
-              const v = await this.getProgram().evaluate(
+              const v = await this.variableManager().evaluate(
                 match.substring(1, match.length - 1),
                 stackFrameIndex
               );
@@ -738,7 +748,7 @@ Expressions:
         stop = false;
       }
       if (bp.condition) {
-        const result = await this.getProgram().evaluate(
+        const result = await this.variableManager().evaluate(
           bp.condition,
           stackFrameIndex
         );
@@ -748,7 +758,7 @@ Expressions:
         );
       }
       if (bp.hitCondition) {
-        const evaluatedCondition = await this.getProgram().evaluate(
+        const evaluatedCondition = await this.variableManager().evaluate(
           bp.hitCondition,
           stackFrameIndex
         );
@@ -812,6 +822,49 @@ Expressions:
     });
   }
 
+  /**
+   * Get stack trace for thread
+   */
+  public async getStackTrace(
+    threadId: number,
+    stackPositions: StackPosition[]
+  ): Promise<StackFrame[]> {
+    // await this.gdb.waitConnected();
+    const stackFrames = [];
+
+    for (const p of stackPositions) {
+      let sf: StackFrame | undefined;
+
+      if (p.pc >= 0) {
+        const location = this.sourceMap?.lookupAddress(p.pc);
+        if (location) {
+          const source = new Source(basename(location.path), location.path);
+          sf = new StackFrame(
+            p.index,
+            location.symbol ?? "__MAIN__",
+            source,
+            location.line
+          );
+          sf.instructionPointerReference = formatHexadecimal(p.pc);
+        }
+      }
+
+      // Get disassembled stack frame if not set
+      if (!sf) {
+        sf = await this.disasseblyManager().getStackFrame(p, threadId);
+      }
+      // Only include frames with a source, but make sure we have at least one frame
+      // Others are likely to be ROM system calls
+      if (sf.source || !stackFrames.length) {
+        stackFrames.push(sf);
+      }
+    }
+
+    logger.log(`Stack trace: ${JSON.stringify(stackFrames)}`);
+
+    return stackFrames;
+  }
+
   private async getStack(threadId: number): Promise<StackPosition[]> {
     const stackPositions: StackPosition[] = [];
     let stackPosition = await this.getStackPosition(threadId, -1);
@@ -866,18 +919,25 @@ Expressions:
     throw new Error("No frames for thread: " + threadId);
   }
 
-  private getBreakpoints(): BreakpointManager {
+  private breakpointManager(): BreakpointManager {
     if (!this.breakpoints) {
-      throw new Error("Breakpoints not initialized");
+      throw new Error("Breakpoint Manager not initialized");
     }
     return this.breakpoints;
   }
 
-  private getProgram(): Program {
-    if (!this.program) {
-      throw new Error("Program not initialized");
+  private variableManager(): VariableManager {
+    if (!this.variables) {
+      throw new Error("Variable Manager not initialized");
     }
-    return this.program;
+    return this.variables;
+  }
+
+  private disasseblyManager(): DisassemblyManager {
+    if (!this.disassembly) {
+      throw new Error("DisassemblyManager not initialized");
+    }
+    return this.disassembly;
   }
 
   /**

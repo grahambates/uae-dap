@@ -3,7 +3,7 @@ import * as path from "path";
 import { basename } from "path";
 import { openSync } from "temp";
 import * as fs from "fs/promises";
-import { SourceConstantResolver } from "./program";
+import { SourceConstantResolver } from "./variableManager";
 import { findWasmDir } from "./utils/files";
 
 export interface VasmOptions {

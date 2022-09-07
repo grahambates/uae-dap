@@ -1,12 +1,5 @@
 import { DebugProtocol } from "@vscode/debugprotocol";
-import {
-  Handles,
-  logger,
-  Scope,
-  Source,
-  StackFrame,
-} from "@vscode/debugadapter";
-import { basename } from "path";
+import { Handles, Scope } from "@vscode/debugadapter";
 import { parse, eval as expEval } from "expression-eval";
 
 import {
@@ -18,8 +11,6 @@ import {
 import {
   disassemble,
   disassembleCopper,
-  DisassembledFile,
-  disassembledFileFromPath,
   DisassemblyManager,
 } from "./disassembly";
 import { GdbClient } from "./gdbClient";
@@ -28,14 +19,12 @@ import {
   chunk,
   compareStringsLowerCase,
   formatAddress,
-  formatHexadecimal,
   formatNumber,
   hexStringToASCII,
   NumberFormat,
 } from "./utils/strings";
 import SourceMap from "./sourceMap";
 import { getRegisterIndex, nameRegisters } from "./registers";
-import { StackPosition } from "./debugSession";
 
 export enum ScopeType {
   Registers,
@@ -76,7 +65,7 @@ export interface SourceConstantResolver {
 /**
  * Wrapper to interact with running Program
  */
-class Program {
+class VariableManager {
   private scopes = new Handles<ScopeReference>();
   /** Variables lookup by handle */
   private referencedVariables = new Map<number, DebugProtocol.Variable[]>();
@@ -143,215 +132,6 @@ class Program {
         true
       ),
     ];
-  }
-
-  /**
-   * Get stack trace for thread
-   */
-  public async getStackTrace(
-    threadId: number,
-    stackPositions: StackPosition[]
-  ): Promise<StackFrame[]> {
-    // await this.gdb.waitConnected();
-    const stackFrames = [];
-
-    for (const p of stackPositions) {
-      let sf: StackFrame | undefined;
-
-      if (p.pc >= 0) {
-        const location = this.sourceMap.lookupAddress(p.pc);
-        if (location) {
-          // const label = this.symbolName(p.pc);
-          const source = new Source(basename(location.path), location.path);
-          sf = new StackFrame(
-            p.index,
-            location.symbol ?? "__MAIN__",
-            source,
-            location.line
-          );
-          sf.instructionPointerReference = formatHexadecimal(p.pc);
-        }
-      }
-
-      // Get disassembled stack frame if not set
-      if (!sf) {
-        sf = await this.disassemblyManager.getStackFrame(p, threadId);
-      }
-      // Only include frames with a source, but make sure we have at least one frame
-      // Others are likely to be ROM system calls
-      if (sf.source || !stackFrames.length) {
-        stackFrames.push(sf);
-      }
-    }
-
-    logger.log(`Stack trace: ${JSON.stringify(stackFrames)}`);
-
-    return stackFrames;
-  }
-
-  /**
-   * Disassemble memory to CPU or Copper instructions
-   */
-  public async disassemble(
-    args: DebugProtocol.DisassembleArguments & DisassembledFile
-  ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    let { memoryReference } = args;
-    let firstAddress: number | undefined;
-    const hasOffset = args.offset || args.instructionOffset;
-    if (memoryReference && hasOffset) {
-      // Apply offset to address
-      firstAddress = parseInt(args.memoryReference);
-      if (args.offset) {
-        firstAddress -= args.offset;
-      }
-      // Set memoryReference to segment address if found
-      const location = this.sourceMap.lookupAddress(firstAddress);
-      if (location) {
-        const segment = this.sourceMap.getSegmentInfo(location.segmentIndex);
-        memoryReference = segment.address.toString();
-      }
-    }
-
-    if (
-      args.segmentId === undefined &&
-      !memoryReference &&
-      !args.instructionCount
-    ) {
-      throw new Error(`Unable to disassemble; invalid parameters ${args}`);
-    }
-
-    // Check whether memoryReference points to previously disassembled copper lines if not specified.
-    const isCopper =
-      args.copper ??
-      this.disassemblyManager.isCopperLine(parseInt(args.memoryReference));
-
-    let instructions =
-      args.segmentId !== undefined
-        ? await this.disassemblyManager.disassembleSegment(args.segmentId)
-        : await this.disassemblyManager.disassembleAddressExpression(
-            memoryReference,
-            args.instructionCount * 4,
-            args.offset ?? 0,
-            isCopper
-          );
-
-    // Add source line data to instructions
-    for (const instruction of instructions) {
-      const line = this.sourceMap.lookupAddress(parseInt(instruction.address));
-      if (line) {
-        const filename = line.path;
-        instruction.location = new Source(basename(filename), filename);
-        instruction.line = line.line;
-      }
-    }
-
-    // Nothing left to do?
-    if (!firstAddress || !args.instructionOffset) {
-      return instructions;
-    }
-
-    // Find index of instruction matching first address
-    const instructionIndex = instructions.findIndex(
-      ({ address }) => parseInt(address) === firstAddress
-    );
-    if (instructionIndex === -1) {
-      // Not found
-      return instructions;
-    }
-
-    // Apply instruction offset
-    const offsetIndex = instructionIndex + args.instructionOffset;
-
-    // Negative offset:
-    if (offsetIndex < 0) {
-      // Pad instructions array with dummy entries
-      const emptyArray = new Array<DebugProtocol.DisassembledInstruction>(
-        -offsetIndex
-      );
-      const firstInstructionAddress = parseInt(instructions[0].address);
-      let currentAddress = firstInstructionAddress - 4;
-      for (let i = emptyArray.length - 1; i >= 0; i--) {
-        emptyArray[i] = {
-          address: formatHexadecimal(currentAddress),
-          instruction: "-------",
-        };
-        currentAddress -= 4;
-        if (currentAddress < 0) {
-          currentAddress = 0;
-        }
-      }
-      instructions = emptyArray.concat(instructions);
-    }
-    // Positive offset within range:
-    if (offsetIndex > 0 && offsetIndex < instructions.length) {
-      // Splice up to start??
-      // TODO: check this
-      instructions = instructions.splice(0, offsetIndex);
-    }
-
-    // Ensure instructions length matches requested count:
-    if (instructions.length < args.instructionCount) {
-      // Too few instructions:
-
-      // Get address of last instruction
-      const lastInstruction = instructions[instructions.length - 1];
-      let lastAddress = parseInt(lastInstruction.address);
-      if (lastInstruction.instructionBytes) {
-        lastAddress += lastInstruction.instructionBytes.split(" ").length;
-      }
-
-      // Pad instructions array with dummy instructions at correct addresses
-      const padLength = args.instructionCount - instructions.length;
-      for (let i = 0; i < padLength; i++) {
-        instructions.push({
-          address: formatHexadecimal(lastAddress + i * 4),
-          instruction: "-------",
-        });
-      }
-    } else if (instructions.length > args.instructionCount) {
-      // Too many instructions - truncate
-      instructions = instructions.splice(0, args.instructionCount);
-    }
-
-    return instructions;
-  }
-
-  /**
-   * Get disassembled file contents by source reference
-   */
-  public async getDisassembledFileContentsByRef(
-    ref: number
-  ): Promise<string | undefined> {
-    const dAsmFile = this.disassemblyManager.getSourceByReference(ref);
-    if (dAsmFile) {
-      return this.getDisassembledFileContents(dAsmFile);
-    }
-  }
-
-  /**
-   * Get disassembled content for a .dgasm file path
-   *
-   * The filename contains tokens for the disassemble options
-   */
-  public async getDisassembledFileContentsByPath(
-    path: string
-  ): Promise<string> {
-    const dAsmFile = disassembledFileFromPath(path);
-    return this.getDisassembledFileContents(dAsmFile);
-  }
-
-  /**
-   * Get text content for a disassembled source file
-   */
-  public async getDisassembledFileContents(
-    dAsmFile: DisassembledFile
-  ): Promise<string> {
-    const instructions = await this.disassemble({
-      memoryReference: "",
-      instructionCount: 100,
-      ...dAsmFile,
-    });
-    return instructions.map((v) => `${v.address}: ${v.instruction}`).join("\n");
   }
 
   // Variables:
@@ -1731,4 +1511,4 @@ class Program {
   }
 }
 
-export default Program;
+export default VariableManager;
