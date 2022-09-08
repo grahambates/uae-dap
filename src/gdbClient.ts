@@ -441,9 +441,10 @@ export class GdbClient {
   ): Promise<T> {
     const unlock = await this.mutex.capture("frame");
     try {
-      const returnedFrame = await this.selectFrame(
-        requestedFrame || DEFAULT_FRAME_INDEX
-      );
+      if (requestedFrame === undefined) {
+        requestedFrame = DEFAULT_FRAME_INDEX;
+      }
+      const returnedFrame = await this.selectFrame(requestedFrame);
       return cb(returnedFrame);
     } finally {
       unlock();

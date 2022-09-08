@@ -1,9 +1,9 @@
-import { Source, StackFrame } from "@vscode/debugadapter";
+import { logger, Source, StackFrame } from "@vscode/debugadapter";
 import { basename } from "path";
 import { DisassemblyManager } from "./disassembly";
-import { GdbClient } from "./gdbClient";
+import { DEFAULT_FRAME_INDEX, GdbClient } from "./gdbClient";
 import { Threads } from "./hardware";
-import { REGISTER_COPPER_ADDR_INDEX, REGISTER_PC_INDEX } from "./registers";
+import { REGISTER_PC_INDEX } from "./registers";
 import SourceMap from "./sourceMap";
 import { formatHexadecimal } from "./utils/strings";
 
@@ -62,13 +62,21 @@ class StackManager {
 
   public async getPositions(threadId: number): Promise<StackPosition[]> {
     const stackPositions: StackPosition[] = [];
-    let stackPosition = await this.getStackPosition(threadId, -1);
+    let stackPosition = await this.getStackPosition(
+      threadId,
+      DEFAULT_FRAME_INDEX
+    );
     stackPositions.push(stackPosition);
     if (threadId === Threads.CPU) {
-      const currentIndex = stackPosition.stackFrameIndex;
-      for (let i = currentIndex; i > 0; i--) {
-        stackPosition = await this.getStackPosition(threadId, i);
-        stackPositions.push(stackPosition);
+      // Retrieve the current frame count
+      const stackSize = await this.gdb.getFramesCount();
+      for (let i = stackSize - 1; i >= 0; i--) {
+        try {
+          stackPosition = await this.getStackPosition(threadId, i);
+          stackPositions.push(stackPosition);
+        } catch (err) {
+          if (err instanceof Error) logger.error(err.message);
+        }
       }
     }
     return stackPositions;
@@ -78,41 +86,42 @@ class StackManager {
     threadId: number,
     frameIndex: number
   ): Promise<StackPosition> {
-    return this.gdb.withFrame(frameIndex, async (stackFrameIndex) => {
-      if (threadId === Threads.CPU) {
-        // Get the current frame
+    if (threadId === Threads.CPU) {
+      logger.log("Getting position at frame " + frameIndex);
+      // Get the current frame
+      return this.gdb.withFrame(frameIndex, async (index) => {
         const pc = await this.gdb.getRegister(REGISTER_PC_INDEX);
-        return {
-          index: frameIndex,
-          stackFrameIndex,
-          pc,
-        };
-      } else {
-        // Retrieve the stack position from the copper
-        const haltStatuses = [await this.gdb.getHaltStatus()];
-        let finished = false;
-        while (!finished) {
-          const status = await this.gdb.getVStopped();
-          if (status) {
-            haltStatuses.push(status);
-          } else {
-            finished = true;
-          }
+        if (pc) {
+          return {
+            index: frameIndex,
+            stackFrameIndex: index + 1,
+            pc: pc,
+          };
+        } else {
+          throw new Error(
+            "Error retrieving stack frame for index " +
+              frameIndex +
+              ": pc not retrieved"
+          );
         }
-
-        for (const hs of haltStatuses) {
-          if (hs?.threadId === threadId) {
-            const pc = await this.gdb.getRegister(REGISTER_COPPER_ADDR_INDEX);
-            return {
-              index: frameIndex * 1000,
-              stackFrameIndex: 0,
-              pc,
-            };
-          }
+      });
+    } else if (threadId === Threads.COPPER) {
+      // Retrieve the stack position from the copper
+      const haltStatus = await this.gdb.getHaltStatus();
+      if (haltStatus) {
+        const registersValues = await this.gdb.getRegisters(threadId);
+        if (registersValues) {
+          return {
+            index: frameIndex * 1000,
+            stackFrameIndex: 1,
+            pc: registersValues[REGISTER_PC_INDEX] || 0,
+          };
+        } else {
+          throw new Error("No stack frame returned");
         }
       }
-      throw new Error("No frames for thread: " + threadId);
-    });
+    }
+    throw new Error("No frames for thread: " + threadId);
   }
 }
 

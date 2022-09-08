@@ -3,6 +3,7 @@ import { BreakpointCode, GdbClient } from "./gdbClient";
 import { logger } from "@vscode/debugadapter";
 import SourceMap from "./sourceMap";
 import { formatAddress } from "./utils/strings";
+import { DisassemblyManager, isDisassembledFile } from "./disassembly";
 
 export interface BreakpointReference {
   breakpoint: DebugProtocol.SourceBreakpoint;
@@ -28,9 +29,13 @@ class BreakpointManager {
   /** Instruction breakoint addresses */
   private instructionBreakpoints = new Set<number>();
   /** Temporary breakoint address groups */
-  private temporaryBreakpointGroups = new Set<number[]>();
+  private temporaryBreakpoints = new Set<number>();
 
-  public constructor(private gdb: GdbClient, private sourceMap: SourceMap) {}
+  public constructor(
+    private gdb: GdbClient,
+    private sourceMap: SourceMap,
+    private disassembly: DisassemblyManager
+  ) {}
 
   public async setSourceBreakpoints(
     source: DebugProtocol.Source,
@@ -63,24 +68,33 @@ class BreakpointManager {
         if (!this.sourceMap) {
           throw new Error("Program not loaded");
         }
-        if (source.path) {
+        if (!source.path) {
+          throw new Error("Source has no path");
+        }
+        let address: number;
+        if (isDisassembledFile(source.path)) {
+          address = await this.disassembly.getAddressForFileEditorLine(
+            source.name ?? "",
+            bp.line
+          );
+        } else {
           const loc = this.sourceMap.lookupSourceLine(source.path, bp.line);
           logger.log(
             `Source breakoint at ${loc.path}:${loc.line} ${formatAddress(
               loc.address
             )}`
           );
-          await this.gdb.setBreakpoint(loc.address);
-          const ref: BreakpointReference = {
-            address: loc.address,
-            breakpoint: bp,
-            hitCount: 0,
-          };
-          newRefs.set(bp.line, ref);
-          this.sourceBreakpointsByAddress.set(loc.address, ref);
-        } else if (source.sourceReference) {
-          // TODO
+          address = loc.address;
         }
+
+        await this.gdb.setBreakpoint(address);
+        const ref: BreakpointReference = {
+          address,
+          breakpoint: bp,
+          hitCount: 0,
+        };
+        newRefs.set(bp.line, ref);
+        this.sourceBreakpointsByAddress.set(address, ref);
         outBp.verified = true;
       } catch (err) {
         if (err instanceof Error) outBp.message = err.message;
@@ -191,28 +205,30 @@ class BreakpointManager {
   // Temporary breakpoints:
 
   public async addTemporaryBreakpoints(pc: number): Promise<void> {
+    await this.clearTemporaryBreakpoints();
+
     // Set breakpoints at three possible offsets from PC
     const tmpBreakpoints = [pc + 1, pc + 2, pc + 4];
-    this.temporaryBreakpointGroups.add(tmpBreakpoints);
     for (const offset of tmpBreakpoints) {
       logger.log(`Temporary Breakpoint at ${formatAddress(offset)}`);
+      this.temporaryBreakpoints.add(offset);
       await this.gdb.setBreakpoint(offset);
     }
   }
 
-  /**
-   * Remove temporary breakpoints which contain current PC address
-   */
-  public async checkTemporaryBreakpoints(pc: number): Promise<void> {
-    // Remove the breakpoints once any of the possbile offsets is reached.
-    for (const tmpArray of this.temporaryBreakpointGroups.values()) {
-      if (tmpArray.includes(pc)) {
-        for (const offset of tmpArray) {
-          await this.gdb.removeBreakpoint(offset);
-        }
-        this.temporaryBreakpointGroups.delete(tmpArray);
-      }
+  public hasTemporaryBreakpoints(): boolean {
+    return this.temporaryBreakpoints.size > 0;
+  }
+
+  public hasTemporaryBreakpointAt(pc: number): boolean {
+    return Array.from(this.temporaryBreakpoints).includes(pc);
+  }
+
+  public async clearTemporaryBreakpoints(): Promise<void> {
+    for (const address of this.temporaryBreakpoints.values()) {
+      await this.gdb.removeBreakpoint(address);
     }
+    this.temporaryBreakpoints.clear();
   }
 }
 

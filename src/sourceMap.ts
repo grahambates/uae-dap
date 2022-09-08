@@ -1,3 +1,4 @@
+import { logger } from "@vscode/debugadapter";
 import { Hunk, HunkType, MemoryType } from "./amigaHunkParser";
 import { normalize } from "./utils/files";
 
@@ -53,7 +54,7 @@ class SourceMap {
           let symbol;
           let symbolOffset;
           for (const { offset, name } of hunk.symbols) {
-            if (lineInfo.offset > offset) break;
+            if (offset > lineInfo.offset) break;
             symbol = name;
             symbolOffset = lineInfo.offset - offset;
           }
@@ -66,6 +67,7 @@ class SourceMap {
             segmentOffset: lineInfo.offset,
             address,
           };
+          logger.log(JSON.stringify(location));
           linesMap.set(lineInfo.line, location);
           this.locationsByAddress.set(address, location);
         }

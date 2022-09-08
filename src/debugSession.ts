@@ -5,6 +5,7 @@ import {
   InvalidatedEvent,
   logger,
   LoggingDebugSession,
+  ThreadEvent,
 } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
@@ -206,10 +207,9 @@ export class UAEDebugSession extends LoggingDebugSession {
         });
       }
 
-      //       // Delay before connecting to emulator
-      //       if (!this.testMode) {
-      //         await new Promise((resolve) => setTimeout(resolve, 1000));
-      //       }
+      // if (!this.testMode) {
+      //   await new Promise((resolve) => setTimeout(resolve, 4000));
+      // }
 
       // Connect to the emulator
       await promiseRetry(
@@ -217,7 +217,7 @@ export class UAEDebugSession extends LoggingDebugSession {
           logger.log(`Connecting to remote debugger... [${attempt}]`);
           return this.gdb.connect(serverName, serverPort).catch(retry);
         },
-        { retries: 5, factor: 1.1 }
+        { retries: 20, factor: 1.1 }
       );
 
       const offsets = await this.gdb.getOffsets();
@@ -231,11 +231,15 @@ export class UAEDebugSession extends LoggingDebugSession {
           ...memoryFormats,
         }
       );
-      this.breakpoints = new BreakpointManager(this.gdb, sourceMap);
       this.disassembly = new DisassemblyManager(
         this.gdb,
         this.variables,
         sourceMap
+      );
+      this.breakpoints = new BreakpointManager(
+        this.gdb,
+        sourceMap,
+        this.disassembly
       );
       this.stack = new StackManager(this.gdb, sourceMap, this.disassembly);
 
@@ -243,13 +247,8 @@ export class UAEDebugSession extends LoggingDebugSession {
       this.exceptionMask = exceptionMask;
 
       for (const threadId of [Threads.CPU, Threads.COPPER]) {
-        this.sendEvent({
-          event: "thread",
-          body: {
-            reason: "started",
-            threadId,
-          },
-        } as DebugProtocol.Event); // TODO: why missing props?
+        // TODO: is this needed?
+        this.sendEvent(new ThreadEvent("started", threadId));
       }
 
       if (this.stopOnEntry) {
@@ -343,7 +342,7 @@ Expressions:
     if (command === "disassembledFileContents") {
       const fileReq: DisassembledFileContentsRequest = args;
       const content =
-        await this.disasseblyManager().getDisassembledFileContentsByPath(
+        await this.disassemblyManager().getDisassembledFileContentsByPath(
           fileReq.path
         );
       response.body = { content };
@@ -366,7 +365,7 @@ Expressions:
     args: DebugProtocol.DisassembleArguments
   ) {
     this.handleAsyncRequest(response, async () => {
-      const instructions = await this.disasseblyManager().disassemble(args);
+      const instructions = await this.disassemblyManager().disassemble(args);
       await Promise.all(
         instructions.map(({ location }) => this.processSource(location))
       );
@@ -454,10 +453,11 @@ Expressions:
   ) {
     this.handleAsyncRequest(response, async () => {
       if (this.exceptionMask) {
+        // There is only one filter - "all exceptions" so just use it to toggle on/off
         if (args.filters.length > 0) {
           await this.gdb.setExceptionBreakpoint(this.exceptionMask);
         } else {
-          // TODO: check this
+          // TODO: check this works
           await this.gdb.removeBreakpoint(
             this.exceptionMask,
             BreakpointCode.HARDWARE
@@ -499,8 +499,12 @@ Expressions:
   ) {
     this.handleAsyncRequest(response, async () => {
       const positions = await this.stackManager().getPositions(threadId);
-      if (threadId === Threads.CPU && positions[0]) {
-        this.breakpointManager().checkTemporaryBreakpoints(positions[0].pc);
+      if (
+        threadId === Threads.CPU &&
+        positions[0] &&
+        this.breakpointManager().hasTemporaryBreakpointAt(positions[0].pc)
+      ) {
+        await this.breakpointManager().clearTemporaryBreakpoints();
       }
       const stackFrames = await this.stackManager().getStackTrace(
         threadId,
@@ -534,7 +538,7 @@ Expressions:
     this.sendResponse(response);
     await this.gdb.pause(threadId);
     this.stepping = true;
-    this.sendStoppedEvent(threadId, "pause", false);
+    this.sendStoppedEvent(threadId, "pause");
   }
 
   protected async continueRequest(
@@ -574,12 +578,14 @@ Expressions:
     if (positions[1]) {
       this.sendResponse(response);
       this.stepping = true;
-      await this.breakpointManager().addTemporaryBreakpoints(positions[1].pc);
+      const { pc } = positions[1];
+      // await this.gdb.stepToRange(threadId, pc + 1, pc + 10);
+      await this.breakpointManager().addTemporaryBreakpoints(pc);
       await this.gdb.continueExecution(threadId);
     } else {
+      logger.log(`No frame to step out to ${JSON.stringify(positions)}`);
       response.body.success = false;
       this.sendResponse(response);
-      logger.log(`No frame to step out to ${JSON.stringify(positions)}`);
     }
   }
 
@@ -717,23 +723,39 @@ Expressions:
     }
 
     if (haltStatus.code !== HaltSignal.TRAP) {
-      this.sendStoppedEvent(threadId, "exception", false);
+      this.sendStoppedEvent(threadId, "exception");
       return;
     }
 
-    if (this.stepping) {
-      this.sendStoppedEvent(threadId, "step", false);
-      return;
-    }
-
+    // Get stack position:
     const { pc, stackFrameIndex } = await this.stackManager().getStackPosition(
       threadId,
       DEFAULT_FRAME_INDEX
     );
 
+    // Check temporary breakpoints:
+    if (this.breakpointManager().hasTemporaryBreakpoints()) {
+      if (this.breakpointManager().hasTemporaryBreakpointAt(pc)) {
+        await this.breakpointManager().clearTemporaryBreakpoints();
+        this.sendStoppedEvent(threadId, "step");
+      } else {
+        // Ignore breakpoints other than the temporary ones we're waiting for
+        await this.gdb.continueExecution(threadId);
+      }
+      return;
+    }
+
+    if (this.stepping) {
+      this.sendStoppedEvent(threadId, "step");
+      return;
+    }
+
+    // Breakpoints:
+
     const sourceBpRef = this.breakpointManager().sourceBreakpointAtAddress(pc);
 
-    // Check for conditional or log breakpoints:
+    // Decide whether to stop at this breakpoint or continue
+    // Needs to check for conditional / log breakpoints etc.
     let stop = true;
 
     if (sourceBpRef) {
@@ -789,7 +811,7 @@ Expressions:
 
       if (stop) {
         logger.log(`[EVT] stopping at breakpoint`);
-        this.sendStoppedEvent(threadId, "breakpoint", false);
+        this.sendStoppedEvent(threadId, "breakpoint");
       } else {
         await this.gdb.continueExecution(threadId);
       }
@@ -820,17 +842,12 @@ Expressions:
     }
   }
 
-  protected sendStoppedEvent(
-    threadId: number,
-    reason: string,
-    preserveFocusHint?: boolean
-  ) {
+  protected sendStoppedEvent(threadId: number, reason: string) {
     this.sendEvent(<DebugProtocol.StoppedEvent>{
       event: "stopped",
       body: {
         reason,
         threadId,
-        preserveFocusHint,
         allThreadsStopped: true,
       },
     });
@@ -850,7 +867,7 @@ Expressions:
     return this.variables;
   }
 
-  private disasseblyManager(): DisassemblyManager {
+  private disassemblyManager(): DisassemblyManager {
     if (!this.disassembly) {
       throw new Error("DisassemblyManager not initialized");
     }

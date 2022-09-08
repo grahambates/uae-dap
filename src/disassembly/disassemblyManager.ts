@@ -339,9 +339,6 @@ export class DisassemblyManager {
     length: number,
     isCopper?: boolean
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    // if (!this.gdb.isConnected()) {
-    //   throw new Error("Debugger not started");
-    // }
     const memory = await this.gdb.readMemory(address, length);
     if (isCopper) {
       return disassembleCopper(memory).map((inst, i) => ({
