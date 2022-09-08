@@ -11,7 +11,6 @@ import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
 
 import {
-  BreakpointCode,
   GdbClient,
   HaltSignal,
   HaltStatus,
@@ -84,30 +83,41 @@ export interface DisassembledFileContentsRequest {
   path: string;
 }
 
-export const defaultMemoryFormats = {
-  watch: {
-    length: 104,
-    wordLength: 2,
-  },
-  hover: {
-    length: 24,
-    wordLength: 2,
+const defaultArgs = {
+  exceptionMask: 0b111100,
+  serverName: "localhost",
+  serverPort: 6860,
+  startEmulator: true,
+  stopOnEntry: false,
+  emulatorOptions: [],
+  trace: false,
+  memoryFormats: {
+    watch: {
+      length: 104,
+      wordLength: 2,
+    },
+    hover: {
+      length: 24,
+      wordLength: 2,
+    },
   },
 };
 
 export class UAEDebugSession extends LoggingDebugSession {
   protected gdb: GdbClient;
   protected emulator: Emulator;
+
   protected testMode = false;
   protected trace = false;
-  protected exceptionMask?: number;
+  protected firstStop = true;
+  protected stopOnEntry = false;
+  protected stepping = false;
+  protected exceptionMask = defaultArgs.exceptionMask;
+
   protected breakpoints?: BreakpointManager;
   protected variables?: VariableManager;
   protected disassembly?: DisassemblyManager;
   protected stack?: StackManager;
-  protected firstStop = true;
-  protected stopOnEntry = false;
-  protected stepping = false;
 
   public constructor() {
     super();
@@ -153,83 +163,87 @@ export class UAEDebugSession extends LoggingDebugSession {
         },
       ],
     };
-
     this.sendResponse(response);
   }
 
   protected async launchRequest(
     response: DebugProtocol.LaunchResponse,
-    args: LaunchRequestArguments
+    customArgs: LaunchRequestArguments
   ) {
-    const {
-      program,
-      exceptionMask = 0b111100,
-      serverName = "localhost",
-      serverPort = 6860,
-      startEmulator = true,
-      stopOnEntry = false,
-      emulator,
-      emulatorOptions = [],
-      emulatorWorkingDir,
-      trace = false,
-      memoryFormats,
-    } = args;
+    const args = {
+      ...defaultArgs,
+      ...customArgs,
+      memoryFormats: {
+        ...defaultArgs.memoryFormats,
+        ...customArgs.memoryFormats,
+      },
+    };
 
     try {
-      if (!program) {
+      if (!args.program) {
         throw new Error("Missing program argument in launch request");
       }
-      const hunks = await parseHunksFromFile(program);
 
       this.firstStop = true;
-      this.stopOnEntry = stopOnEntry;
+      this.stopOnEntry = args.stopOnEntry;
 
-      this.trace = trace;
+      this.gdb.setExceptionBreakpoint(args.exceptionMask);
+      this.exceptionMask = args.exceptionMask;
+
+      // Initialize logger:
+      this.trace = args.trace;
       logger.init((e) => this.sendEvent(e));
-      logger.setup(trace ? LogLevel.Verbose : LogLevel.Error);
+      logger.setup(args.trace ? LogLevel.Verbose : LogLevel.Error);
 
       if (!this.testMode) {
         this.sendHelpText();
       }
 
-      if (startEmulator) {
-        if (!emulator || !emulatorOptions) {
+      // Start the emulator
+      if (args.startEmulator) {
+        if (!args.emulator || !args.emulatorOptions) {
           throw new Error("Missing emulator configuration");
         }
-        logger.log(
-          `Starting emulator: ${emulator} ${emulatorOptions.join(" ")}`
-        );
+        const opts = args.emulatorOptions.join(" ");
+        logger.log(`[LAUNCH] Starting emulator: ${args.emulator} ${opts}`);
         await this.emulator.run({
-          executable: emulator,
-          args: emulatorOptions,
-          cwd: emulatorWorkingDir,
+          executable: args.emulator,
+          args: args.emulatorOptions,
+          cwd: args.emulatorWorkingDir,
           onExit: () => this.sendEvent(new TerminatedEvent()),
         });
+      } else {
+        logger.log(`[LAUNCH] Not starting emulator`);
       }
 
-      // if (!this.testMode) {
-      //   await new Promise((resolve) => setTimeout(resolve, 4000));
-      // }
-
-      // Connect to the emulator
+      // Connect to the remote debugger
       await promiseRetry(
         (retry, attempt) => {
-          logger.log(`Connecting to remote debugger... [${attempt}]`);
-          return this.gdb.connect(serverName, serverPort).catch(retry);
+          logger.log(`[LAUNCH] Connecting to remote debugger... [${attempt}]`);
+          return this.gdb
+            .connect(args.serverName, args.serverPort)
+            .catch(retry);
         },
         { retries: 20, factor: 1.1 }
       );
 
-      const offsets = await this.gdb.getOffsets();
+      for (const threadId of [Threads.CPU, Threads.COPPER]) {
+        this.sendEvent(new ThreadEvent("started", threadId));
+      }
+
+      // Get info to Initialize source map
+      const [hunks, offsets] = await Promise.all([
+        parseHunksFromFile(args.program),
+        this.gdb.getOffsets(),
+      ]);
       const sourceMap = new SourceMap(hunks, offsets);
+
+      // Initialize managers:
       this.variables = new VariableManager(
         this.gdb,
         sourceMap,
-        this.getSourceConstantResolver(args),
-        {
-          ...defaultMemoryFormats,
-          ...memoryFormats,
-        }
+        this.getSourceConstantResolver(customArgs),
+        args.memoryFormats
       );
       this.disassembly = new DisassemblyManager(
         this.gdb,
@@ -243,134 +257,29 @@ export class UAEDebugSession extends LoggingDebugSession {
       );
       this.stack = new StackManager(this.gdb, sourceMap, this.disassembly);
 
-      this.gdb.setExceptionBreakpoint(exceptionMask);
-      this.exceptionMask = exceptionMask;
-
-      for (const threadId of [Threads.CPU, Threads.COPPER]) {
-        // TODO: is this needed?
-        this.sendEvent(new ThreadEvent("started", threadId));
-      }
-
-      if (this.stopOnEntry) {
-        logger.log("Stopping on entry");
+      if (args.stopOnEntry) {
+        logger.log("[LAUNCH] Stopping on entry");
         await this.gdb.stepIn(Threads.CPU);
       } else {
-        logger.log("Continuing on entry");
+        logger.log("[LAUNCH] Continuing on entry");
         await this.gdb.continueExecution(Threads.CPU);
       }
 
+      // Tell client that we can now handle breakpoints etc.
       this.sendEvent(new InitializedEvent());
-
-      this.sendResponse(response);
     } catch (err) {
       this.sendEvent(new TerminatedEvent());
-      this.sendStringErrorResponse(response, (err as Error).message);
+      response.success = false;
+      response.message = (err as Error).message;
     }
+
+    this.sendResponse(response);
   }
 
-  protected getSourceConstantResolver(
-    args: LaunchRequestArguments
-  ): SourceConstantResolver {
-    return new VasmSourceConstantResolver(args.vasm);
-  }
-
-  protected sendHelpText() {
-    const text = `Commands:
-  Memory dump:
-    m address[,size=16,wordSizeInBytes=4,rowSizeInWords=4][,ab]
-      a: show ascii output, b: show bytes output (default: both)
-      examples: m $5c50,10              Dump 10 bytes of memory starting at $5c50
-                m a0,DATA_SIZE,2,4,a    DATA_SIZE bytes in rows of 4 words from
-  Disassemble:
-    d address[,size=16]
-      example: d pc,10                  Disassemble 10 bytes of memory starting
-  Disassemble copper:
-    c address[,size=16]
-      example: c copperlist,16          Disassemble 16 bytes of memory as copper
-  Memory set:
-    M address=bytes
-      bytes: unprefixed hexadecimal literal
-      example: M $5c50=0ff534           Write 3 byte value to memory address $5c50
-  * All parameters can be expressions unless specified.
-
-Expressions:
-  Expression syntax can be evaluated here in the console, as well as in watch, conditional breakpoints and logpoints.
-  It uses a JavaScript-like syntax and can reference variables from the Registers, Symbols and Constants groups.
-
-  Numeric literals can use either JavaScript or ASM style base prefixes:
-    decimal (default), hex (0x or $), octal (0o or @) or binary (ob or %)
-  Operators supported:
-    Arithmetic: + - / * ** % ++ --
-    Bitwise:    & | ~ ^ << >>
-    Comparison: < <= > >= == !=
-    Logical:    && || !
-    Ternary:    ? :
-  Memory references:
-    Allow you to reference values from memory. Reads a numeric value from an address, which can be an expression.
-    Read unsigned:
-      @(address[,size=4])
-        size: number of bytes to read
-        example: @($100)               Unsigned longword value at address $100
-    Read signed:
-      @s(address[,size=4])
-        example: @s(a0,2)              Signed word value at address in register a0
-`;
-    this.output(text);
-  }
-
-  protected sourceRequest(
-    response: DebugProtocol.SourceResponse,
-    args: DebugProtocol.SourceArguments
-  ): void {
-    this.handleAsyncRequest(response, async () => {
-      const content = await this.disassembly?.getDisassembledFileContentsByRef(
-        args.sourceReference
-      );
-      if (!content) {
-        throw new Error("Source not found");
-      }
-      response.body = { content };
-    });
-  }
-
-  protected async customRequest(
-    command: string,
-    response: DebugProtocol.Response,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    args: any
-  ) {
-    if (command === "disassembledFileContents") {
-      const fileReq: DisassembledFileContentsRequest = args;
-      const content =
-        await this.disassemblyManager().getDisassembledFileContentsByPath(
-          fileReq.path
-        );
-      response.body = { content };
-      return this.sendResponse(response);
-    }
-    if (command === "modifyVariableFormat") {
-      const variableReq: VariableDisplayFormatRequest = args;
-      this.variableManager().setVariableFormat(
-        variableReq.variableInfo.variable.name,
-        variableReq.variableDisplayFormat
-      );
-      this.sendEvent(new InvalidatedEvent(["variables"]));
-      return this.sendResponse(response);
-    }
-    super.customRequest(command, response, args);
-  }
-
-  protected async disassembleRequest(
-    response: DebugProtocol.DisassembleResponse,
-    args: DebugProtocol.DisassembleArguments
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      const instructions = await this.disassemblyManager().disassemble(args);
-      await Promise.all(
-        instructions.map(({ location }) => this.processSource(location))
-      );
-      response.body = { instructions };
-    });
+  public shutdown(): void {
+    logger.log(`Shutting down`);
+    this.gdb.destroy();
+    this.emulator.destroy();
   }
 
   // Breakpoints:
@@ -457,31 +366,14 @@ Expressions:
         if (args.filters.length > 0) {
           await this.gdb.setExceptionBreakpoint(this.exceptionMask);
         } else {
-          // TODO: check this works
-          await this.gdb.removeBreakpoint(
-            this.exceptionMask,
-            BreakpointCode.HARDWARE
-          );
+          await this.gdb.setExceptionBreakpoint(0);
         }
       }
       response.success = true;
     });
   }
 
-  protected async exceptionInfoRequest(
-    response: DebugProtocol.ExceptionInfoResponse
-  ) {
-    this.handleAsyncRequest(response, async () => {
-      const haltStatus = await this.gdb.getHaltStatus();
-      if (haltStatus) {
-        response.body = {
-          exceptionId: haltStatus.code.toString(),
-          description: haltStatus.details,
-          breakMode: "always",
-        };
-      }
-    });
-  }
+  // Running program info:
 
   protected async threadsRequest(response: DebugProtocol.ThreadsResponse) {
     response.body = {
@@ -529,7 +421,22 @@ Expressions:
     });
   }
 
-  // Navigation:
+  protected async exceptionInfoRequest(
+    response: DebugProtocol.ExceptionInfoResponse
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const haltStatus = await this.gdb.getHaltStatus();
+      if (haltStatus) {
+        response.body = {
+          exceptionId: haltStatus.code.toString(),
+          description: haltStatus.details,
+          breakMode: "always",
+        };
+      }
+    });
+  }
+
+  // Execution flow:
 
   protected async pauseRequest(
     response: DebugProtocol.PauseResponse,
@@ -583,7 +490,9 @@ Expressions:
       await this.breakpointManager().addTemporaryBreakpoints(pc);
       await this.gdb.continueExecution(threadId);
     } else {
-      logger.log(`No frame to step out to ${JSON.stringify(positions)}`);
+      logger.error(
+        `No previous frame to step out to (stack size: ${positions.length})`
+      );
       response.body.success = false;
       this.sendResponse(response);
     }
@@ -712,9 +621,106 @@ Expressions:
     });
   }
 
-  private async handleStop(haltStatus: HaltStatus) {
-    logger.log(`[EVT] Stopped ${JSON.stringify(haltStatus)}`);
+  // Disassembly:
+
+  protected async disassembleRequest(
+    response: DebugProtocol.DisassembleResponse,
+    args: DebugProtocol.DisassembleArguments
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      const instructions = await this.disassemblyManager().disassemble(args);
+      await Promise.all(
+        instructions.map(({ location }) => this.processSource(location))
+      );
+      response.body = { instructions };
+    });
+  }
+
+  protected sourceRequest(
+    response: DebugProtocol.SourceResponse,
+    args: DebugProtocol.SourceArguments
+  ): void {
+    this.handleAsyncRequest(response, async () => {
+      const content = await this.disassembly?.getDisassembledFileContentsByRef(
+        args.sourceReference
+      );
+      if (!content) {
+        throw new Error("Source not found");
+      }
+      response.body = { content };
+    });
+  }
+
+  protected async customRequest(
+    command: string,
+    response: DebugProtocol.Response,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    args: any
+  ) {
+    if (command === "disassembledFileContents") {
+      const fileReq: DisassembledFileContentsRequest = args;
+      const content =
+        await this.disassemblyManager().getDisassembledFileContentsByPath(
+          fileReq.path
+        );
+      response.body = { content };
+      return this.sendResponse(response);
+    }
+    if (command === "modifyVariableFormat") {
+      const variableReq: VariableDisplayFormatRequest = args;
+      this.variableManager().setVariableFormat(
+        variableReq.variableInfo.variable.name,
+        variableReq.variableDisplayFormat
+      );
+      this.sendEvent(new InvalidatedEvent(["variables"]));
+      return this.sendResponse(response);
+    }
+    super.customRequest(command, response, args);
+  }
+
+  // Internals:
+
+  protected async handleAsyncRequest(
+    response: DebugProtocol.Response,
+    cb: () => Promise<void>
+  ) {
+    try {
+      await cb();
+    } catch (err) {
+      if (err instanceof Error) {
+        // Display stack trace in trace mode
+        const showStack = this.trace || this.testMode;
+        response.message = showStack ? err.stack ?? err.message : err.message;
+      }
+      response.success = false;
+    }
+    this.sendResponse(response);
+  }
+
+  protected sendStoppedEvent(threadId: number, reason: string) {
+    this.sendEvent(<DebugProtocol.StoppedEvent>{
+      event: "stopped",
+      body: {
+        reason,
+        threadId,
+        allThreadsStopped: true,
+      },
+    });
+  }
+
+  /**
+   * Process a Source object before returning in to the client
+   */
+  protected async processSource(source?: DebugProtocol.Source) {
+    // Ensure path is in correct format for client
+    if (source?.path) {
+      source.path = this.convertDebuggerPathToClient(source.path);
+    }
+  }
+
+  protected async handleStop(haltStatus: HaltStatus) {
     const threadId = haltStatus.threadId ?? Threads.CPU;
+    logger.log(`[STOP] ${haltStatus.details} (${Threads[threadId]})`);
 
     if (this.firstStop && this.stopOnEntry) {
       this.firstStop = false;
@@ -760,7 +766,7 @@ Expressions:
 
     if (sourceBpRef) {
       logger.log(
-        `[EVT] Matched source breakpoint at address ${formatAddress(pc)}`
+        `[STOP] Matched source breakpoint at address ${formatAddress(pc)}`
       );
       const bp = sourceBpRef.breakpoint;
       if (bp.logMessage) {
@@ -780,7 +786,7 @@ Expressions:
             }
           }
         );
-        this.output(message + "\n");
+        this.sendEvent(new OutputEvent(message + "\n", "console"));
         stop = false;
       }
       if (bp.condition) {
@@ -790,7 +796,7 @@ Expressions:
         );
         const stop = !!result;
         logger.log(
-          `[EVT] Evaluated conditional breakpoint ${bp.condition} = ${stop}`
+          `[STOP] Evaluated conditional breakpoint ${bp.condition} = ${stop}`
         );
       }
       if (bp.hitCondition) {
@@ -799,18 +805,18 @@ Expressions:
           stackFrameIndex
         );
         if (++sourceBpRef.hitCount === evaluatedCondition) {
-          logger.log(`[EVT] Hit count reached: ${evaluatedCondition}`);
+          logger.log(`[STOP] Hit count reached: ${evaluatedCondition}`);
           this.gdb.removeBreakpoint(pc);
         } else {
           logger.log(
-            `[EVT] Hit count not reached: ${sourceBpRef.hitCount}/${evaluatedCondition}`
+            `[STOP] Hit count not reached: ${sourceBpRef.hitCount}/${evaluatedCondition}`
           );
           stop = false;
         }
       }
 
       if (stop) {
-        logger.log(`[EVT] stopping at breakpoint`);
+        logger.log(`[STOP] stopping at breakpoint`);
         this.sendStoppedEvent(threadId, "breakpoint");
       } else {
         await this.gdb.continueExecution(threadId);
@@ -818,91 +824,85 @@ Expressions:
     }
   }
 
-  public shutdown(): void {
-    logger.log(`Shutting down`);
-    this.gdb.destroy();
-    this.emulator.destroy();
+  protected sendHelpText() {
+    const text = `Commands:
+  Memory dump:
+    m address[,size=16,wordSizeInBytes=4,rowSizeInWords=4][,ab]
+      a: show ascii output, b: show bytes output (default: both)
+      examples: m $5c50,10              Dump 10 bytes of memory starting at $5c50
+                m a0,DATA_SIZE,2,4,a    DATA_SIZE bytes in rows of 4 words from
+  Disassemble:
+    d address[,size=16]
+      example: d pc,10                  Disassemble 10 bytes of memory starting
+  Disassemble copper:
+    c address[,size=16]
+      example: c copperlist,16          Disassemble 16 bytes of memory as copper
+  Memory set:
+    M address=bytes
+      bytes: unprefixed hexadecimal literal
+      example: M $5c50=0ff534           Write 3 byte value to memory address $5c50
+  * All parameters can be expressions unless specified.
+
+Expressions:
+  Expression syntax can be evaluated here in the console, as well as in watch, conditional breakpoints and logpoints.
+  It uses a JavaScript-like syntax and can reference variables from the Registers, Symbols and Constants groups.
+
+  Numeric literals can use either JavaScript or ASM style base prefixes:
+    decimal (default), hex (0x or $), octal (0o or @) or binary (ob or %)
+  Operators supported:
+    Arithmetic: + - / * ** % ++ --
+    Bitwise:    & | ~ ^ << >>
+    Comparison: < <= > >= == !=
+    Logical:    && || !
+    Ternary:    ? :
+  Memory references:
+    Allow you to reference values from memory. Reads a numeric value from an address, which can be an expression.
+    Read unsigned:
+      @(address[,size=4])
+        size: number of bytes to read
+        example: @($100)               Unsigned longword value at address $100
+    Read signed:
+      @s(address[,size=4])
+        example: @s(a0,2)              Signed word value at address in register a0
+`;
+    this.sendEvent(new OutputEvent(text, "console"));
   }
 
-  protected async handleAsyncRequest(
-    response: DebugProtocol.Response,
-    cb: () => Promise<void>
-  ) {
-    try {
-      await cb();
-      this.sendResponse(response);
-    } catch (err) {
-      let message = "Unknown error";
-      if (err instanceof Error) {
-        const showStack = this.trace || this.testMode;
-        // Display stack trace in trace mode
-        message = showStack ? err.stack ?? err.message : err.message;
-      }
-      this.sendStringErrorResponse(response, message);
-    }
+  // Allows this to be overridden with another implementation e.g. in VS Code
+  protected getSourceConstantResolver(
+    args: LaunchRequestArguments
+  ): SourceConstantResolver {
+    return new VasmSourceConstantResolver(args.vasm);
   }
 
-  protected sendStoppedEvent(threadId: number, reason: string) {
-    this.sendEvent(<DebugProtocol.StoppedEvent>{
-      event: "stopped",
-      body: {
-        reason,
-        threadId,
-        allThreadsStopped: true,
-      },
-    });
-  }
+  // Manager getters:
+  // Ensures these are defined i.e. the program is started
 
-  private breakpointManager(): BreakpointManager {
+  protected breakpointManager(): BreakpointManager {
     if (!this.breakpoints) {
       throw new Error("BreakpointManager not initialized");
     }
     return this.breakpoints;
   }
 
-  private variableManager(): VariableManager {
+  protected variableManager(): VariableManager {
     if (!this.variables) {
       throw new Error("VariableManager not initialized");
     }
     return this.variables;
   }
 
-  private disassemblyManager(): DisassemblyManager {
+  protected disassemblyManager(): DisassemblyManager {
     if (!this.disassembly) {
       throw new Error("DisassemblyManager not initialized");
     }
     return this.disassembly;
   }
 
-  private stackManager(): StackManager {
+  protected stackManager(): StackManager {
     if (!this.stack) {
       throw new Error("StackManager not initialized");
     }
     return this.stack;
-  }
-
-  /**
-   * Process a Source object before returning in to the client
-   */
-  protected async processSource(source?: DebugProtocol.Source) {
-    // Ensure path is in correct format for client
-    if (source?.path) {
-      source.path = this.convertDebuggerPathToClient(source.path);
-    }
-  }
-
-  protected sendStringErrorResponse(
-    response: DebugProtocol.Response,
-    message: string
-  ): void {
-    response.success = false;
-    response.message = message;
-    this.sendResponse(response);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  protected output(output: string, category = "console", data?: any) {
-    const e = new OutputEvent(output, category, data);
-    this.sendEvent(e);
   }
 }

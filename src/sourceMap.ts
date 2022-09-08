@@ -1,5 +1,4 @@
-import { logger } from "@vscode/debugadapter";
-import { Hunk, HunkType, MemoryType } from "./amigaHunkParser";
+import { Hunk, MemoryType } from "./amigaHunkParser";
 import { normalize } from "./utils/files";
 
 export interface Location {
@@ -12,7 +11,7 @@ export interface Location {
   segmentOffset: number;
 }
 
-export interface SegmentInfo {
+export interface Segment {
   name: string;
   address: number;
   size: number;
@@ -20,14 +19,14 @@ export interface SegmentInfo {
 }
 
 class SourceMap {
-  private segmentsInfo: SegmentInfo[];
+  private segments: Segment[];
   private sources: string[] = [];
   private symbols: Record<string, number> = {};
   private locationsBySource = new Map<string, Map<number, Location>>();
   private locationsByAddress = new Map<number, Location>();
 
   constructor(hunks: Hunk[], offsets: number[]) {
-    this.segmentsInfo = offsets.map((address, i) => {
+    this.segments = offsets.map((address, i) => {
       const hunk = hunks[i];
       return {
         address,
@@ -37,8 +36,8 @@ class SourceMap {
       };
     });
 
-    for (let i = 0; i < this.segmentsInfo.length; i++) {
-      const seg = this.segmentsInfo[i];
+    for (let i = 0; i < this.segments.length; i++) {
+      const seg = this.segments[i];
       const hunk = hunks[i];
 
       for (const { offset, name } of hunk.symbols) {
@@ -67,7 +66,6 @@ class SourceMap {
             segmentOffset: lineInfo.offset,
             address,
           };
-          logger.log(JSON.stringify(location));
           linesMap.set(lineInfo.line, location);
           this.locationsByAddress.set(address, location);
         }
@@ -80,8 +78,8 @@ class SourceMap {
     return this.sources;
   }
 
-  public getSegmentsInfo(): SegmentInfo[] {
-    return this.segmentsInfo;
+  public getSegmentsInfo(): Segment[] {
+    return this.segments;
   }
 
   public getSymbols(): Record<string, number> {
@@ -93,7 +91,7 @@ class SourceMap {
     if (!location) {
       for (const [a, l] of this.locationsByAddress.entries()) {
         if (a > address) break;
-        location = l;
+        if (address - a <= 10) location = l;
       }
     }
     if (!location) {
@@ -121,8 +119,8 @@ class SourceMap {
     return location;
   }
 
-  public getSegmentInfo(segmentId: number): SegmentInfo {
-    const segment = this.segmentsInfo[segmentId];
+  public getSegmentInfo(segmentId: number): Segment {
+    const segment = this.segments[segmentId];
     if (!segment) {
       throw new Error("Invalid segment: " + segmentId);
     }

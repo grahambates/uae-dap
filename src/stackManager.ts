@@ -33,8 +33,8 @@ class StackManager {
       let sf: StackFrame | undefined;
 
       if (p.pc >= 0) {
-        const location = this.sourceMap?.lookupAddress(p.pc);
-        if (location) {
+        try {
+          const location = this.sourceMap.lookupAddress(p.pc);
           const source = new Source(basename(location.path), location.path);
           sf = new StackFrame(
             p.index,
@@ -43,6 +43,8 @@ class StackManager {
             location.line
           );
           sf.instructionPointerReference = formatHexadecimal(p.pc);
+        } catch (_) {
+          // Will get processed with disassembler
         }
       }
 

@@ -46,11 +46,14 @@ export class DisassemblyManager {
       if (args.offset) {
         firstAddress -= args.offset;
       }
-      // Set memoryReference to segment address if found
-      const location = this.sourceMap.lookupAddress(firstAddress);
-      if (location) {
+
+      try {
+        // Set memoryReference to segment address if found
+        const location = this.sourceMap.lookupAddress(firstAddress);
         const segment = this.sourceMap.getSegmentInfo(location.segmentIndex);
         memoryReference = segment.address.toString();
+      } catch (_) {
+        // Not found
       }
     }
 
@@ -78,11 +81,15 @@ export class DisassemblyManager {
 
     // Add source line data to instructions
     for (const instruction of instructions) {
-      const line = this.sourceMap.lookupAddress(parseInt(instruction.address));
-      if (line) {
+      try {
+        const line = this.sourceMap.lookupAddress(
+          parseInt(instruction.address)
+        );
         const filename = line.path;
         instruction.location = new Source(basename(filename), filename);
         instruction.line = line.line;
+      } catch (_) {
+        // Not found
       }
     }
 
@@ -252,15 +259,23 @@ export class DisassemblyManager {
     let label = text.replace(/\s+/g, " ");
     let line = 1;
 
-    // is the pc on a opened segment ?
-    const location = this.sourceMap.lookupAddress(address);
-    if (!location) {
-      throw new Error("Unable to look up addres " + address);
+    let segmentIndex = -1;
+    let segmentOffset = 0;
+    try {
+      const location = this.sourceMap.lookupAddress(address);
+      segmentIndex = location.segmentIndex;
+      segmentOffset = location.segmentOffset;
+    } catch (_) {
+      // Not found
     }
-    const { segmentIndex: segmentId, segmentOffset: offset } = location;
-    if (segmentId >= 0 && !isCopper) {
-      dAsmFile.segmentId = segmentId;
-      line = await this.getLineNumberInDisassembledSegment(segmentId, offset);
+
+    // is the pc on a opened segment ?
+    if (segmentIndex >= 0 && !isCopper) {
+      dAsmFile.segmentId = segmentIndex;
+      line = await this.getLineNumberInDisassembledSegment(
+        segmentIndex,
+        segmentOffset
+      );
     } else {
       dAsmFile.memoryReference = "$" + address.toString(16);
       if (isCopper) {
@@ -292,13 +307,10 @@ export class DisassemblyManager {
 
     const sf = new StackFrame(stackPosition.index, label);
     sf.instructionPointerReference = formatHexadecimal(address);
-
-    if (isCopper) {
-      const filename = disassembledFileToPath(dAsmFile);
-      sf.source = new Source(filename, filename);
-      sf.source.sourceReference = this.sourceHandles.create(dAsmFile);
-      sf.line = line;
-    }
+    const filename = disassembledFileToPath(dAsmFile);
+    sf.source = new Source(filename, filename);
+    sf.source.sourceReference = this.sourceHandles.create(dAsmFile);
+    sf.line = line;
 
     return sf;
   }
