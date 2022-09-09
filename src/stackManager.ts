@@ -2,7 +2,7 @@ import { logger, Source, StackFrame } from "@vscode/debugadapter";
 import { basename } from "path";
 import { DisassemblyManager } from "./disassembly";
 import { DEFAULT_FRAME_INDEX, GdbClient } from "./gdbClient";
-import { Threads } from "./hardware";
+import { Threads as ThreadId } from "./hardware";
 import { REGISTER_PC_INDEX } from "./registers";
 import SourceMap from "./sourceMap";
 import { formatHexadecimal } from "./utils/strings";
@@ -24,7 +24,7 @@ class StackManager {
    * Get stack trace for thread
    */
   public async getStackTrace(
-    threadId: number,
+    threadId: ThreadId,
     stackPositions: StackPosition[]
   ): Promise<StackFrame[]> {
     const stackFrames = [];
@@ -52,24 +52,25 @@ class StackManager {
       if (!sf) {
         sf = await this.disassembly.getStackFrame(p, threadId);
       }
+      // TODO:
       // Only include frames with a source, but make sure we have at least one frame
       // Others are likely to be ROM system calls
-      if (sf.source || !stackFrames.length) {
-        stackFrames.push(sf);
-      }
+      // if (sf.source || !stackFrames.length) {
+      stackFrames.push(sf);
+      // }
     }
 
     return stackFrames;
   }
 
-  public async getPositions(threadId: number): Promise<StackPosition[]> {
+  public async getPositions(threadId: ThreadId): Promise<StackPosition[]> {
     const stackPositions: StackPosition[] = [];
     let stackPosition = await this.getStackPosition(
       threadId,
       DEFAULT_FRAME_INDEX
     );
     stackPositions.push(stackPosition);
-    if (threadId === Threads.CPU) {
+    if (threadId === ThreadId.CPU) {
       // Retrieve the current frame count
       const stackSize = await this.gdb.getFramesCount();
       for (let i = stackSize - 1; i >= 0; i--) {
@@ -85,10 +86,10 @@ class StackManager {
   }
 
   public async getStackPosition(
-    threadId: number,
-    frameIndex: number
+    threadId: ThreadId,
+    frameIndex = DEFAULT_FRAME_INDEX
   ): Promise<StackPosition> {
-    if (threadId === Threads.CPU) {
+    if (threadId === ThreadId.CPU) {
       logger.log("Getting position at frame " + frameIndex);
       // Get the current frame
       return this.gdb.withFrame(frameIndex, async (index) => {
@@ -107,7 +108,7 @@ class StackManager {
           );
         }
       });
-    } else if (threadId === Threads.COPPER) {
+    } else if (threadId === ThreadId.COPPER) {
       // Retrieve the stack position from the copper
       const haltStatus = await this.gdb.getHaltStatus();
       if (haltStatus) {

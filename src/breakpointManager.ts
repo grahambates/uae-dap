@@ -5,8 +5,10 @@ import SourceMap from "./sourceMap";
 import { formatAddress } from "./utils/strings";
 import { DisassemblyManager, isDisassembledFile } from "./disassembly";
 
-export interface BreakpointReference {
-  breakpoint: DebugProtocol.SourceBreakpoint;
+export interface BreakpointReference<
+  T = DebugProtocol.SourceBreakpoint | DebugProtocol.DataBreakpoint
+> {
+  breakpoint: T;
   address: number;
   hitCount: number;
 }
@@ -20,12 +22,18 @@ class BreakpointManager {
   /** Source breakpoints mapped by source and line number */
   private sourceBreakpoints = new Map<
     string,
-    Map<number, BreakpointReference>
+    Map<number, BreakpointReference<DebugProtocol.SourceBreakpoint>>
   >();
   /** Source breakpoints mapped by address */
-  private sourceBreakpointsByAddress = new Map<number, BreakpointReference>();
+  private sourceBreakpointsByAddress = new Map<
+    number,
+    BreakpointReference<DebugProtocol.SourceBreakpoint>
+  >();
   /** Data breakpoints mapped by address */
-  private dataBreakpoints = new Map<number, DebugProtocol.DataBreakpoint>();
+  private dataBreakpoints = new Map<
+    number,
+    BreakpointReference<DebugProtocol.DataBreakpoint>
+  >();
   /** Instruction breakoint addresses */
   private instructionBreakpoints = new Set<number>();
   /** Temporary breakoint address groups */
@@ -58,7 +66,10 @@ class BreakpointManager {
 
     // Add new breakpoints
     const outBreakpoints: DebugProtocol.Breakpoint[] = [];
-    const newRefs = new Map<number, BreakpointReference>();
+    const newRefs = new Map<
+      number,
+      BreakpointReference<DebugProtocol.SourceBreakpoint>
+    >();
     for (const bp of breakpoints) {
       const outBp: DebugProtocol.Breakpoint = {
         ...bp,
@@ -88,7 +99,7 @@ class BreakpointManager {
         }
 
         await this.gdb.setBreakpoint(address);
-        const ref: BreakpointReference = {
+        const ref = {
           address,
           breakpoint: bp,
           hitCount: 0,
@@ -107,6 +118,12 @@ class BreakpointManager {
     return outBreakpoints;
   }
 
+  public sourceBreakpointAtAddress(
+    address: number
+  ): BreakpointReference<DebugProtocol.SourceBreakpoint> | undefined {
+    return this.sourceBreakpointsByAddress.get(address);
+  }
+
   public async setDataBreakpoints(
     breakpoints: DebugProtocol.DataBreakpoint[]
   ): Promise<DebugProtocol.Breakpoint[]> {
@@ -119,8 +136,9 @@ class BreakpointManager {
     };
 
     // Clear existing data points:
-    for (const [address, bp] of this.dataBreakpoints.entries()) {
-      const type = bp.accessType ? types[bp.accessType] : BreakpointCode.ACCESS;
+    for (const [address, ref] of this.dataBreakpoints.entries()) {
+      const { accessType } = ref.breakpoint;
+      const type = accessType ? types[accessType] : BreakpointCode.ACCESS;
       const size = 2; // TODO
       await this.gdb.removeBreakpoint(address, type, size);
     }
@@ -152,13 +170,23 @@ class BreakpointManager {
           : BreakpointCode.ACCESS;
         await this.gdb.setBreakpoint(address, type, size);
 
-        this.dataBreakpoints.set(address, bp);
+        this.dataBreakpoints.set(address, {
+          breakpoint: bp,
+          address,
+          hitCount: 0,
+        });
         outBp.verified = true;
       } catch (err) {
         if (err instanceof Error) outBp.message = err.message;
       }
     }
     return outBreakpoints;
+  }
+
+  public dataBreakpointAtAddress(
+    address: number
+  ): BreakpointReference<DebugProtocol.DataBreakpoint> | undefined {
+    return this.dataBreakpoints.get(address);
   }
 
   public async setInstructionBreakpoints(
@@ -196,10 +224,8 @@ class BreakpointManager {
     return outBreakpoints;
   }
 
-  public sourceBreakpointAtAddress(
-    address: number
-  ): BreakpointReference | undefined {
-    return this.sourceBreakpointsByAddress.get(address);
+  public instructionBreakpointAtAddress(address: number): boolean {
+    return this.instructionBreakpoints.has(address);
   }
 
   // Temporary breakpoints:
@@ -220,8 +246,8 @@ class BreakpointManager {
     return this.temporaryBreakpoints.size > 0;
   }
 
-  public hasTemporaryBreakpointAt(pc: number): boolean {
-    return Array.from(this.temporaryBreakpoints).includes(pc);
+  public temporaryBreakpointAtAddress(pc: number): boolean {
+    return this.temporaryBreakpoints.has(pc);
   }
 
   public async clearTemporaryBreakpoints(): Promise<void> {

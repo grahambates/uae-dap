@@ -189,12 +189,12 @@ export class GdbClient {
   }
 
   public async getHaltStatus(): Promise<HaltStatus | null> {
-    const response = await this.request("?", PacketType.STOP);
+    const response = await this.request("?");
     return response.indexOf("OK") < 0 ? this.parseHaltStatus(response) : null;
   }
 
   public async getVStopped(): Promise<HaltStatus | null> {
-    const response = await this.request("vStopped", null);
+    const response = await this.request("vStopped");
     return response.indexOf("OK") < 0 ? this.parseHaltStatus(response) : null;
   }
 
@@ -407,7 +407,6 @@ export class GdbClient {
     let threadId: number | undefined;
     if (parameters) {
       const registers = new Map<number, number>();
-      let threadId;
       const elms = parameters.trim().split(";");
       for (const elm of elms) {
         const kv = elm.split(":");

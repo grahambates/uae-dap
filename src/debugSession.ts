@@ -6,6 +6,7 @@ import {
   logger,
   LoggingDebugSession,
   ThreadEvent,
+  ContinuedEvent,
 } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
@@ -16,7 +17,7 @@ import {
   HaltStatus,
   DEFAULT_FRAME_INDEX,
 } from "./gdbClient";
-import BreakpointManager from "./breakpointManager";
+import BreakpointManager, { BreakpointReference } from "./breakpointManager";
 import {
   base64ToHex,
   formatAddress,
@@ -38,6 +39,7 @@ import { DisassemblyManager } from "./disassembly";
 import { Threads } from "./hardware";
 import StackManager from "./stackManager";
 import promiseRetry from "promise-retry";
+import { Mutex } from "./utils/mutex";
 
 export interface LaunchRequestArguments
   extends DebugProtocol.LaunchRequestArguments {
@@ -111,7 +113,8 @@ export class UAEDebugSession extends LoggingDebugSession {
   protected trace = false;
   protected firstStop = true;
   protected stopOnEntry = false;
-  protected stepping = false;
+  protected pausing = 0;
+  protected stepping = 0;
   protected exceptionMask = defaultArgs.exceptionMask;
 
   protected breakpoints?: BreakpointManager;
@@ -127,7 +130,12 @@ export class UAEDebugSession extends LoggingDebugSession {
 
     this.emulator = new Emulator();
     this.gdb = new GdbClient();
-    this.gdb.on("stop", this.handleStop.bind(this));
+    const mutex = new Mutex(50, 10000);
+
+    this.gdb.on("stop", async (haltStatus) => {
+      const unlock = await mutex.capture("stop");
+      return this.handleStop(haltStatus).finally(unlock);
+    });
     this.gdb.on("end", this.shutdown.bind(this));
   }
 
@@ -151,6 +159,7 @@ export class UAEDebugSession extends LoggingDebugSession {
       supportsReadMemoryRequest: true,
       supportsRestartFrame: false,
       supportsSetVariable: true,
+      supportsSingleThreadExecutionRequests: false,
       supportsStepBack: false,
       supportsSteppingGranularity: false,
       supportsValueFormattingOptions: true,
@@ -394,7 +403,7 @@ export class UAEDebugSession extends LoggingDebugSession {
       if (
         threadId === Threads.CPU &&
         positions[0] &&
-        this.breakpointManager().hasTemporaryBreakpointAt(positions[0].pc)
+        this.breakpointManager().temporaryBreakpointAtAddress(positions[0].pc)
       ) {
         await this.breakpointManager().clearTemporaryBreakpoints();
       }
@@ -443,19 +452,15 @@ export class UAEDebugSession extends LoggingDebugSession {
     { threadId }: DebugProtocol.PauseArguments
   ) {
     this.sendResponse(response);
-    await this.gdb.pause(threadId);
-    this.stepping = true;
-    this.sendStoppedEvent(threadId, "pause");
+    this.pausing = threadId;
+    await this.gdb.pause(Threads.CPU);
   }
 
-  protected async continueRequest(
-    response: DebugProtocol.ContinueResponse,
-    { threadId }: DebugProtocol.ContinueArguments
-  ) {
+  protected async continueRequest(response: DebugProtocol.ContinueResponse) {
     response.body = { allThreadsContinued: true };
     this.sendResponse(response);
-    this.stepping = false;
-    await this.gdb.continueExecution(threadId);
+    this.stepping = 0;
+    await this.gdb.continueExecution(Threads.CPU);
   }
 
   protected async nextRequest(
@@ -464,7 +469,7 @@ export class UAEDebugSession extends LoggingDebugSession {
   ): Promise<void> {
     this.sendResponse(response);
     const [frame] = await this.stackManager().getPositions(threadId);
-    this.stepping = true;
+    this.stepping = threadId;
     await this.gdb.stepToRange(threadId, frame.pc, frame.pc);
   }
 
@@ -473,7 +478,7 @@ export class UAEDebugSession extends LoggingDebugSession {
     { threadId }: DebugProtocol.StepInArguments
   ) {
     this.sendResponse(response);
-    this.stepping = true;
+    this.stepping = threadId;
     await this.gdb.stepIn(threadId);
   }
 
@@ -484,9 +489,8 @@ export class UAEDebugSession extends LoggingDebugSession {
     const positions = await this.stackManager().getPositions(threadId);
     if (positions[1]) {
       this.sendResponse(response);
-      this.stepping = true;
+      this.stepping = threadId;
       const { pc } = positions[1];
-      // await this.gdb.stepToRange(threadId, pc + 1, pc + 10);
       await this.breakpointManager().addTemporaryBreakpoints(pc);
       await this.gdb.continueExecution(threadId);
     } else {
@@ -697,13 +701,18 @@ export class UAEDebugSession extends LoggingDebugSession {
     this.sendResponse(response);
   }
 
-  protected sendStoppedEvent(threadId: number, reason: string) {
+  protected sendStoppedEvent(
+    threadId: number,
+    reason: string,
+    preserveFocusHint?: boolean
+  ) {
     this.sendEvent(<DebugProtocol.StoppedEvent>{
       event: "stopped",
       body: {
         reason,
         threadId,
         allThreadsStopped: true,
+        preserveFocusHint,
       },
     });
   }
@@ -718,109 +727,157 @@ export class UAEDebugSession extends LoggingDebugSession {
     }
   }
 
+  /**
+   * Event handler for stop/halt event
+   */
   protected async handleStop(haltStatus: HaltStatus) {
-    const threadId = haltStatus.threadId ?? Threads.CPU;
-    logger.log(`[STOP] ${haltStatus.details} (${Threads[threadId]})`);
+    logger.log(`[STOP] ${haltStatus.details} [${haltStatus.threadId}]`);
+
+    // Any other halt code other than TRAP must be an exception:
+    if (haltStatus.code !== HaltSignal.TRAP) {
+      logger.log(`[STOP] Exception`);
+      this.sendStoppedEvent(Threads.CPU, "exception");
+      return;
+    }
+
+    // Special cases where we're waiting for a specific stop event that we triggered:
 
     if (this.firstStop && this.stopOnEntry) {
+      logger.log(`[STOP] Stop on entry`);
       this.firstStop = false;
       this.sendStoppedEvent(Threads.CPU, "entry");
       return;
     }
 
-    if (haltStatus.code !== HaltSignal.TRAP) {
-      this.sendStoppedEvent(threadId, "exception");
+    if (this.pausing) {
+      logger.log(`[STOP] Pause ${this.pausing}`);
+      this.sendStoppedEvent(this.pausing, "pause");
+      this.pausing = 0;
       return;
     }
 
-    // Get stack position:
+    // Get stack position to find current PC address for thread
+    const threadId = haltStatus.threadId ?? Threads.CPU;
     const { pc, stackFrameIndex } = await this.stackManager().getStackPosition(
       threadId,
       DEFAULT_FRAME_INDEX
     );
 
+    const manager = this.breakpointManager();
+
     // Check temporary breakpoints:
-    if (this.breakpointManager().hasTemporaryBreakpoints()) {
-      if (this.breakpointManager().hasTemporaryBreakpointAt(pc)) {
-        await this.breakpointManager().clearTemporaryBreakpoints();
-        this.sendStoppedEvent(threadId, "step");
+    // Are we waiting for a temporary breakpoint?
+    if (manager.hasTemporaryBreakpoints()) {
+      // Did we hit it or something else?
+      if (manager.temporaryBreakpointAtAddress(pc)) {
+        logger.log(
+          `[STOP] Matched temporary breakpoint at address ${formatAddress(pc)}`
+        );
+        await manager.clearTemporaryBreakpoints();
+        this.sendStoppedEvent(this.stepping, "step");
       } else {
-        // Ignore breakpoints other than the temporary ones we're waiting for
-        await this.gdb.continueExecution(threadId);
+        logger.log(`[STOP] ignoring while waiting for temporary breakpoint`);
+        await this.gdb.continueExecution(Threads.CPU);
       }
       return;
     }
 
     if (this.stepping) {
-      this.sendStoppedEvent(threadId, "step");
+      if (threadId === this.stepping) {
+        logger.log(`[STOP] Step ${this.stepping}`);
+        this.sendStoppedEvent(this.stepping, "step");
+      } else {
+        logger.log(`[STOP] ignoring event on other thread while stepping`);
+      }
       return;
     }
 
-    // Breakpoints:
+    // No special cases met - find the breakpoint at the current address:
 
-    const sourceBpRef = this.breakpointManager().sourceBreakpointAtAddress(pc);
+    // Check instruction breakpoints:
+    if (manager.instructionBreakpointAtAddress(pc)) {
+      logger.log(
+        `[STOP] Matched instruction breakpoint at address ${formatAddress(pc)}`
+      );
+      this.sendStoppedEvent(threadId, "instruction breakpoint");
+      return;
+    }
+
+    // Check source / data breakpoints:
+    let ref: BreakpointReference | undefined =
+      manager.sourceBreakpointAtAddress(pc);
+    let type = "breakpoint";
+    if (!ref) {
+      ref = manager.dataBreakpointAtAddress(pc);
+      type = "data breakpoint";
+    }
+    if (!ref) {
+      logger.log(`[STOP] No breakpoint found at address ${formatAddress(pc)}`);
+      return;
+    }
+
+    logger.log(`[STOP] Matched ${type} at address ${formatAddress(pc)}`);
 
     // Decide whether to stop at this breakpoint or continue
     // Needs to check for conditional / log breakpoints etc.
-    let stop = true;
+    let shouldStop = true;
+    const bp = ref.breakpoint;
 
-    if (sourceBpRef) {
-      logger.log(
-        `[STOP] Matched source breakpoint at address ${formatAddress(pc)}`
-      );
-      const bp = sourceBpRef.breakpoint;
-      if (bp.logMessage) {
-        // Interpolate variables
-        const message = await replaceAsync(
-          bp.logMessage,
-          /\{((#\{((#\{[^}]*\})|[^}])*\})|[^}])*\}/g, // Up to two levels of nesting
-          async (match) => {
-            try {
-              const v = await this.variableManager().evaluate(
-                match.substring(1, match.length - 1),
-                stackFrameIndex
-              );
-              return formatHexadecimal(v, 0);
-            } catch {
-              return "#error";
-            }
+    // Log point:
+    const logMessage = (bp as DebugProtocol.SourceBreakpoint).logMessage;
+    if (logMessage) {
+      // Interpolate variables
+      const message = await replaceAsync(
+        logMessage,
+        /\{((#\{((#\{[^}]*\})|[^}])*\})|[^}])*\}/g, // Up to two levels of nesting
+        async (match) => {
+          try {
+            const v = await this.variableManager().evaluate(
+              match.substring(1, match.length - 1),
+              stackFrameIndex
+            );
+            return formatHexadecimal(v, 0);
+          } catch {
+            return "#error";
           }
-        );
-        this.sendEvent(new OutputEvent(message + "\n", "console"));
-        stop = false;
-      }
-      if (bp.condition) {
-        const result = await this.variableManager().evaluate(
-          bp.condition,
-          stackFrameIndex
-        );
-        const stop = !!result;
-        logger.log(
-          `[STOP] Evaluated conditional breakpoint ${bp.condition} = ${stop}`
-        );
-      }
-      if (bp.hitCondition) {
-        const evaluatedCondition = await this.variableManager().evaluate(
-          bp.hitCondition,
-          stackFrameIndex
-        );
-        if (++sourceBpRef.hitCount === evaluatedCondition) {
-          logger.log(`[STOP] Hit count reached: ${evaluatedCondition}`);
-          this.gdb.removeBreakpoint(pc);
-        } else {
-          logger.log(
-            `[STOP] Hit count not reached: ${sourceBpRef.hitCount}/${evaluatedCondition}`
-          );
-          stop = false;
         }
-      }
+      );
+      this.sendEvent(new OutputEvent(message + "\n", "console"));
+      shouldStop = false;
+    }
 
-      if (stop) {
-        logger.log(`[STOP] stopping at breakpoint`);
-        this.sendStoppedEvent(threadId, "breakpoint");
+    // Conditional breakpoint:
+    if (bp.condition) {
+      const result = await this.variableManager().evaluate(
+        bp.condition,
+        stackFrameIndex
+      );
+      const stop = !!result;
+      logger.log(
+        `[STOP] Evaluated conditional breakpoint ${bp.condition} = ${stop}`
+      );
+    }
+
+    // Hit count:
+    if (bp.hitCondition) {
+      const evaluatedCondition = await this.variableManager().evaluate(
+        bp.hitCondition,
+        stackFrameIndex
+      );
+      logger.log(`[STOP] Hit count: ${ref.hitCount}/${evaluatedCondition}`);
+      if (++ref.hitCount === evaluatedCondition) {
+        this.gdb.removeBreakpoint(pc);
       } else {
-        await this.gdb.continueExecution(threadId);
+        shouldStop = false;
       }
+    }
+
+    if (shouldStop) {
+      logger.log(`[STOP] stopping at ${type}`);
+      this.sendStoppedEvent(threadId, type);
+    } else {
+      logger.log(`[STOP] continuing execution`);
+      await this.gdb.continueExecution(threadId);
     }
   }
 
