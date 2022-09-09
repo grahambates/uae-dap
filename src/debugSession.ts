@@ -1,15 +1,14 @@
 import {
+  logger,
   InitializedEvent,
   TerminatedEvent,
   OutputEvent,
   InvalidatedEvent,
-  logger,
   LoggingDebugSession,
   ThreadEvent,
-  ContinuedEvent,
 } from "@vscode/debugadapter";
-import { DebugProtocol } from "@vscode/debugprotocol";
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
+import { DebugProtocol } from "@vscode/debugprotocol";
 
 import {
   GdbClient,
@@ -57,9 +56,7 @@ export interface LaunchRequestArguments
   startEmulator?: boolean;
   /** emulator program */
   emulator?: string;
-  /** emulator working directory */
-  emulatorWorkingDir?: string;
-  /** Emulator options */
+  /** Emulator CLI args */
   emulatorOptions?: string[];
   /** path replacements for source files */
   sourceFileMap?: Record<string, string>;
@@ -109,13 +106,12 @@ export class UAEDebugSession extends LoggingDebugSession {
   protected gdb: GdbClient;
   protected emulator: Emulator;
 
-  protected testMode = false;
   protected trace = false;
   protected firstStop = true;
   protected stopOnEntry = false;
+  protected exceptionMask = defaultArgs.exceptionMask;
   protected pausing = 0;
   protected stepping = 0;
-  protected exceptionMask = defaultArgs.exceptionMask;
 
   protected breakpoints?: BreakpointManager;
   protected variables?: VariableManager;
@@ -149,7 +145,7 @@ export class UAEDebugSession extends LoggingDebugSession {
       supportsConditionalBreakpoints: true,
       supportsHitConditionalBreakpoints: true,
       supportsLogPoints: true,
-      supportsConfigurationDoneRequest: false,
+      supportsConfigurationDoneRequest: true,
       supportsDataBreakpoints: true,
       supportsDisassembleRequest: true,
       supportsEvaluateForHovers: true,
@@ -179,6 +175,7 @@ export class UAEDebugSession extends LoggingDebugSession {
     response: DebugProtocol.LaunchResponse,
     customArgs: LaunchRequestArguments
   ) {
+    // Merge in default args
     const args = {
       ...defaultArgs,
       ...customArgs,
@@ -192,21 +189,14 @@ export class UAEDebugSession extends LoggingDebugSession {
       if (!args.program) {
         throw new Error("Missing program argument in launch request");
       }
-
-      this.firstStop = true;
+      this.trace = args.trace;
       this.stopOnEntry = args.stopOnEntry;
-
-      this.gdb.setExceptionBreakpoint(args.exceptionMask);
       this.exceptionMask = args.exceptionMask;
+      this.firstStop = true;
 
       // Initialize logger:
-      this.trace = args.trace;
       logger.init((e) => this.sendEvent(e));
       logger.setup(args.trace ? LogLevel.Verbose : LogLevel.Error);
-
-      if (!this.testMode) {
-        this.sendHelpText();
-      }
 
       // Start the emulator
       if (args.startEmulator) {
@@ -218,12 +208,25 @@ export class UAEDebugSession extends LoggingDebugSession {
         await this.emulator.run({
           executable: args.emulator,
           args: args.emulatorOptions,
-          cwd: args.emulatorWorkingDir,
-          onExit: () => this.sendEvent(new TerminatedEvent()),
+          onExit: () => {
+            logger.log(`[EMU] Emulator quit`);
+            this.sendEvent(new TerminatedEvent());
+          },
+          onOutput: (data) => {
+            logger.log("[EMU] " + data.toString().trim());
+          },
         });
       } else {
         logger.log(`[LAUNCH] Not starting emulator`);
       }
+
+      if (args.noDebug) {
+        logger.log(`[LAUNCH] Not debugging`);
+        return;
+      }
+
+      this.gdb.setExceptionBreakpoint(args.exceptionMask);
+      this.sendHelpText();
 
       // Connect to the remote debugger
       await promiseRetry(
@@ -269,9 +272,6 @@ export class UAEDebugSession extends LoggingDebugSession {
       if (args.stopOnEntry) {
         logger.log("[LAUNCH] Stopping on entry");
         await this.gdb.stepIn(Threads.CPU);
-      } else {
-        logger.log("[LAUNCH] Continuing on entry");
-        await this.gdb.continueExecution(Threads.CPU);
       }
 
       // Tell client that we can now handle breakpoints etc.
@@ -283,6 +283,17 @@ export class UAEDebugSession extends LoggingDebugSession {
     }
 
     this.sendResponse(response);
+  }
+
+  protected configurationDoneRequest(
+    response: DebugProtocol.ConfigurationDoneResponse
+  ) {
+    this.handleAsyncRequest(response, async () => {
+      if (!this.stopOnEntry) {
+        logger.log("Continuing execution after config done");
+        await this.gdb.continueExecution(Threads.CPU);
+      }
+    });
   }
 
   public shutdown(): void {
@@ -693,8 +704,7 @@ export class UAEDebugSession extends LoggingDebugSession {
     } catch (err) {
       if (err instanceof Error) {
         // Display stack trace in trace mode
-        const showStack = this.trace || this.testMode;
-        response.message = showStack ? err.stack ?? err.message : err.message;
+        response.message = this.trace ? err.stack ?? err.message : err.message;
       }
       response.success = false;
     }
