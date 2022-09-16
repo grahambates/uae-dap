@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.0] - 2022-09-16
+
+### Changed
+
+- Major rewrite with new patched FS-UAE 4.x
+- Bundled binaries
+- New config schema
+
 ## [0.7.2] - 2022-06-13
 
 ### Fixed
