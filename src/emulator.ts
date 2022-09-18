@@ -22,11 +22,27 @@ export interface DebugOptions extends RunOptions {
 
 export type EmulatorType = "fs-uae" | "winuae";
 
+const isWin = process.platform === "win32";
+
 export abstract class Emulator {
+  /**
+   * Running emulator process
+   */
   private childProcess?: cp.ChildProcess;
 
+  /**
+   * Return default path for emulator binary for platform
+   */
   protected abstract defaultBin(): string;
+
+  /**
+   * Generated args to pass when running
+   */
   protected abstract runArgs(opts: RunOptions): string[];
+
+  /**
+   * Generated args to pass when debugging
+   */
   protected abstract debugArgs(opts: DebugOptions): string[];
 
   /**
@@ -79,24 +95,31 @@ export abstract class Emulator {
     });
   }
 
+  /**
+   * Check suitablity of emulator binary path
+   */
   protected checkBin(bin: string) {
+    // Ensure binary file exists
     try {
       fs.existsSync(bin);
     } catch (err) {
       throw new Error(`Emulator binary not found at '${bin}'`);
     }
-    try {
-      fs.accessSync(bin, fs.constants.X_OK);
-    } catch (_) {
-      logger.log(
-        "Emulator binary '${executable}' not executable - trying to chmod"
-      );
+    // Ensure binary is executable for POSIX
+    if (!isWin) {
       try {
-        fs.chmodSync(bin, 755);
+        fs.accessSync(bin, fs.constants.X_OK);
       } catch (_) {
-        throw new Error(
-          `The emulator binary '${bin}' is not executable and permissions could not be changed`
+        logger.log(
+          "Emulator binary '${executable}' not executable - trying to chmod"
         );
+        try {
+          fs.chmodSync(bin, 0o755);
+        } catch (_) {
+          throw new Error(
+            `The emulator binary '${bin}' is not executable and permissions could not be changed`
+          );
+        }
       }
     }
   }
@@ -112,22 +135,20 @@ export abstract class Emulator {
   }
 }
 
+/**
+ * FS-UAE emaultor wrapper
+ */
 export class FsUAE extends Emulator {
   protected defaultBin(): string {
     const binDir = findBinDir();
 
     // Choose default binary based on platform
-    const osMap = {
-      darwin: "macos",
-      linux: "debian",
-      win32: "windows",
-    };
-    const os = osMap[process.platform as keyof typeof osMap];
-    return join(binDir, "fs-uae", `fs-uae-${os}_x64`);
+    return join(binDir, "fs-uae", `fs-uae-${process.platform}_x64`);
   }
 
   protected checkBin(bin: string) {
     super.checkBin(bin);
+    // Check version string to ensure correct patched version
     const output = cp.execSync(bin + " --version");
     const version = output.toString().trim();
     logger.log("[EMU] Version: " + version);
@@ -152,7 +173,7 @@ export class FsUAE extends Emulator {
   protected debugArgs(opts: DebugOptions): string[] {
     const args = [];
     if (!opts.args.some((v) => v.startsWith("--remote_debugger="))) {
-      args.push("--remote_debugger=10000");
+      args.push("--remote_debugger=60");
     }
     if (!opts.args.some((v) => v.startsWith("--remote_debugger_port"))) {
       args.push("--remote_debugger_port=" + opts.serverPort);
@@ -171,7 +192,7 @@ export class WinUAE extends Emulator {
   }
 
   protected checkBin(bin: string) {
-    if (process.platform !== "win32") {
+    if (!isWin) {
       throw new Error("WinUAE only supported on Windows");
     }
     super.checkBin(bin);
@@ -190,14 +211,11 @@ export class WinUAE extends Emulator {
 
   protected debugArgs(opts: DebugOptions): string[] {
     const args = [];
-    if (!opts.args.some((v) => v.startsWith("--remote_debugger="))) {
-      args.push("--remote_debugger=10000");
+    if (!opts.args.some((v) => v.startsWith("debugging_features"))) {
+      args.push("-s", "debugging_features=gdbserver");
     }
-    if (!opts.args.some((v) => v.startsWith("--remote_debugger_port"))) {
-      args.push("--remote_debugger_port=" + opts.serverPort);
-    }
-    if (!opts.args.some((v) => v.startsWith("--remote_debugger_trigger"))) {
-      args.push("--remote_debugger_trigger=" + opts.remoteProgram);
+    if (!opts.args.some((v) => v.startsWith("debugging_trigger"))) {
+      args.push("-s", "debugging_trigger=" + opts.remoteProgram);
     }
     return args;
   }
