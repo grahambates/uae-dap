@@ -240,7 +240,7 @@ export class UAEDebugSession extends LoggingDebugSession {
 
       // Initialize logger:
       logger.init((e) => this.sendEvent(e));
-      logger.setup(args.trace ? LogLevel.Verbose : LogLevel.Error);
+      logger.setup(args.trace ? LogLevel.Verbose : LogLevel.Warn);
 
       logger.log("[LAUNCH] " + JSON.stringify(args, null, 2));
 

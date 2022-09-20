@@ -24,6 +24,9 @@ export type EmulatorType = "fs-uae" | "winuae";
 
 const isWin = process.platform === "win32";
 
+/**
+ * Base emulator class
+ */
 export abstract class Emulator {
   /**
    * Running emulator process
@@ -69,8 +72,13 @@ export abstract class Emulator {
    * Start emulator process
    */
   public run(opts: RunOptions): Promise<void> {
-    const bin = opts.bin || this.defaultBin();
-    this.checkBin(bin);
+    const customBin = opts.bin;
+    const defaultBin = this.defaultBin();
+    let bin = customBin || defaultBin;
+    if (customBin && !this.checkBin(customBin)) {
+      logger.warn("Defaulting to bundled emulator binary");
+      bin = defaultBin;
+    }
 
     const cwd = dirname(bin);
     const args = [...opts.args, ...this.runArgs(opts)];
@@ -98,12 +106,11 @@ export abstract class Emulator {
   /**
    * Check suitablity of emulator binary path
    */
-  protected checkBin(bin: string) {
+  protected checkBin(bin: string): boolean {
     // Ensure binary file exists
-    try {
-      fs.existsSync(bin);
-    } catch (err) {
-      throw new Error(`Emulator binary not found at '${bin}'`);
+    if (!fs.existsSync(bin)) {
+      logger.warn(`Emulator binary not found at '${bin}'`);
+      return false;
     }
     // Ensure binary is executable for POSIX
     if (!isWin) {
@@ -116,12 +123,14 @@ export abstract class Emulator {
         try {
           fs.chmodSync(bin, 0o755);
         } catch (_) {
-          throw new Error(
+          logger.warn(
             `The emulator binary '${bin}' is not executable and permissions could not be changed`
           );
+          return false;
         }
       }
     }
+    return true;
   }
 
   /**
@@ -136,7 +145,7 @@ export abstract class Emulator {
 }
 
 /**
- * FS-UAE emaultor wrapper
+ * FS-UAE emaultor program
  */
 export class FsUAE extends Emulator {
   protected defaultBin(): string {
@@ -146,17 +155,22 @@ export class FsUAE extends Emulator {
     return join(binDir, "fs-uae", `fs-uae-${process.platform}_x64`);
   }
 
-  protected checkBin(bin: string) {
-    super.checkBin(bin);
+  protected checkBin(bin: string): boolean {
+    const valid = super.checkBin(bin);
+    if (!valid) {
+      return false;
+    }
     // Check version string to ensure correct patched version
     const output = cp.execSync(bin + " --version");
     const version = output.toString().trim();
     logger.log("[EMU] Version: " + version);
     if (!version.includes("remote_debug")) {
-      throw new Error(
+      logger.warn(
         "FS-UAE must be patched 4.x version. Ensure you're using the latest binaries."
       );
+      return false;
     }
+    return true;
   }
 
   protected runArgs(opts: RunOptions): string[] {
@@ -185,17 +199,21 @@ export class FsUAE extends Emulator {
   }
 }
 
+/**
+ * WinUAE Emulator program
+ */
 export class WinUAE extends Emulator {
   protected defaultBin(): string {
     const binDir = findBinDir();
     return join(binDir, "winuae", `winuae.exe`);
   }
 
-  protected checkBin(bin: string) {
+  protected checkBin(bin: string): boolean {
     if (!isWin) {
-      throw new Error("WinUAE only supported on Windows");
+      logger.warn("WinUAE only supported on Windows");
+      return false;
     }
-    super.checkBin(bin);
+    return super.checkBin(bin);
   }
 
   protected runArgs(opts: RunOptions): string[] {
