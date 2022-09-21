@@ -161,7 +161,7 @@ export class FsUAE extends Emulator {
       return false;
     }
     // Check version string to ensure correct patched version
-    const output = cp.execSync(bin + " --version");
+    const output = cp.spawnSync(bin, ["--version"]);
     const version = output.toString().trim();
     logger.log("[EMU] Version: " + version);
     if (!version.includes("remote_debug")) {

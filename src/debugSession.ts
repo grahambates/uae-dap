@@ -247,17 +247,23 @@ export class UAEDebugSession extends LoggingDebugSession {
       // Start the emulator
       if (startEmulator) {
         this.emulator = Emulator.getInstance(args.emulatorType as EmulatorType);
-        if (!args.program) {
+        // Program is required when debugging
+        if (debug && !args.program) {
           throw new Error("Missing program argument in launch request");
         }
-        if (!args.remoteProgram) {
+        // Set default remoteProgram from program
+        if (args.program && !args.remoteProgram) {
           args.remoteProgram = "SYS:" + basename(args.program);
         }
 
-        // By default mount the dir containing the remote program as hard drive 0 (SYS:)
-        const mountDir = args.program
-          .replace(/\\/, "/")
-          .replace(args.remoteProgram.replace(/^.+:/, ""), "");
+        // Determine HDD mount from program and remoteProgram
+        let mountDir = undefined;
+        if (args.program && args.remoteProgram) {
+          // By default mount the dir containing the remote program as hard drive 0 (SYS:)
+          mountDir = args.program
+            .replace(/\\/, "/")
+            .replace(args.remoteProgram.replace(/^.+:/, ""), "");
+        }
 
         const runOpts: RunOptions = {
           bin: args.emulatorBin,
@@ -272,7 +278,7 @@ export class UAEDebugSession extends LoggingDebugSession {
           await this.emulator.debug({
             ...runOpts,
             serverPort: args.serverPort,
-            remoteProgram: args.remoteProgram,
+            remoteProgram: args.remoteProgram as string,
           });
         } else {
           await this.emulator.run(runOpts);
