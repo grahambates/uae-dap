@@ -33,7 +33,7 @@ type Events = {
 };
 
 export const DEFAULT_FRAME_INDEX = -1;
-const TIMEOUT = 5000;
+const TIMEOUT = 60000;
 
 const signalLabels: Record<HaltSignal, string> = {
   [HaltSignal.INT]: "Interrupt",
