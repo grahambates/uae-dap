@@ -112,7 +112,7 @@ export abstract class Emulator {
   protected checkBin(bin: string): boolean {
     // Ensure binary file exists
     if (!fs.existsSync(bin)) {
-      logger.warn(`Emulator binary not found at '${bin}'`);
+      logger.error(`Emulator binary not found at '${bin}'`);
       return false;
     }
     // Ensure binary is executable for POSIX
@@ -126,7 +126,7 @@ export abstract class Emulator {
         try {
           fs.chmodSync(bin, 0o755);
         } catch (_) {
-          logger.warn(
+          logger.error(
             `The emulator binary '${bin}' is not executable and permissions could not be changed`
           );
           return false;
@@ -165,7 +165,7 @@ export class FsUAE extends Emulator {
     }
     // Check version string to ensure correct patched version
     const output = cp.spawnSync(bin, ["--version"]);
-    const version = output.toString().trim();
+    const version = output.stdout.toString().trim();
     logger.log("[EMU] Version: " + version);
     if (!version.includes("remote_debug")) {
       logger.warn(

@@ -9,3 +9,4 @@ tsconfig.json
 *.map
 .husky
 jest.*
+.DS_Store
