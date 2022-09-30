@@ -79,6 +79,9 @@ export abstract class Emulator {
       logger.warn("Defaulting to bundled emulator binary");
       bin = defaultBin;
     }
+    if (!this.checkBin(bin)) {
+      throw new Error("[EMU] No suitable emulator binary");
+    }
 
     const cwd = dirname(bin);
     const args = [...opts.args, ...this.runArgs(opts)];
