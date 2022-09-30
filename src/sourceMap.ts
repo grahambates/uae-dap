@@ -1,5 +1,5 @@
 import { Hunk, MemoryType } from "./amigaHunkParser";
-import { normalize } from "./utils/files";
+import { normalize } from "path";
 
 export interface Location {
   path: string;
@@ -52,8 +52,9 @@ class SourceMap {
 
       for (const debugInfo of hunk.lineDebugInfo) {
         const path = normalize(debugInfo.sourceFilename);
+        const pathKey = path.toUpperCase();
         const linesMap =
-          this.locationsBySource.get(path) || new Map<number, Location>();
+          this.locationsBySource.get(pathKey) || new Map<number, Location>();
         for (const lineInfo of debugInfo.lines) {
           const address = seg.address + debugInfo.baseOffset + lineInfo.offset;
           let symbol;
@@ -75,7 +76,7 @@ class SourceMap {
           linesMap.set(lineInfo.line, location);
           this.locationsByAddress.set(address, location);
         }
-        this.locationsBySource.set(path, linesMap);
+        this.locationsBySource.set(pathKey, linesMap);
       }
     }
   }
@@ -107,10 +108,10 @@ class SourceMap {
   }
 
   public lookupSourceLine(path: string, line: number): Location {
-    const normalizedPath = normalize(path);
-    const fileMap = this.locationsBySource.get(normalizedPath);
+    const pathKey = normalize(path).toUpperCase();
+    const fileMap = this.locationsBySource.get(pathKey);
     if (!fileMap) {
-      throw new Error("File not found in source map: " + normalizedPath);
+      throw new Error("File not found in source map: " + path);
     }
     let location = fileMap.get(line);
     if (!location) {
