@@ -74,7 +74,9 @@ class BreakpointManager {
       logger.log("[BP] Removing existing breakpoints for source " + sourceKey);
       for (const { address } of existing.values()) {
         this.sourceBreakpointsByAddress.delete(address);
-        await this.gdb.removeBreakpoint(address);
+        await this.gdb.removeBreakpoint(address).catch(() => {
+          logger.log("[BP] Error removing breakpoint at " + address);
+        });
       }
     }
 
