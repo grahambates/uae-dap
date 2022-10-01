@@ -63,10 +63,7 @@ export class GdbClient {
       const cb = async () => {
         try {
           logger.log("Connected: initializing");
-          await this.request(
-            "qSupported:QStartNoAckMode+;multiprocess+;vContSupported+;QNonStop+"
-          );
-          await this.request("QStartNoAckMode");
+          await this.request("QStartNoAckMode", true, "OK");
           resolve();
         } catch (error) {
           this.socket.destroy();
@@ -284,7 +281,8 @@ export class GdbClient {
 
   private async request(
     text: string,
-    responseExpected = true
+    responseExpected = true,
+    expectedResponse?: string
   ): Promise<string> {
     return this.requestMutex.runExclusive(async () => {
       const req = `$${text}#${calculateChecksum(text)}`;
@@ -302,13 +300,20 @@ export class GdbClient {
         }, TIMEOUT);
 
         this.responseCallback = (message: string) => {
-          this.responseCallback = undefined;
-          clearTimeout(timeout);
           logger.log(`[GDB] <-- ${message}`);
           if (message.startsWith("E")) {
+            this.responseCallback = undefined;
+            clearTimeout(timeout);
             reject(new GdbError(message));
-          } else {
+          } else if (
+            !expectedResponse ||
+            message.startsWith(expectedResponse)
+          ) {
+            this.responseCallback = undefined;
+            clearTimeout(timeout);
             resolve(message);
+          } else {
+            logger.log(`[GDB] ignored`);
           }
         };
       });
