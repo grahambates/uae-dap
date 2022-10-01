@@ -155,7 +155,11 @@ export class FsUAE extends Emulator {
     const binDir = findBinDir();
 
     // Choose default binary based on platform
-    return join(binDir, "fs-uae", `fs-uae-${process.platform}_x64`);
+    let bin = join(binDir, "fs-uae", `fs-uae-${process.platform}_x64`);
+    if (isWin) {
+      bin += ".exe";
+    }
+    return bin;
   }
 
   protected checkBin(bin: string): boolean {
