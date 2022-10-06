@@ -43,6 +43,7 @@ import { DisassemblyManager } from "./disassembly";
 import { Threads } from "./hardware";
 import StackManager from "./stackManager";
 import promiseRetry from "promise-retry";
+import { helpSummary, commandHelp } from "./help";
 
 /**
  * Additional arguments for launch/attach request
@@ -292,7 +293,7 @@ export class UAEDebugSession extends LoggingDebugSession {
         return;
       }
 
-      this.sendHelpText();
+      this.sendEvent(new OutputEvent(helpSummary, "console"));
 
       // Connect to the remote debugger
       await promiseRetry(
@@ -638,6 +639,8 @@ export class UAEDebugSession extends LoggingDebugSession {
     args: DebugProtocol.EvaluateArguments
   ) {
     this.handleAsyncRequest(response, async () => {
+      args.expression = args.expression.trim();
+
       // UAE debug console commands with '$' prefix
       if (args.expression.startsWith("$")) {
         const res = await this.gdb.monitor(
@@ -648,13 +651,27 @@ export class UAEDebugSession extends LoggingDebugSession {
         return;
       }
 
+      // Command help
+      if (args.expression.match(/^h\s/i)) {
+        const cmd = args.expression.replace(/^h\s+/, "");
+        const help =
+          commandHelp[cmd as keyof typeof commandHelp] ||
+          `No help available for command '${cmd}'`;
+        this.sendEvent(new OutputEvent(help, "console"));
+        response.body = { result: "", variablesReference: 0 };
+        return;
+      }
+
+      // Expression
       const body = await this.variableManager().evaluateExpression(args);
       if (body) {
         response.body = body;
-      } else {
-        response.body = { result: "", variablesReference: 0 };
-        this.sendHelpText();
+        return;
       }
+
+      // Default help summary
+      response.body = { result: "", variablesReference: 0 };
+      this.sendEvent(new OutputEvent(helpSummary, "console"));
     });
   }
 
@@ -967,25 +984,6 @@ export class UAEDebugSession extends LoggingDebugSession {
       logger.log(`[STOP] continuing execution`);
       await this.gdb.continueExecution(threadId);
     }
-  }
-
-  protected sendHelpText() {
-    const text = `Commands:
-    m address[,size=16,wordSize=4,rowSize=4][,ab]  Memory dump     a: ascii, b: bytes (default: both)
-    M address=bytes                                Memory set      bytes: unprefixed hexadecimal literal
-    d address[,size=16]                            Disassemble CPU
-    c address[,size=16]                            Disassemble copper
-UAE Console:
-    Use a '$' prefix to execute commands in the eumulator's built-in console debugger
-    e.g: $v -3    Enable visual debugger
-         $?       Show help
-Expressions:
-    Expressions use JavaScript-like syntax and can include literals, symbols, registers and memory values.
-    They can be evaluated here in the console and used in command arguments and watch statements.
-    @(address[,size=4])                            Unsigned memory value
-    @s(address[,size=4])                           Signed memory value
-`;
-    this.sendEvent(new OutputEvent(text, "console"));
   }
 
   // Implementation specific overrides:
