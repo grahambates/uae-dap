@@ -638,6 +638,16 @@ export class UAEDebugSession extends LoggingDebugSession {
     args: DebugProtocol.EvaluateArguments
   ) {
     this.handleAsyncRequest(response, async () => {
+      // UAE debug console commands with '$' prefix
+      if (args.expression.startsWith("$")) {
+        const res = await this.gdb.monitor(
+          "console " + args.expression.substring(1).trim()
+        );
+        this.sendEvent(new OutputEvent(res, "console"));
+        response.body = { result: "", variablesReference: 0 };
+        return;
+      }
+
       const body = await this.variableManager().evaluateExpression(args);
       if (body) {
         response.body = body;
