@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2022-10-07
+
+### Added
+
+- Allow a access to UAE Console debug commands. These can now be executed in the debug console using a '$' prefix
+
+### Changed
+
+- Improved help text in console. Now has compact summary with help per command.
+- Update fs-uae
+
+### Fixed
+
+- Error 'experimental fetch' error in wasm vasm with node 18
+- Various issues in beta
+
 ## [1.0.0-beta.0] - 2022-09-16
 
 ### Changed

@@ -1,6 +1,6 @@
 {
   "name": "uae-dap",
-  "version": "1.0.0-beta.7",
+  "version": "1.0.0",
   "description": "Debug Adapter Protocol for Amiga development with FS-UAE or WinUAE",
   "main": "out/src/index.js",
   "engines": {
@@ -40,6 +40,7 @@
     "@vscode/debugadapter": "^1.55.1",
     "@vscode/debugprotocol": "^1.55.1",
     "async-mutex": "^0.4.0",
+    "devtools-protocol": "0.0.1056733",
     "expression-eval": "^5.0.0",
     "glob": "^8.0.1",
     "promise-retry": "^2.0.1",
