@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Revert to older FS-UAE build to avoid breakpoint issue on Windows.
+
 ## [1.0.0] - 2022-10-07
 
 ### Added
