@@ -56,7 +56,7 @@ class SourceMap {
         const linesMap =
           this.locationsBySource.get(pathKey) || new Map<number, Location>();
         for (const lineInfo of debugInfo.lines) {
-          const address = seg.address + debugInfo.baseOffset + lineInfo.offset;
+          const address = seg.address + lineInfo.offset;
           let symbol;
           let symbolOffset;
           for (const { offset, name } of hunk.symbols) {
