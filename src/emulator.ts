@@ -85,11 +85,15 @@ export abstract class Emulator {
 
     const cwd = dirname(bin);
     const args = [...opts.args, ...this.runArgs(opts)];
+    const env = {
+      ...process.env,
+      LD_LIBRARY_PATH: ".", // Allow Linux fs-uae to find bundled .so files
+    };
 
     logger.log(`[EMU] Starting emulator: ${bin} ${args.join(" ")}`);
 
     return new Promise((resolve, reject) => {
-      this.childProcess = cp.spawn(bin, args, { cwd });
+      this.childProcess = cp.spawn(bin, args, { cwd, env });
       this.childProcess.once("spawn", resolve);
       this.childProcess.once("error", reject);
       this.childProcess.once("exit", () => {
