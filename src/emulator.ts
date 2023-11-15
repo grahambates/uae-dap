@@ -145,7 +145,13 @@ export abstract class Emulator {
    */
   public destroy() {
     if (this.childProcess) {
-      this.childProcess.kill("SIGTERM");
+      if (!this.childProcess.kill("SIGKILL")) {
+        logger.log(`The emulator could not be stopped with SIGKILL`);
+        if (this.childProcess.pid) {
+          logger.log(`Killing process`);
+          process.kill(-this.childProcess.pid);
+        }
+      }
       this.childProcess = undefined;
     }
   }
