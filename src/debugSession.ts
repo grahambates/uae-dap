@@ -165,6 +165,9 @@ export class UAEDebugSession extends LoggingDebugSession {
       });
     });
     this.gdb.on("end", this.shutdown.bind(this));
+    this.gdb.on("output", (msg) =>
+      this.sendEvent(new OutputEvent(msg, "console"))
+    );
   }
 
   protected initializeRequest(
@@ -915,9 +918,7 @@ export class UAEDebugSession extends LoggingDebugSession {
     }
     if (!ref) {
       logger.log(`[STOP] No breakpoint found at address ${formatAddress(pc)}`);
-      // Copper breakpoints seem to be less precise and don't always stop on the exact address
-      if (threadId === Threads.COPPER)
-        this.sendStoppedEvent(threadId, "breakpoint");
+      this.sendStoppedEvent(threadId, "breakpoint");
       return;
     }
 

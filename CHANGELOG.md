@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Force kill emulator if SIGKILL doesn't work
+- Handle unsupported message types 'S' for stop codes and 'O' for output
 
 ## [1.0.4] - 2023-11-09
 

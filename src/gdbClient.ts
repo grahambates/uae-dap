@@ -2,6 +2,7 @@ import { Socket } from "net";
 import { EventEmitter } from "events";
 import { logger } from "@vscode/debugadapter";
 import { Mutex } from "async-mutex";
+import { hexStringToASCII } from "./utils/strings";
 
 export interface HaltEvent {
   signal: HaltSignal;
@@ -30,6 +31,7 @@ export enum BreakpointCode {
 type Events = {
   stop: (e: HaltEvent) => void;
   end: () => void;
+  output: (message: string) => void;
 };
 
 export const DEFAULT_FRAME_INDEX = -1;
@@ -329,6 +331,7 @@ export class GdbClient {
         this.responseCallback(message);
       } else {
         switch (message[0]) {
+          case "S":
           case "T":
             if (!message.startsWith("Te") || !message.includes("tframes")) {
               logger.log(`[GDB] STOP: ${message}`);
@@ -339,6 +342,12 @@ export class GdbClient {
             logger.log(`[GDB] END`);
             this.sendEvent("end");
             break;
+          case "O":
+            logger.log(`[GDB] OUTPUT: ${message}`);
+            this.sendEvent("output", hexStringToASCII(message.substring(1), 2));
+            break;
+          default:
+            logger.log(`[GDB] UNKNOWN: ${message}`);
         }
       }
     }
