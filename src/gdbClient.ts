@@ -53,6 +53,7 @@ export class GdbClient {
   private frameMutex = new Mutex();
   private eventEmitter: EventEmitter;
   private responseCallback?: (message: string) => void;
+  private haltStatus: HaltEvent | undefined;
 
   constructor(socket?: Socket) {
     this.eventEmitter = new EventEmitter();
@@ -150,6 +151,9 @@ export class GdbClient {
   }
 
   public async getHaltStatus(): Promise<HaltEvent | null> {
+    if (this.haltStatus) {
+      return this.haltStatus;
+    }
     const response = await this.request("?");
     return response.indexOf("OK") < 0 ? this.parseHaltStatus(response) : null;
   }
@@ -336,7 +340,8 @@ export class GdbClient {
             if (!message.startsWith("Te") || !message.includes("tframes")) {
               logger.log(`[GDB] STOP: ${message}`);
             }
-            this.sendEvent("stop", this.parseHaltStatus(message));
+            this.haltStatus = this.parseHaltStatus(message);
+            this.sendEvent("stop", this.haltStatus);
             break;
           case "W":
             logger.log(`[GDB] END`);
@@ -354,6 +359,15 @@ export class GdbClient {
   }
 
   private parseHaltStatus(message: string): HaltEvent {
+    // Special case to treat S05 as exception:
+    // Emulator currently returns this code for non-specified exceptions, but normally 05 is treated as a breakpoint.
+    // We can differentiate because actual breakpoints use T05swbreak.
+    if (message === "S05") {
+      return {
+        signal: HaltSignal.SEGV,
+        label: "Exception",
+      };
+    }
     const code = parseInt(message.substring(1, 3), 16) as HaltSignal;
     const details = signalLabels[code] || "Exception";
     const threadMatch = message.match(/thread:(\d+)/);
