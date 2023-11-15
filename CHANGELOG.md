@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.0.5] - 2023-11-15
+
 - Force kill emulator if SIGKILL doesn't work
 - Handle unsupported message types 'S' for stop codes and 'O' for output
 - Special case to handle S05 as exception. Ideally the emulator would return appropriate codes for each exception type,
