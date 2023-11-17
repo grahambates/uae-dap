@@ -129,6 +129,7 @@ export class UAEDebugSession extends LoggingDebugSession {
   protected trace = false;
   protected stopOnEntry = false;
   protected exceptionMask = defaultArgs.exceptionMask;
+  protected awaitingStopOnEntry = false;
 
   protected breakpoints?: BreakpointManager;
   protected variables?: VariableManager;
@@ -158,6 +159,10 @@ export class UAEDebugSession extends LoggingDebugSession {
 
     const mutex = new Mutex();
     this.gdb.on("stop", (haltStatus) => {
+      if (this.awaitingStopOnEntry) {
+        this.awaitingStopOnEntry = false;
+        return;
+      }
       mutex.runExclusive(async () => {
         return this.handleStop(haltStatus).catch((err) => {
           logger.error(this.errorString(err));
@@ -343,6 +348,8 @@ export class UAEDebugSession extends LoggingDebugSession {
 
       if (args.stopOnEntry) {
         logger.log("[LAUNCH] Stopping on entry");
+        // Tell the standard stop hander to ignore
+        this.awaitingStopOnEntry = true;
         await this.gdb.stepIn(Threads.CPU);
         this.sendStoppedEvent(Threads.CPU, "entry");
       }

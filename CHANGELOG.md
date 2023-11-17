@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Prevent exception with stopOnEntry
+
 ## [1.0.5] - 2023-11-15
+
+### Fixed
 
 - Force kill emulator if SIGKILL doesn't work
 - Handle unsupported message types 'S' for stop codes and 'O' for output
