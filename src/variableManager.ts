@@ -926,16 +926,19 @@ class VariableManager {
     value: string
   ): Promise<string> {
     const scopeRef = this.scopes.get(variablesReference);
-    const numValue = await this.evaluate(value);
+    let numValue = await this.evaluate(value);
     if (typeof numValue !== "number") {
       throw new Error("Value is not numeric");
     }
     switch (scopeRef?.type) {
       case ScopeType.Registers:
-        await this.gdb.setRegister(
-          getRegisterIndex(name),
-          numValue.toString(16)
-        );
+        if (numValue < 0) {
+          numValue += 0x100000000;
+        }
+        if (Math.abs(numValue) > 0x100000000) {
+          throw new Error("Register value out of range");
+        }
+        await this.gdb.setRegister(getRegisterIndex(name), numValue);
         return this.formatVariable(name, numValue, NumberFormat.HEXADECIMAL, 4);
 
       case ScopeType.Vectors: {

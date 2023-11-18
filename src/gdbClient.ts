@@ -47,6 +47,13 @@ const signalLabels: Record<HaltSignal, string> = {
   [HaltSignal.SEGV]: "Segmentation fault",
 };
 
+const resp = {
+  OK: /^OK$/,
+  HEX: /^[0-9a-f]/,
+  STOP: /^[ST]/,
+  ANY: /./,
+};
+
 export class GdbClient {
   private socket: Socket;
   private requestMutex = new Mutex();
@@ -66,7 +73,7 @@ export class GdbClient {
       const cb = async () => {
         try {
           logger.log("Connected: initializing");
-          await this.request("QStartNoAckMode", true, "OK");
+          await this.request("QStartNoAckMode");
           resolve();
         } catch (error) {
           this.socket.destroy();
@@ -90,7 +97,7 @@ export class GdbClient {
   }
 
   public async getOffsets(): Promise<number[]> {
-    const res = await this.request("qOffsets");
+    const res = await this.request("qOffsets", resp.HEX);
     return res.split(";").map((a) => parseInt(a, 16));
   }
 
@@ -129,15 +136,15 @@ export class GdbClient {
   // Navigation:
 
   public async pause(threadId: number): Promise<void> {
-    await this.request("vCont;t:" + threadId);
+    await this.request("vCont;t:" + threadId, resp.STOP);
   }
 
   public async continueExecution(threadId: number): Promise<void> {
-    await this.request("vCont;c:" + threadId, false);
+    await this.requestNoRes("vCont;c:" + threadId);
   }
 
   public async stepIn(threadId: number): Promise<void> {
-    await this.request("vCont;s:" + threadId);
+    await this.request("vCont;s:" + threadId, resp.STOP);
   }
 
   public async stepToRange(
@@ -146,7 +153,8 @@ export class GdbClient {
     endAddress: number
   ): Promise<void> {
     await this.request(
-      "vCont;r" + hex(startAddress) + "," + hex(endAddress) + ":" + threadId
+      "vCont;r" + hex(startAddress) + "," + hex(endAddress) + ":" + threadId,
+      resp.STOP
     );
   }
 
@@ -154,14 +162,14 @@ export class GdbClient {
     if (this.haltStatus) {
       return this.haltStatus;
     }
-    const response = await this.request("?");
+    const response = await this.request("?", /^(OK|S|T)/);
     return response.indexOf("OK") < 0 ? this.parseHaltStatus(response) : null;
   }
 
   // Memory:
 
   public async readMemory(address: number, length: number): Promise<string> {
-    return this.request("m" + hex(address) + "," + hex(length));
+    return this.request("m" + hex(address) + "," + hex(length), resp.HEX);
   }
 
   public async writeMemory(address: number, dataToSend: string): Promise<void> {
@@ -172,7 +180,10 @@ export class GdbClient {
   // Registers:
 
   public async getRegisters(threadId?: number | null): Promise<number[]> {
-    const message = await this.request(threadId ? "Hg" + threadId : "g");
+    const message = await this.request(
+      threadId ? "Hg" + threadId : "g",
+      resp.HEX
+    );
     const registers: number[] = [];
 
     const regCount = Math.floor(message.length / 8);
@@ -184,28 +195,18 @@ export class GdbClient {
   }
 
   public async getRegister(regIdx: number): Promise<number> {
-    const data = await this.request("p" + hex(regIdx));
+    const data = await this.request("p" + hex(regIdx), resp.HEX);
     return parseInt(data, 16);
   }
 
-  public async setRegister(regIdx: number, value: string): Promise<string> {
-    if (!value.match(/[a-z\d]{1,8}/i)) {
-      throw new Error("The value must be a hex string with at most 8 digits");
-    }
-    const response = await this.request(
-      "P" + regIdx.toString(16) + "=" + value
-    );
-    if (response && response.indexOf("OK") >= 0) {
-      return value;
-    } else {
-      throw new Error("Error setting the register value");
-    }
+  public async setRegister(regIdx: number, value: number): Promise<void> {
+    await this.request("P" + regIdx.toString(16) + "=" + value.toString(16));
   }
 
   // Stack Frames:
 
   public async getFramesCount(): Promise<number> {
-    const data = await this.request("qTStatus");
+    const data = await this.request("qTStatus", /^T/);
     const frameCountPosition = data.indexOf("tframes");
     if (frameCountPosition > 0) {
       let endFrameCountPosition = data.indexOf(";", frameCountPosition);
@@ -223,7 +224,7 @@ export class GdbClient {
       await this.request("QTFrame:ffffffff");
       return DEFAULT_FRAME_INDEX;
     }
-    const data = await this.request("QTFrame:" + hex(frameIndex));
+    const data = await this.request("QTFrame:" + hex(frameIndex), /^F/);
 
     if (data === "F-1") {
       // No frame found
@@ -253,7 +254,10 @@ export class GdbClient {
   // Commands:
 
   public async monitor(command: string): Promise<string> {
-    const response = await this.request("qRcmd," + stringToHex(command));
+    const response = await this.request(
+      "qRcmd," + stringToHex(command),
+      resp.ANY
+    );
     return response;
   }
 
@@ -287,17 +291,13 @@ export class GdbClient {
 
   private async request(
     text: string,
-    responseExpected = true,
-    expectedResponse?: string
+    expectedResponse = resp.OK
   ): Promise<string> {
     return this.requestMutex.runExclusive(async () => {
       const req = `$${text}#${calculateChecksum(text)}`;
       logger.log(`[GDB] --> ${req}`);
       this.socket.write(req);
 
-      if (!responseExpected) {
-        return "";
-      }
       return await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           logger.log(`[GDB] TIMEOUT: ${req}`);
@@ -311,10 +311,7 @@ export class GdbClient {
             this.responseCallback = undefined;
             clearTimeout(timeout);
             reject(new GdbError(message));
-          } else if (
-            !message.match(/^O[0-9a-f]/i) && // Ignore output
-            (!expectedResponse || message.startsWith(expectedResponse))
-          ) {
+          } else if (message.match(expectedResponse)) {
             this.responseCallback = undefined;
             clearTimeout(timeout);
             resolve(message);
@@ -323,6 +320,14 @@ export class GdbClient {
           }
         };
       });
+    });
+  }
+
+  private async requestNoRes(text: string): Promise<void> {
+    return this.requestMutex.runExclusive(async () => {
+      const req = `$${text}#${calculateChecksum(text)}`;
+      logger.log(`[GDB] --> ${req}`);
+      this.socket.write(req);
     });
   }
 
@@ -337,9 +342,7 @@ export class GdbClient {
         switch (message[0]) {
           case "S":
           case "T":
-            if (!message.startsWith("Te") || !message.includes("tframes")) {
-              logger.log(`[GDB] STOP: ${message}`);
-            }
+            logger.log(`[GDB] STOP: ${message}`);
             this.haltStatus = this.parseHaltStatus(message);
             this.sendEvent("stop", this.haltStatus);
             break;
