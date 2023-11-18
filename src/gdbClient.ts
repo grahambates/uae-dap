@@ -312,8 +312,8 @@ export class GdbClient {
             clearTimeout(timeout);
             reject(new GdbError(message));
           } else if (
-            !expectedResponse ||
-            message.startsWith(expectedResponse)
+            !message.match(/^O[0-9a-f]/i) && // Ignore output
+            (!expectedResponse || message.startsWith(expectedResponse))
           ) {
             this.responseCallback = undefined;
             clearTimeout(timeout);
