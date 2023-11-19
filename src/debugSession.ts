@@ -352,7 +352,9 @@ export class UAEDebugSession extends LoggingDebugSession {
     } catch (err) {
       this.sendEvent(new TerminatedEvent());
       response.success = false;
-      response.message = (err as Error).message;
+      if (err instanceof Error) {
+        response.message = err.message;
+      }
     }
 
     this.sendResponse(response);

@@ -167,7 +167,9 @@ class BreakpointManager {
         const type = accessType ? types[accessType] : BreakpointCode.ACCESS;
         await this.gdb.removeBreakpoint(address, type, ref.size);
       } catch (err) {
-        logger.error((err as Error).message);
+        if (err instanceof Error) {
+          logger.error(err.message);
+        }
       }
     }
     this.dataBreakpoints.clear();
