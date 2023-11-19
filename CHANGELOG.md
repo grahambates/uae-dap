@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.7] - 2023-11-19
+
 ### Fixed
 
 - Prevent exception on step with WinUAE
+- FS-UAE Mac/Linux returns correct exception codes. Windows binaries still to come.
 
 ## [1.0.6] - 2023-11-17
 
