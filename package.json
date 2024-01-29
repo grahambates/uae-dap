@@ -3,9 +3,30 @@
   "version": "1.0.7",
   "description": "Debug Adapter Protocol for Amiga development with FS-UAE or WinUAE",
   "main": "out/src/index.js",
-  "engines": {
-    "node": "*"
+  "displayName": "Amiga Assembly Debugger",
+  "license": "GNU General Public License v3.0",
+  "homepage": "https://github.com/grahambates/uae-dap",
+  "bugs": {
+    "url": "https://github.com/grahambates/grahambates/uae-dap/issues"
   },
+  "publisher": "gigabates",
+  "engines": {
+    "node": "*",
+    "vscode": "^1.84.2"
+  },
+  "categories": [
+    "Debuggers"
+  ],
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#000000",
+    "theme": "dark"
+  },
+  "activationEvents": [
+    "onDebug",
+    "onLanguage:m68k",
+    "workspaceContains:**/*.{s,S,asm,ASM}"
+  ],
   "bin": "cli.js",
   "repository": {
     "type": "git",
@@ -23,6 +44,272 @@
     "fs-uae",
     "win-uae"
   ],
+  "contributes": {
+    "breakpoints": [
+      {
+        "language": "m68k"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "amiga-assembly-debugger",
+        "label": "UAE: Debug",
+        "program": "./out/src/debugAdapter.js",
+        "runtime": "node",
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Local path of target Amiga binary",
+                "default": "^\"\\${workspaceFolder\\}/uae/dh0/myprogram\""
+              },
+              "remoteProgram": {
+                "type": "string",
+                "description": "Remote path of target Amiga binary (default: SYS:{basename of program})"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop target after launch",
+                "default": false
+              },
+              "noDebug": {
+                "type": "boolean",
+                "description": "Just launch emulator without debugging",
+                "default": false
+              },
+              "trace": {
+                "type": "boolean",
+                "description": "Enable verbose logging",
+                "default": false
+              },
+              "serverName": {
+                "type": "string",
+                "description": "Host name of the debug server",
+                "default": "localhost"
+              },
+              "serverPort": {
+                "type": "number",
+                "description": "Port number of the debug server",
+                "default": 2345
+              },
+              "exceptionMask": {
+                "type": "number",
+                "description": "Mask used to catch the exceptions",
+                "default": 8188
+              },
+              "emulatorType": {
+                "type": "string",
+                "enum": [
+                  "fs-uae",
+                  "winuae"
+                ],
+                "description": "Emulator program type",
+                "default": "fs-uae"
+              },
+              "emulatorBin": {
+                "type": "string",
+                "description": "Path of emulator executable (default: use bundled version)"
+              },
+              "emulatorArgs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "title": "Emulator option"
+                },
+                "default": [],
+                "description": "Additional CLI args to pass to emulator program. Remote debugger args are added automatically"
+              }
+            }
+          },
+          "attach": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Local path of target Amiga binary",
+                "default": "^\"\\${workspaceFolder\\}/uae/dh0/myprogram\""
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop target after launch",
+                "default": false
+              },
+              "trace": {
+                "type": "boolean",
+                "description": "Enable verbose logging",
+                "default": false
+              },
+              "serverName": {
+                "type": "string",
+                "description": "Host name of the debug server",
+                "default": "localhost"
+              },
+              "serverPort": {
+                "type": "number",
+                "description": "Port number of the debug server",
+                "default": 2345
+              },
+              "exceptionMask": {
+                "type": "number",
+                "description": "Mask used to catch the exceptions",
+                "default": 8188
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "amiga-assembly-debugger",
+            "request": "launch",
+            "name": "FS-UAE Debug",
+            "stopOnEntry": false,
+            "program": "${workspaceFolder}/uae/dh0/myprogram",
+            "remoteProgram": "SYS:myprogram",
+            "emulatorType": "fs-uae",
+            "emulatorArgs": [
+              "--hard_drive_0=${workspaceFolder}/uae/dh0",
+              "--automatic_input_grab=0",
+              "--floppy_drive_0_sounds=off",
+              "--hide_hud=1",
+              "--window_resizable=1"
+            ],
+            "preLaunchTask": "build"
+          },
+          {
+            "type": "amiga-assembly-debugger",
+            "request": "launch",
+            "name": "Amiga Assembly Debugger: FS-UAE Launch",
+            "noDebug": true,
+            "program": "${workspaceFolder}/uae/dh0/myprogram",
+            "remoteProgram": "SYS:myprogram",
+            "emulatorType": "fs-uae",
+            "emulatorArgs": [
+              "--hard_drive_0=${workspaceFolder}/uae/dh0",
+              "--automatic_input_grab=0",
+              "--floppy_drive_0_sounds=off",
+              "--hide_hud=1",
+              "--window_resizable=1"
+            ],
+            "preLaunchTask": "build"
+          },
+          {
+            "type": "amiga-assembly-debugger",
+            "request": "launch",
+            "name": "Amiga Assembly Debugger: WinUAE Debug",
+            "stopOnEntry": false,
+            "program": "${workspaceFolder}/uae/dh0/myprogram",
+            "remoteProgram": "SYS:myprogram",
+            "emulatorType": "winuae",
+            "emulatorArgs": [
+              "-s",
+              "filesystem=rw,dh0:${workspaceFolder}/uae/dh0"
+            ],
+            "preLaunchTask": "build"
+          },
+          {
+            "type": "amiga-assembly-debugger",
+            "request": "launch",
+            "name": "Amiga Assembly Debugger: WinUAE Launch",
+            "noDebug": true,
+            "program": "${workspaceFolder}/uae/dh0/myprogram",
+            "remoteProgram": "SYS:myprogram",
+            "emulatorType": "winuae",
+            "emulatorArgs": [
+              "-s",
+              "filesystem=rw,dh0:${workspaceFolder}/uae/dh0"
+            ],
+            "preLaunchTask": "build"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Amiga Assembly Debugger: FS-UAE Debug",
+            "description": "A new configuration for debugging a program in FS-UAE.",
+            "body": {
+              "type": "amiga-assembly-debugger",
+              "request": "launch",
+              "name": "Amiga Assembly Debugger: FS-UAE Debug",
+              "stopOnEntry": false,
+              "program": "^\"\\${workspaceFolder\\}/uae/dh0/myprogram\"",
+              "remoteProgram": "SYS:myprogram",
+              "emulatorType": "fs-uae",
+              "emulatorArgs": [
+                "^\"--hard_drive_0=\\${workspaceFolder\\}/uae/dh0\"",
+                "--automatic_input_grab=0",
+                "--floppy_drive_0_sounds=off",
+                "--hide_hud=1",
+                "--window_resizable=1"
+              ],
+              "preLaunchTask": "build"
+            }
+          },
+          {
+            "label": "Amiga Assembly Debugger: FS-UAE Run",
+            "description": "A new configuration to launch a program in FS-UAE.",
+            "body": {
+              "type": "amiga-assembly-debugger",
+              "request": "launch",
+              "name": "Amiga Assembly Debugger:FS-UAE Launch",
+              "noDebug": true,
+              "program": "^\"\\${workspaceFolder\\}/uae/dh0/myprogram\"",
+              "remoteProgram": "SYS:myprogram",
+              "emulatorType": "fs-uae",
+              "emulatorArgs": [
+                "^\"--hard_drive_0=\\${workspaceFolder\\}/uae/dh0\"",
+                "--automatic_input_grab=0",
+                "--floppy_drive_0_sounds=off",
+                "--hide_hud=1",
+                "--window_resizable=1"
+              ],
+              "preLaunchTask": "build"
+            }
+          },
+          {
+            "label": "Amiga Assembly Debugger: WinUAE Debug",
+            "description": "A new configuration for debugging a program in WinUAE.",
+            "body": {
+              "type": "amiga-assembly-debugger",
+              "request": "launch",
+              "name": "WinUAE Debug",
+              "stopOnEntry": false,
+              "program": "^\"\\${workspaceFolder\\}/uae/dh0/myprogram\"",
+              "remoteProgram": "SYS:myprogram",
+              "emulatorType": "winuae",
+              "emulatorArgs": [
+                "-s",
+                "^\"filesystem=rw,dh0:\\${workspaceFolder\\}/uae/dh0\""
+              ],
+              "preLaunchTask": "build"
+            }
+          },
+          {
+            "label": "Amiga Assembly Debugger: WinUAE Run",
+            "description": "A new configuration to launch a program in WinUAE.",
+            "body": {
+              "type": "amiga-assembly-debugger",
+              "request": "launch",
+              "name": "WinUAE Launch",
+              "noDebug": true,
+              "program": "^\"\\${workspaceFolder\\}/uae/dh0/myprogram\"",
+              "remoteProgram": "SYS:myprogram",
+              "emulatorType": "winuae",
+              "emulatorArgs": [
+                "-s",
+                "^\"filesystem=rw,dh0:\\${workspaceFolder\\}/uae/dh0\""
+              ],
+              "preLaunchTask": "build"
+            }
+          }
+        ]
+      }
+    ]
+  },
   "scripts": {
     "check": "npm run lint && npm run type-check && npm run test",
     "build": "tsc -p . --declaration",
@@ -33,9 +320,11 @@
     "lint-fix": "eslint . --ext .ts --fix",
     "test": "jest",
     "test-coverage": "jest --coverage",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "vscode:prepublish": "npm run build",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
-  "license": "GNU General Public License v3.0",
   "dependencies": {
     "@vscode/debugadapter": "^1.55.1",
     "@vscode/debugprotocol": "^1.55.1",
@@ -65,6 +354,7 @@
     "prettier": "^2.6.2",
     "rimraf": "^3.0.2",
     "ts-jest": "^28.0.2",
-    "typescript": "^4.6.4"
+    "typescript": "^4.6.4",
+    "vscode": "^1.1.37"
   }
 }

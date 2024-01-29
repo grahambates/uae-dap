@@ -48,7 +48,10 @@ dap.configurations.asm68k = {
     emulatorArgs = {
       "--chip_memory=2048",
       "--amiga_model=A1200",
-      "--automatic_input_grab=0"
+      "--automatic_input_grab=0",
+      "--floppy_drive_0_sounds=off",
+      "--hide_hud=1",
+      "--window_resizable=1"
     }
   }
 }
