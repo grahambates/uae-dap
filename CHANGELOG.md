@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.7] - 2024-02-02
+## [1.1.1] - 2024-02-02
+
+## Fixed
+
+- Ignore VSIX files. Was accidentally being added to npm package.
+
+## [1.1.0] - 2024-02-02
 
 ## Added
 
