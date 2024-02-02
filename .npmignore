@@ -10,3 +10,6 @@ tsconfig.json
 .husky
 jest.*
 .DS_Store
+coverage
+winuaebootlog.txt
+*.vsix
