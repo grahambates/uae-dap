@@ -147,14 +147,13 @@ export class UAEDebugSession extends LoggingDebugSession {
 
     this.gdb = new GdbClient();
 
-    process
-      .on("unhandledRejection", (reason, p) => {
-        logger.error(reason + " Unhandled Rejection at Promise " + p);
-      })
-      .on("uncaughtException", (err) => {
-        logger.error("Uncaught Exception thrown: " + this.errorString(err));
-        process.exit(1);
-      });
+    process.on("unhandledRejection", (reason, p) => {
+      logger.error(reason + " Unhandled Rejection at Promise " + p);
+    });
+    process.on("uncaughtException", (err) => {
+      logger.error("Uncaught Exception thrown: " + this.errorString(err));
+      process.exit(1);
+    });
 
     const mutex = new Mutex();
     this.gdb.on("stop", (haltStatus) => {
