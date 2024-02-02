@@ -2,10 +2,12 @@
 /test
 /src
 /out/test
+/images
 tsconfig.json
 .eslintignore
 .eslintrc.js
 .github
+.vscode
 *.map
 .husky
 jest.*
@@ -13,3 +15,4 @@ jest.*
 coverage
 winuaebootlog.txt
 *.vsix
+wasm/build_cstool.sh

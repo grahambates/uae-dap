@@ -1,6 +1,6 @@
 {
   "name": "uae-dap",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Debug Adapter Protocol for Amiga development with FS-UAE or WinUAE",
   "main": "out/src/index.js",
   "displayName": "Amiga Assembly Debugger",
@@ -322,8 +322,8 @@
     "test-coverage": "jest --coverage",
     "prepare": "husky install",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package",
-    "publish": "vsce publish"
+    "vscode:package": "vsce package",
+    "vscode:publish": "vsce publish"
   },
   "dependencies": {
     "@vscode/debugadapter": "^1.55.1",
