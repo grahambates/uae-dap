@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.7] - 2024-02-02
+
+## Added
+
+- Standalone vscode extension for testing/debugging
+
 ### Changed
 
 - Upgrade emulator to WinUAE 5.1.0 and FS-UAE fork based on this version
