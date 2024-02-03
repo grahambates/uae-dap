@@ -369,7 +369,7 @@ export class DisassemblyManager {
     filePath: string,
     lineNumber: number
   ): Promise<number> {
-    let instructions: void | DebugProtocol.DisassembledInstruction[];
+    let instructions: null | DebugProtocol.DisassembledInstruction[] = null;
     if (lineNumber > 0) {
       const dAsmFile = disassembledFileFromPath(filePath);
       if (dAsmFile.segmentId !== undefined) {
