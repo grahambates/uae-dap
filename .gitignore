@@ -3,4 +3,7 @@ node_modules
 .DS_Store
 coverage
 winuaebootlog.txt
+winuaelog.txt
+*.uss
+*.cache
 *.vsix

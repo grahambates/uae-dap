@@ -14,5 +14,8 @@ jest.*
 .DS_Store
 coverage
 winuaebootlog.txt
+winuaelog.txt
+*.uss
+*.cache
 *.vsix
 wasm/build_cstool.sh
