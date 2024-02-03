@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4] - 2024-02-03
+
+## Fixed
+
+- WinUAE 5.1.0 hanging on remote debugger startup. Revert to 4.10.0 for now
+
 ## [1.1.3] - 2024-02-02
 
 ## Fixed
