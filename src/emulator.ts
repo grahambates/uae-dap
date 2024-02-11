@@ -178,7 +178,12 @@ export class FsUAE extends Emulator {
       return false;
     }
     // Check version string to ensure correct patched version
-    const output = cp.spawnSync(bin, ["--version"]);
+    const cwd = dirname(bin);
+    const env = {
+      ...process.env,
+      LD_LIBRARY_PATH: ".", // Allow Linux fs-uae to find bundled .so files
+    };
+    const output = cp.spawnSync(bin, ["--version"], { cwd, env });
     const version = output.stdout.toString().trim();
     logger.log("[EMU] Version: " + version);
     if (!version.includes("remote_debug")) {
