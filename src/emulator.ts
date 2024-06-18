@@ -221,16 +221,16 @@ export class FsUAE extends Emulator {
  */
 export class WinUAE extends Emulator {
   protected defaultBin(): string {
+    return isWin ? this.winuaeBin() : "wine";
+  }
+
+  protected winuaeBin(): string {
     const binDir = findBinDir();
     return join(binDir, "winuae", `winuae.exe`);
   }
 
   protected checkBin(bin: string): boolean {
-    if (!isWin) {
-      logger.warn("WinUAE only supported on Windows");
-      return false;
-    }
-    return super.checkBin(bin);
+    return isWin ? super.checkBin(bin) : true;
   }
 
   protected runArgs(opts: RunOptions): string[] {
@@ -246,6 +246,9 @@ export class WinUAE extends Emulator {
 
   protected debugArgs(opts: DebugOptions): string[] {
     const args = [];
+    if (!isWin) {
+      args.push(this.winuaeBin());
+    }
     if (!opts.args.some((v) => v.startsWith("debugging_features"))) {
       args.push("-s", "debugging_features=gdbserver");
     }
@@ -253,5 +256,13 @@ export class WinUAE extends Emulator {
       args.push("-s", "debugging_trigger=" + opts.remoteProgram);
     }
     return args;
+  }
+
+  /**
+   * Start emulator with remote debugger
+   */
+  public debug(opts: DebugOptions): Promise<void> {
+    const args = [...this.debugArgs(opts), ...opts.args];
+    return this.run({ ...opts, args });
   }
 }
