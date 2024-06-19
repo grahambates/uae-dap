@@ -164,9 +164,9 @@ export class UAEDebugSession extends LoggingDebugSession {
       });
     });
     this.gdb.on("end", this.shutdown.bind(this));
-    this.gdb.on("output", (msg) =>
-      this.sendEvent(new OutputEvent(msg, "console"))
-    );
+    this.gdb.on("output", (msg) => {
+      this.sendEvent(new OutputEvent(msg + "\n", "console"));
+    });
   }
 
   protected initializeRequest(
