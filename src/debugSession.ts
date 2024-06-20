@@ -104,7 +104,7 @@ const defaultArgs = {
   remoteProgram: undefined,
   stopOnEntry: false,
   trace: false,
-  exceptionMask: 8188,
+  exceptionMask: 0b111100,
   serverName: "localhost",
   serverPort: 2345,
   emulatorBin: undefined,

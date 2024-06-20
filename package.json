@@ -99,7 +99,7 @@
               "exceptionMask": {
                 "type": "number",
                 "description": "Mask used to catch the exceptions",
-                "default": 8188
+                "default": 60
               },
               "emulatorType": {
                 "type": "string",
@@ -158,7 +158,7 @@
               "exceptionMask": {
                 "type": "number",
                 "description": "Mask used to catch the exceptions",
-                "default": 8188
+                "default": 60
               }
             }
           }
