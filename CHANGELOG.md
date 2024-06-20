@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.5] - 2024-06-20
+
+## Fixed
+
+- Default exception mask should only include error types
+- Add line break after console output
+
 ## [1.1.4] - 2024-02-03
 
 ## Fixed
