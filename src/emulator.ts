@@ -57,6 +57,8 @@ export abstract class Emulator {
         return new FsUAE();
       case "winuae":
         return new WinUAE();
+      default:
+        throw new Error("Unsupported emulator type " + type);
     }
   }
 
