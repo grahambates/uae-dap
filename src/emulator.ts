@@ -20,9 +20,10 @@ export interface DebugOptions extends RunOptions {
   remoteProgram: string;
 }
 
-export type EmulatorType = "fs-uae" | "winuae";
+export type EmulatorType = "fs-uae" | "winuae" | "amiberry";
 
 const isWin = process.platform === "win32";
+const isMac = process.platform === "darwin";
 
 /**
  * Base emulator class
@@ -57,6 +58,8 @@ export abstract class Emulator {
         return new FsUAE();
       case "winuae":
         return new WinUAE();
+      case "amiberry":
+        return new AmiBerry();
       default:
         throw new Error("Unsupported emulator type " + type);
     }
@@ -243,6 +246,57 @@ export class WinUAE extends Emulator {
     ) {
       args.push("-s", "filesystem=rw,dh0:$" + opts.mountDir);
     }
+    return args;
+  }
+
+  protected debugArgs(opts: DebugOptions): string[] {
+    const args = [];
+    if (!opts.args.some((v) => v.startsWith("debugging_features"))) {
+      args.push("-s", "debugging_features=gdbserver");
+    }
+    if (!opts.args.some((v) => v.startsWith("debugging_trigger"))) {
+      args.push("-s", "debugging_trigger=" + opts.remoteProgram);
+    }
+    return args;
+  }
+}
+
+/**
+ * AmiBerry Emulator program
+ */
+export class AmiBerry extends Emulator {
+  protected defaultBin(): string {
+    const binDir = findBinDir();
+    return join(binDir, "amiberry/Amiberry.app/Contents/MacOS/Amiberry");
+  }
+
+  protected checkBin(bin: string): boolean {
+    if (!isMac) {
+      logger.warn("AmiBerry currently only supported on Mac");
+      return false;
+    }
+    return super.checkBin(bin);
+  }
+
+  protected runArgs(opts: RunOptions): string[] {
+    const args = [];
+    if (
+      opts.mountDir &&
+      !opts.args.some((v) => v.startsWith("filesystem") || v.match(/.adf/i))
+    ) {
+      args.push("-s", `filesystem2=rw,hd0:test:${opts.mountDir},0`);
+    }
+    // Default args
+    args.push(
+      "-s",
+      "use_gui=no",
+      "-s",
+      "amiberry.active_capture_automatically=false",
+      "-s",
+      "magic_mouse=true",
+      "-s",
+      "debug_mem=true"
+    );
     return args;
   }
 

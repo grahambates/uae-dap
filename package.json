@@ -105,7 +105,8 @@
                 "type": "string",
                 "enum": [
                   "fs-uae",
-                  "winuae"
+                  "winuae",
+                  "amiberry"
                 ],
                 "description": "Emulator program type",
                 "default": "fs-uae"
@@ -201,6 +202,34 @@
           {
             "type": "amiga-assembly-debugger",
             "request": "launch",
+            "name": "Amiga Assembly Debugger: AmiBerry Debug",
+            "stopOnEntry": false,
+            "program": "${workspaceFolder}/uae/dh0/myprogram",
+            "remoteProgram": "SYS:myprogram",
+            "emulatorType": "amiberry",
+            "emulatorArgs": [
+              "-s",
+              "filesystem2=rw,hd0:test:${workspaceFolder}/uae/dh0,0"
+            ],
+            "preLaunchTask": "build"
+          },
+          {
+            "type": "amiga-assembly-debugger",
+            "request": "launch",
+            "name": "Amiga Assembly Debugger: AmiBerry Launch",
+            "noDebug": true,
+            "program": "${workspaceFolder}/uae/dh0/myprogram",
+            "remoteProgram": "SYS:myprogram",
+            "emulatorType": "amiberry",
+            "emulatorArgs": [
+              "-s",
+              "filesystem2=rw,hd0:test:${workspaceFolder}/uae/dh0,0"
+            ],
+            "preLaunchTask": "build"
+          },
+          {
+            "type": "amiga-assembly-debugger",
+            "request": "launch",
             "name": "Amiga Assembly Debugger: WinUAE Debug",
             "stopOnEntry": false,
             "program": "${workspaceFolder}/uae/dh0/myprogram",
@@ -266,6 +295,43 @@
                 "--floppy_drive_0_sounds=off",
                 "--hide_hud=1",
                 "--window_resizable=1"
+              ],
+              "preLaunchTask": "build"
+            }
+          },
+          {
+            "label": "Amiga Assembly Debugger: AmiBerry Debug",
+            "description": "A new configuration for debugging a program in AmiBerry.",
+            "body": {
+              "type": "amiga-assembly-debugger",
+              "request": "launch",
+              "name": "AmiBerry Debug",
+              "stopOnEntry": false,
+              "program": "^\"\\${workspaceFolder\\}/uae/dh0/myprogram\"",
+              "remoteProgram": "SYS:myprogram",
+              "emulatorType": "amiberry",
+              "emulatorArgs": [
+                "-s",
+                "^\"filesystem2=rw,hd0:test:\\${workspaceFolder\\}/uae/dh0,0\""
+
+              ],
+              "preLaunchTask": "build"
+            }
+          },
+          {
+            "label": "Amiga Assembly Debugger: AmiBerry Run",
+            "description": "A new configuration to launch a program in AmiBerry.",
+            "body": {
+              "type": "amiga-assembly-debugger",
+              "request": "launch",
+              "name": "AmiBerry Launch",
+              "noDebug": true,
+              "program": "^\"\\${workspaceFolder\\}/uae/dh0/myprogram\"",
+              "remoteProgram": "SYS:myprogram",
+              "emulatorType": "amiberry",
+              "emulatorArgs": [
+                "-s",
+                "^\"filesystem2=rw,hd0:test:\\${workspaceFolder\\}/uae/dh0,0\""
               ],
               "preLaunchTask": "build"
             }
