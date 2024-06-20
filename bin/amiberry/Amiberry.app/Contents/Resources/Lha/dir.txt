@@ -1,0 +1,1 @@
+Directory for WHDLoad (.lha) files
