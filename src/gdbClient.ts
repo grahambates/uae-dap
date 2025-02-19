@@ -3,6 +3,9 @@ import { EventEmitter } from "events";
 import { logger } from "@vscode/debugadapter";
 import { Mutex } from "async-mutex";
 import { hexStringToASCII } from "./utils/strings";
+import { REGISTER_SR_INDEX } from "./registers";
+
+//const logger = console;
 
 export interface HaltEvent {
   signal: HaltSignal;
@@ -61,6 +64,8 @@ export class GdbClient {
   private eventEmitter: EventEmitter;
   private responseCallback?: (message: string) => void;
   private haltStatus: HaltEvent | undefined;
+  private verboseResumeSupported = false; // this only available in non-stop mode?
+  private nonstopSupported = false;
 
   constructor(socket?: Socket) {
     this.eventEmitter = new EventEmitter();
@@ -73,7 +78,30 @@ export class GdbClient {
       const cb = async () => {
         try {
           logger.log("Connected: initializing");
-          await this.request("QStartNoAckMode");
+          //          this.socket.write("+"); // hello to stub
+          //          await this.request("QStartNoAckMode"); // mame doesn't support no ack mode
+          const supported = await this.request(
+            "qSupported:vContSupported+",
+            resp.ANY
+          );
+          this.nonstopSupported = supported.includes("QNonStop+");
+          if (supported.includes("qXfer:features:read+")) {
+            // fetch target xml description - mame checks if we did this,
+            // and replies E01 in certain cases if not
+            await this.request(
+              "qXfer:features:read:target.xml:0,1000",
+              resp.ANY
+            );
+            // mame returns the sr as only 16 bits, so we really should parse the xml to be sure
+          }
+
+          if (this.nonstopSupported) {
+            await this.request("QNonStop:1"); // enable non-stop mode
+          }
+          this.verboseResumeSupported = (
+            await this.request("vCont?", /vCont.*|/)
+          ).startsWith("vCont");
+
           resolve();
         } catch (error) {
           this.socket.destroy();
@@ -88,6 +116,7 @@ export class GdbClient {
       });
 
       this.socket.once("ready", cb);
+
       this.socket.connect(port, host);
     });
   }
@@ -108,13 +137,15 @@ export class GdbClient {
     type = BreakpointCode.SOFTWARE,
     size?: number
   ): Promise<void> {
-    let message = `Z${type},${hex(address)}`;
+    let message = `Z${type},${hex(address)},0`;
     if (size !== undefined) {
       message += `,${hex(size)}`;
     }
     await this.request(message);
   }
 
+  /* mame doesn't support breakpoint cond_list - it also treats sw/hw bp's the same,
+   and ignores the 'kind' parameter (it must be supplied though) */
   public async setExceptionBreakpoint(exceptionMask: number): Promise<void> {
     const expMskHex = hex(exceptionMask);
     const expMskHexSz = hex(expMskHex.length);
@@ -126,7 +157,7 @@ export class GdbClient {
     type = BreakpointCode.SOFTWARE,
     size?: number
   ): Promise<void> {
-    let message = `z${type},${hex(address)}`;
+    let message = `z${type},${hex(address)},0`;
     if (size !== undefined) {
       message += `,${hex(size)}`;
     }
@@ -134,17 +165,44 @@ export class GdbClient {
   }
 
   // Navigation:
-
-  public async pause(threadId: number): Promise<void> {
-    await this.request("vCont;t:" + threadId, resp.STOP);
+  private async stopAndContinueNoVerboseResume(
+    op: string,
+    res?: RegExp,
+    threadId?: number
+  ): Promise<void> {
+    if (threadId == undefined) threadId = -1;
+    await this.request("Hc" + threadId, resp.OK);
+    res ? await this.request(op, res) : await this.requestNoRes(op);
   }
 
-  public async continueExecution(threadId: number): Promise<void> {
-    await this.requestNoRes("vCont;c:" + threadId);
+  private async stopAndContinueVerboseResume(
+    op: string,
+    res?: RegExp,
+    threadId?: number
+  ): Promise<void> {
+    if (threadId == undefined) threadId = -1;
+    op = "vCont;" + op + ":" + threadId;
+    res ? await this.request(op, res) : await this.requestNoRes(op);
+  }
+
+  public async pause(threadId: number): Promise<void> {
+    this.verboseResumeSupported
+      ? await this.stopAndContinueVerboseResume("t", resp.STOP, threadId)
+      : this.nonstopSupported
+      ? await this.stopAndContinueNoVerboseResume("vCtrlC", resp.OK, threadId)
+      : await this.requestRawHalt(new Uint8Array([0x3]));
+  }
+
+  public async continueExecution(threadId?: number): Promise<void> {
+    this.verboseResumeSupported
+      ? await this.stopAndContinueVerboseResume("c", undefined, threadId)
+      : await this.stopAndContinueNoVerboseResume("c", undefined, threadId);
   }
 
   public async stepIn(threadId: number): Promise<void> {
-    await this.request("vCont;s:" + threadId, resp.STOP);
+    this.verboseResumeSupported
+      ? await this.stopAndContinueVerboseResume("s", resp.STOP, threadId)
+      : await this.stopAndContinueNoVerboseResume("s", resp.STOP, threadId);
   }
 
   public async stepToRange(
@@ -152,10 +210,20 @@ export class GdbClient {
     startAddress: number,
     endAddress: number
   ): Promise<void> {
-    await this.request(
-      "vCont;r" + hex(startAddress) + "," + hex(endAddress) + ":" + threadId,
-      resp.STOP
-    );
+    /* From the gdb docs: (A stop reply may be sent at any point even if the PC is still within the stepping range; 
+    for example, it is valid to implement this packet in a degenerate way as a single instruction step operation.) 
+    So that's what I did because I can't see other options without vCont support */
+    this.verboseResumeSupported
+      ? await this.request(
+          "vCont;r" +
+            hex(startAddress) +
+            "," +
+            hex(endAddress) +
+            ":" +
+            threadId,
+          resp.STOP
+        )
+      : await this.stepIn(threadId);
   }
 
   public async getHaltStatus(): Promise<HaltEvent | null> {
@@ -186,9 +254,13 @@ export class GdbClient {
     );
     const registers: number[] = [];
 
-    const regCount = Math.floor(message.length / 8);
+    // count and len should be parsed from target.xml (fetched in connect)
+    const regCount = 18; //Math.floor(message.length / 8);
+    let pos = 0;
     for (let i = 0; i < regCount; i++) {
-      const value = parseInt(message.substring(i * 8, (i + 1) * 8), 16);
+      const len = i == REGISTER_SR_INDEX ? 4 : 8;
+      const value = parseInt(message.substring(pos, pos + len), 16);
+      pos += len;
       registers.push(value);
     }
     return registers;
@@ -205,37 +277,14 @@ export class GdbClient {
 
   // Stack Frames:
 
+  // Mame doesn't support qTStatus or QTFrame, so what to do? trying to return defaults!
+
   public async getFramesCount(): Promise<number> {
-    const data = await this.request("qTStatus", /^T/);
-    const frameCountPosition = data.indexOf("tframes");
-    if (frameCountPosition > 0) {
-      let endFrameCountPosition = data.indexOf(";", frameCountPosition);
-      if (endFrameCountPosition <= 0) {
-        endFrameCountPosition = data.length;
-      }
-      const v = data.substring(frameCountPosition + 8, endFrameCountPosition);
-      return parseInt(v, 16);
-    }
     return 1;
   }
 
   public async selectFrame(frameIndex: number): Promise<number> {
-    if (frameIndex < 0) {
-      await this.request("QTFrame:ffffffff");
-      return DEFAULT_FRAME_INDEX;
-    }
-    const data = await this.request("QTFrame:" + hex(frameIndex), /^F/);
-
-    if (data === "F-1") {
-      // No frame found
-      return DEFAULT_FRAME_INDEX;
-    }
-    let v = data.substring(1);
-    const tPos = v.indexOf("T");
-    if (tPos >= 0) {
-      v = v.substring(0, tPos);
-    }
-    return parseInt(v, 16);
+    return DEFAULT_FRAME_INDEX;
   }
 
   public async withFrame<T>(
@@ -316,6 +365,8 @@ export class GdbClient {
             clearTimeout(timeout);
             resolve(message);
           } else {
+            // an "empty" response (i.e. nothing between '$' and '#') means the stub doesn't support the command.
+            // unfortunately, an ill-formed response (which winuae seems to send) also emerges here as an "empty" response
             logger.log(`[GDB] ignored`);
           }
         };
@@ -331,7 +382,33 @@ export class GdbClient {
     });
   }
 
+  private async requestRawHalt(data: Uint8Array): Promise<void> {
+    return this.requestMutex.runExclusive(async () => {
+      const req = data.join(",");
+      logger.log(`[GDB] --> ${req}`);
+      this.socket.write(data);
+
+      return await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          logger.log(`[GDB] TIMEOUT: ${req}`);
+          delete this.responseCallback;
+          reject(new Error("Request timeout"));
+        }, TIMEOUT);
+
+        this.responseCallback = (message: string) => {
+          logger.log(`[GDB] <-- ${message}`);
+          this.haltStatus = this.parseHaltStatus(message);
+          //          this.sendEvent("stop", this.haltStatus);
+          this.responseCallback = undefined;
+          clearTimeout(timeout);
+          resolve();
+        };
+      });
+    });
+  }
+
   private handleData(data: Buffer) {
+    this.socket.write("+"); // ack
     const messages = [...data.toString().matchAll(/\$([^#]*)#[\da-f]{2}/g)].map(
       (m) => m[1]
     );
