@@ -9,10 +9,10 @@ export interface RunOptions {
   bin?: string;
   /** Additional CLI args to pass to emulator program. Remote debugger args are added automatically */
   args: string[];
-  /** local filesystem name of program/rom to run */
+  /** local filesystem path of rom to run - either a zip file or folder */
   rom?: string;
-  /** Directory to mount as hard drive 0 (SYS) */
-  mountDir?: string;
+  /** Directory in which to look for roms - if not specified, the directory part of the path specified for rom will be used */
+  rompath?: string;
   /** Callback executed on process exit */
   onExit?: () => void;
 }
@@ -22,8 +22,6 @@ export interface DebugOptions extends RunOptions {
 }
 
 const isWin = process.platform === "win32";
-
-//const logger = console;
 
 /**
  * Base emulator class
@@ -163,9 +161,9 @@ export class Mame extends Emulator {
 
   protected runArgs(opts: RunOptions): string[] {
     const args = [];
-    if (opts.mountDir && !opts.args.some((v) => v.startsWith("-rompath"))) {
+    if (opts.rompath && !opts.args.some((v) => v.startsWith("-rompath"))) {
       // resolves to absolute path, mame doesn't like relative
-      args.push("-rompath", resolve(opts.mountDir));
+      args.push("-rompath", resolve(opts.rompath));
     }
     if (opts.rom) {
       args.push(opts.rom);

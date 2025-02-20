@@ -263,7 +263,7 @@ export class UAEDebugSession extends LoggingDebugSession {
           bin: args.emulatorBin,
           args: args.emulatorArgs,
           rom: basename(args.program),
-          mountDir: dirname(args.program),
+          rompath: dirname(args.program),
           onExit: () => {
             this.sendEvent(new TerminatedEvent());
           },
