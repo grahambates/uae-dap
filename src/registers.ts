@@ -7,7 +7,6 @@ export const REGISTER_D0_INDEX = 0; // -> 0 to 7
 export const REGISTER_A0_INDEX = 8; // -> 8 to 15
 export const REGISTER_SR_INDEX = 16;
 export const REGISTER_PC_INDEX = 17;
-export const REGISTER_COPPER_ADDR_INDEX = 28;
 
 const SR_LABELS = [
   "T1",
@@ -67,8 +66,6 @@ export function getRegisterIndex(name: string): number {
       return REGISTER_PC_INDEX;
     } else if (name === "sr") {
       return REGISTER_SR_INDEX;
-    } else if (name === "copper") {
-      return REGISTER_COPPER_ADDR_INDEX;
     }
   }
   throw new Error("Invalid register name: " + name);

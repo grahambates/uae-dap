@@ -1,7 +1,7 @@
 import { logger } from "@vscode/debugadapter";
 import * as cp from "child_process";
 import * as fs from "fs";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { findBinDir } from "./utils/files";
 
 export interface RunOptions {
@@ -9,6 +9,8 @@ export interface RunOptions {
   bin?: string;
   /** Additional CLI args to pass to emulator program. Remote debugger args are added automatically */
   args: string[];
+  /** local filesystem name of program/rom to run */
+  rom?: string;
   /** Directory to mount as hard drive 0 (SYS) */
   mountDir?: string;
   /** Callback executed on process exit */
@@ -18,11 +20,14 @@ export interface RunOptions {
 export interface DebugOptions extends RunOptions {
   serverPort: number;
   remoteProgram: string;
+  //  sectionOffsets: number[];
 }
 
-export type EmulatorType = "fs-uae" | "winuae";
+export type EmulatorType = "fs-uae" | "winuae" | "mame";
 
 const isWin = process.platform === "win32";
+
+//const logger = console;
 
 /**
  * Base emulator class
@@ -57,6 +62,8 @@ export abstract class Emulator {
         return new FsUAE();
       case "winuae":
         return new WinUAE();
+      case "mame":
+        return new Mame();
       default:
         throw new Error("Unsupported emulator type " + type);
     }
@@ -156,6 +163,48 @@ export abstract class Emulator {
       }
       this.childProcess = undefined;
     }
+  }
+}
+
+/**
+ * Mame emulator program
+ */
+export class Mame extends Emulator {
+  protected defaultBin(): string {
+    const binDir = findBinDir();
+
+    // Choose default binary based on platform
+    let bin = join(binDir, `mame-${process.platform}_x64`, "mame");
+    if (isWin) {
+      bin += ".exe";
+    }
+    return bin;
+  }
+
+  protected runArgs(opts: RunOptions): string[] {
+    const args = [];
+    if (opts.mountDir && !opts.args.some((v) => v.startsWith("-rompath"))) {
+      // resolves to absolute path, mame doesn't like relative
+      args.push("-rompath", resolve(opts.mountDir));
+    }
+    if (opts.rom) {
+      args.push(opts.rom);
+    }
+    return args;
+  }
+
+  protected debugArgs(opts: DebugOptions): string[] {
+    const args = [];
+    if (!opts.args.some((v) => v == "-debug")) {
+      args.push("-debug");
+    }
+    if (!opts.args.some((v) => v.startsWith("-debugger "))) {
+      args.push("-debugger", "gdbstub");
+    }
+    if (!opts.args.some((v) => v.startsWith("-debugger_port"))) {
+      args.push("-debugger_port", opts.serverPort.toString());
+    }
+    return args;
   }
 }
 

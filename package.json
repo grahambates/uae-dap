@@ -102,11 +102,31 @@
                 "description": "Mask used to catch the exceptions",
                 "default": 60
               },
+              "vasm": {
+                "properties": {
+                  "parseSource": {
+                    "type": "boolean"
+                  },
+                  "binaryPath": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "title": "vasm option"
+                    },
+                    "default": [],
+                    "description": "Vasm CLI args"
+                  }
+                }
+              },
               "emulatorType": {
                 "type": "string",
                 "enum": [
                   "fs-uae",
-                  "winuae"
+                  "winuae",
+                  "mame"
                 ],
                 "description": "Emulator program type",
                 "default": "fs-uae"
@@ -322,7 +342,6 @@
     "lint-fix": "eslint . --ext .ts --fix",
     "test": "jest",
     "test-coverage": "jest --coverage",
-    "prepare": "husky install",
     "prepack": "npm run build",
     "vscode:prepublish": "npm run build",
     "vscode:package": "vsce package",
@@ -352,7 +371,6 @@
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-jest": "^26.2.2",
     "eslint-plugin-prettier": "^4.0.0",
-    "husky": "^8.0.1",
     "jest": "^28.1.0",
     "prettier": "^2.6.2",
     "rimraf": "^3.0.2",

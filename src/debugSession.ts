@@ -10,7 +10,7 @@ import {
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { Mutex } from "async-mutex";
-import { basename } from "path";
+import { basename, dirname } from "path";
 
 import {
   GdbClient,
@@ -199,13 +199,15 @@ export class UAEDebugSession extends LoggingDebugSession {
       supportsSteppingGranularity: false,
       supportsValueFormattingOptions: true,
       supportsWriteMemoryRequest: true,
+      supportsExceptionFilterOptions: false,
+      /*
       exceptionBreakpointFilters: [
         {
           filter: "all",
           label: "All Exceptions",
           default: true,
         },
-      ],
+      ],*/
     };
     this.sendResponse(response);
   }
@@ -265,19 +267,11 @@ export class UAEDebugSession extends LoggingDebugSession {
           args.remoteProgram = "SYS:" + basename(args.program);
         }
 
-        // Determine HDD mount from program and remoteProgram
-        let mountDir = undefined;
-        if (args.program && args.remoteProgram) {
-          // By default mount the dir containing the remote program as hard drive 0 (SYS:)
-          mountDir = args.program
-            .replace(/\\/, "/")
-            .replace(args.remoteProgram.replace(/^.+:/, ""), "");
-        }
-
         const runOpts: RunOptions = {
           bin: args.emulatorBin,
           args: args.emulatorArgs,
-          mountDir,
+          rom: basename(args.program),
+          mountDir: dirname(args.program),
           onExit: () => {
             this.sendEvent(new TerminatedEvent());
           },
@@ -288,6 +282,7 @@ export class UAEDebugSession extends LoggingDebugSession {
             ...runOpts,
             serverPort: args.serverPort,
             remoteProgram: args.remoteProgram as string,
+            //            sectionOffsets: args.sectionOffsets
           });
         } else {
           await this.emulator.run(runOpts);
@@ -301,7 +296,7 @@ export class UAEDebugSession extends LoggingDebugSession {
         return;
       }
 
-      this.sendEvent(new OutputEvent(helpSummary, "console"));
+      //      this.sendEvent(new OutputEvent(helpSummary, "console"));
 
       // Connect to the remote debugger
       await promiseRetry(
@@ -314,10 +309,14 @@ export class UAEDebugSession extends LoggingDebugSession {
         { retries: 20, factor: 1.1 }
       );
 
-      this.gdb.setExceptionBreakpoint(args.exceptionMask);
+      //      this.gdb.setExceptionBreakpoint(args.exceptionMask);
+
+      // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      /*
       for (const threadId of [Threads.CPU, Threads.COPPER]) {
         this.sendEvent(new ThreadEvent("started", threadId));
       }
+      */
 
       let hunks: Hunk[] = [];
       if (args.program) {
@@ -327,8 +326,8 @@ export class UAEDebugSession extends LoggingDebugSession {
         hunks = await parseVlinkMappingsFile(args.mappings);
       }
 
-      // Get info to Initialize source map
-      const offsets = await this.gdb.getOffsets();
+      // ROM, RAM start addresses - shouldn't be hardcoded!!!
+      const offsets: number[] = [0x0, 0x50000, 0x100000];
       const sourceMap = new SourceMap(hunks, offsets);
 
       // Initialize managers:
@@ -480,7 +479,7 @@ export class UAEDebugSession extends LoggingDebugSession {
       response.success = true;
     });
   }
-
+  /*
   protected async setExceptionBreakPointsRequest(
     response: DebugProtocol.SetExceptionBreakpointsResponse,
     args: DebugProtocol.SetExceptionBreakpointsArguments
@@ -497,14 +496,14 @@ export class UAEDebugSession extends LoggingDebugSession {
       response.success = true;
     });
   }
-
+*/
   // Running program info:
 
   protected async threadsRequest(response: DebugProtocol.ThreadsResponse) {
     response.body = {
       threads: [
         { id: Threads.CPU, name: "cpu" },
-        { id: Threads.COPPER, name: "copper" },
+        /*        { id: Threads.COPPER, name: "copper" },*/
       ],
     };
     this.sendResponse(response);
@@ -590,12 +589,7 @@ export class UAEDebugSession extends LoggingDebugSession {
     { threadId }: DebugProtocol.StepInArguments
   ) {
     this.sendResponse(response);
-    if (threadId === Threads.COPPER) {
-      const [frame] = await this.stackManager().getPositions(threadId);
-      await this.gdb.stepToRange(threadId, frame.pc, frame.pc);
-    } else {
-      await this.gdb.stepIn(threadId);
-    }
+    await this.gdb.stepIn(threadId);
     this.sendStoppedEvent(threadId, "step");
   }
 
@@ -891,7 +885,6 @@ export class UAEDebugSession extends LoggingDebugSession {
       threadId,
       DEFAULT_FRAME_INDEX
     );
-
     const manager = this.breakpointManager();
 
     // Check temporary breakpoints:

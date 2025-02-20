@@ -112,11 +112,11 @@ class VariableManager {
         this.scopes.create({ type: ScopeType.Segments, frameId }),
         true
       ),
-      new Scope(
+      /*new Scope(
         "Custom",
         this.scopes.create({ type: ScopeType.Custom, frameId }),
         true
-      ),
+      ),*/
       new Scope(
         "Vectors",
         this.scopes.create({ type: ScopeType.Vectors, frameId }),
@@ -150,7 +150,7 @@ class VariableManager {
       const sourceConstants = await this.getSourceConstants();
 
       return {
-        ...customRegisterAddresses,
+        //...customRegisterAddresses,
         ...this.sourceMap.getSymbols(),
         ...sourceConstants,
         ...registerEntries,

@@ -1,5 +1,9 @@
 # UAE Debug Adapter Protocol
 
+## This is a work in progress trying to transform Graham Bates' [uae-dap](https://github.com/grahambates/uae-dap) into a mame m68k debug adapter.
+
+Compatibility with UAE is compromised in some cases.. you have been warned!
+
 Stand-alone[Debug Adapter](https://microsoft.github.io/debug-adapter-protocol/) for Amiga assembly development with
 [FS-UAE](https://fs-uae.net/) or [WinUAE](https://www.winuae.net/).
 
