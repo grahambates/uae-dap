@@ -301,12 +301,9 @@ export class UAEDebugSession extends LoggingDebugSession {
 
       //      this.gdb.setExceptionBreakpoint(args.exceptionMask);
 
-      // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      /*
-      for (const threadId of [Threads.CPU, Threads.COPPER]) {
+      for (const threadId of [Threads.CPU]) {
         this.sendEvent(new ThreadEvent("started", threadId));
       }
-      */
 
       let sections: Section[] = [];
       if (args.mappings) {
