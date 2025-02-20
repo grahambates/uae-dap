@@ -1,5 +1,6 @@
 export * from "./debugSession";
-export * from "./amigaHunkParser";
+export * from "./sections";
+export * from "./vlinkMappingsParser";
 export * from "./disassembly/cpuDisassembler";
 export * from "./disassembly/copperDisassembler";
 export * from "./disassembly/disassembledFile";

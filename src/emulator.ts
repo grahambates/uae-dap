@@ -19,11 +19,7 @@ export interface RunOptions {
 
 export interface DebugOptions extends RunOptions {
   serverPort: number;
-  remoteProgram: string;
-  //  sectionOffsets: number[];
 }
-
-export type EmulatorType = "fs-uae" | "winuae" | "mame";
 
 const isWin = process.platform === "win32";
 
@@ -52,22 +48,6 @@ export abstract class Emulator {
    * Generated args to pass when debugging
    */
   protected abstract debugArgs(opts: DebugOptions): string[];
-
-  /**
-   * Factory
-   */
-  static getInstance(type: EmulatorType): Emulator {
-    switch (type) {
-      case "fs-uae":
-        return new FsUAE();
-      case "winuae":
-        return new WinUAE();
-      case "mame":
-        return new Mame();
-      default:
-        throw new Error("Unsupported emulator type " + type);
-    }
-  }
 
   /**
    * Start emulator with remote debugger
@@ -203,105 +183,6 @@ export class Mame extends Emulator {
     }
     if (!opts.args.some((v) => v.startsWith("-debugger_port"))) {
       args.push("-debugger_port", opts.serverPort.toString());
-    }
-    return args;
-  }
-}
-
-/**
- * FS-UAE emaultor program
- */
-export class FsUAE extends Emulator {
-  protected defaultBin(): string {
-    const binDir = findBinDir();
-
-    // Choose default binary based on platform
-    let bin = join(binDir, "fs-uae", `fs-uae-${process.platform}_x64`);
-    if (isWin) {
-      bin += ".exe";
-    }
-    return bin;
-  }
-
-  protected checkBin(bin: string): boolean {
-    const valid = super.checkBin(bin);
-    if (!valid) {
-      return false;
-    }
-    // Check version string to ensure correct patched version
-    const output = cp.spawnSync(bin, ["--version"]);
-    const version = output.stdout.toString().trim();
-    logger.log("[EMU] Version: " + version);
-    if (!version.includes("remote_debug")) {
-      logger.warn(
-        "FS-UAE must be patched 4.x version. Ensure you're using the latest binaries."
-      );
-      return false;
-    }
-    return true;
-  }
-
-  protected runArgs(opts: RunOptions): string[] {
-    const args = [];
-    if (
-      opts.mountDir &&
-      !opts.args.some((v) => v.startsWith("--hard_drive_0") || v.match(/.adf/i))
-    ) {
-      args.push("--hard_drive_0=" + opts.mountDir);
-    }
-    return args;
-  }
-
-  protected debugArgs(opts: DebugOptions): string[] {
-    const args = [];
-    if (!opts.args.some((v) => v.startsWith("--remote_debugger="))) {
-      args.push("--remote_debugger=60");
-    }
-    if (!opts.args.some((v) => v.startsWith("--remote_debugger_port"))) {
-      args.push("--remote_debugger_port=" + opts.serverPort);
-    }
-    if (!opts.args.some((v) => v.startsWith("--remote_debugger_trigger"))) {
-      args.push("--remote_debugger_trigger=" + opts.remoteProgram);
-    }
-    return args;
-  }
-}
-
-/**
- * WinUAE Emulator program
- */
-export class WinUAE extends Emulator {
-  protected defaultBin(): string {
-    const binDir = findBinDir();
-    return join(binDir, "winuae", `winuae.exe`);
-  }
-
-  protected checkBin(bin: string): boolean {
-    if (!isWin) {
-      logger.warn("WinUAE only supported on Windows");
-      return false;
-    }
-    return super.checkBin(bin);
-  }
-
-  protected runArgs(opts: RunOptions): string[] {
-    const args = [];
-    if (
-      opts.mountDir &&
-      !opts.args.some((v) => v.startsWith("filesystem") || v.match(/.adf/i))
-    ) {
-      args.push("-s", "filesystem=rw,dh0:$" + opts.mountDir);
-    }
-    return args;
-  }
-
-  protected debugArgs(opts: DebugOptions): string[] {
-    const args = [];
-    if (!opts.args.some((v) => v.startsWith("debugging_features"))) {
-      args.push("-s", "debugging_features=gdbserver");
-    }
-    if (!opts.args.some((v) => v.startsWith("debugging_trigger"))) {
-      args.push("-s", "debugging_trigger=" + opts.remoteProgram);
     }
     return args;
   }
