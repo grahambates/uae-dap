@@ -50,8 +50,6 @@ import { Section } from "./sections";
  * Additional arguments for launch/attach request
  */
 interface CustomArguments {
-  /** Local path of ROM */
-  program?: string;
   /** Local path of a vlink mappings text file */
   mappings?: string;
   /** Automatically stop target after launch (default: false) */
@@ -77,6 +75,8 @@ export interface LaunchRequestArguments
   emulatorBin?: string;
   /** Additional CLI args to pass to emulator program. Remote debugger args are added automatically */
   emulatorArgs?: string[];
+  /** Local path of ROM */
+  program?: string;
 }
 
 export interface AttachRequestArguments
@@ -251,7 +251,7 @@ export class UAEDebugSession extends LoggingDebugSession {
       // Start the emulator
       if (startEmulator) {
         this.emulator = new Mame();
-        // Either program or mappings is required when debugging
+        // mappings are required when debugging
         if (debug && !args.mappings) {
           throw new Error("Missing mapping argument in launch request");
         }
