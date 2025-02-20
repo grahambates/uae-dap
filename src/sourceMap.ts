@@ -1,4 +1,4 @@
-import { Hunk, MemoryType } from "./amigaHunkParser";
+import { Section } from "./sections";
 import { normalize } from "path";
 
 export interface Location {
@@ -15,7 +15,6 @@ export interface Segment {
   name: string;
   address: number;
   size: number;
-  memType: MemoryType;
 }
 
 class SourceMap {
@@ -25,20 +24,18 @@ class SourceMap {
   private locationsBySource = new Map<string, Map<number, Location>>();
   private locationsByAddress = new Map<number, Location>();
 
-  constructor(hunks: Hunk[], offsets: number[]) {
-    this.segments = offsets.map((address, i) => {
-      const hunk = hunks[i];
+  constructor(sections: Section[]) {
+    this.segments = sections.map((section, i) => {
       return {
-        address,
-        name: `Seg${i}_${hunk.hunkType}_${hunk.memType}`,
-        size: hunk.dataSize ?? hunk.allocSize,
-        memType: hunk.memType,
+        address: section.address,
+        name: section.name,
+        size: section.dataSize ?? section.allocSize,
       };
     });
 
     for (let i = 0; i < this.segments.length; i++) {
       const seg = this.segments[i];
-      const hunk = hunks[i];
+      const hunk = sections[i];
 
       for (const { offset, name } of hunk.symbols) {
         this.symbols[name] = seg.address + offset;
