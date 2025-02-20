@@ -37,7 +37,8 @@ import VariableManager, {
   SourceConstantResolver,
 } from "./variableManager";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
-import { parseHunksFromFile } from "./amigaHunkParser";
+import { Hunk, parseHunksFromFile } from "./amigaHunkParser";
+import { parseVlinkMappingsFile } from "./vlinkMappingsParser";
 import SourceMap from "./sourceMap";
 import { DisassemblyManager } from "./disassembly";
 import { Threads } from "./hardware";
@@ -50,7 +51,9 @@ import { helpSummary, commandHelp } from "./help";
  */
 interface CustomArguments {
   /** Local path of target Amiga binary */
-  program: string;
+  program?: string;
+  /** Local path of a vlink mappings text file */
+  mappings?: string;
   /** Remote path of target Amiga binary (default: SYS:{basename of program}) */
   remoteProgram?: string;
   /** Automatically stop target after launch (default: false) */
@@ -101,6 +104,7 @@ export interface DisassembledFileContentsRequest {
  */
 const defaultArgs = {
   program: undefined,
+  mappings: undefined,
   remoteProgram: undefined,
   stopOnEntry: false,
   trace: false,
@@ -252,9 +256,11 @@ export class UAEDebugSession extends LoggingDebugSession {
       // Start the emulator
       if (startEmulator) {
         this.emulator = Emulator.getInstance(args.emulatorType as EmulatorType);
-        // Program is required when debugging
-        if (debug && !args.remoteProgram) {
-          throw new Error("Missing remoteProgram argument in launch request");
+        // Either program or mappings is required when debugging
+        if (debug && !args.program && !args.mappings) {
+          throw new Error(
+            "Missing program or mapping argument in launch request"
+          );
         }
         // Set default remoteProgram from program
         if (args.program && !args.remoteProgram) {
@@ -312,19 +318,13 @@ export class UAEDebugSession extends LoggingDebugSession {
       }
       */
 
-      if (!args.remoteProgram) {
-        throw new Error("Missing remoteProgram argument in launch request");
+      let hunks: Hunk[] = [];
+      if (args.program) {
+        hunks = await parseHunksFromFile(args.program);
       }
-      /*
-      // Get info to Initialize source map
-      const [hunks, offsets] = await Promise.all([
-        parseHunksFromFile(args.remoteProgram),
-        this.gdb.getOffsets(), // this doesn't work for a raw code blob (e.g. rom binary) !!!!!!!!!!!!!!!!!!!!!!!!!!
-      ]);
-*/
-      const [hunks] = await Promise.all([
-        parseHunksFromFile(args.remoteProgram),
-      ]);
+      if (args.mappings) {
+        hunks = await parseVlinkMappingsFile(args.mappings);
+      }
 
       // ROM, RAM start addresses - shouldn't be hardcoded!!!
       const offsets: number[] = [0x0, 0x50000, 0x100000];
