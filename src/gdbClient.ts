@@ -85,7 +85,7 @@ export class GdbClient {
             resp.ANY
           );
           this.nonstopSupported = supported.includes("QNonStop+");
-          logger.log(`non-stop mode supported: {this.nonstopSupported}`);
+          logger.log(`non-stop mode supported: ${this.nonstopSupported}`);
           if (supported.includes("qXfer:features:read+")) {
             // fetch target xml description - mame checks if we did this,
             // and replies E01 in certain cases if not
@@ -102,7 +102,9 @@ export class GdbClient {
           this.verboseResumeSupported = (
             await this.request("vCont?", /vCont.*|/)
           ).startsWith("vCont");
-          logger.log(`verbose resume supported: {this.verboseResumeSupported}`);
+          logger.log(
+            `verbose resume supported: ${this.verboseResumeSupported}`
+          );
 
           resolve();
         } catch (error) {
