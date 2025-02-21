@@ -1,7 +1,2 @@
-export * from "./debugSession";
-export * from "./sections";
-export * from "./vlinkMappingsParser";
-export * from "./disassembly/cpuDisassembler";
-export * from "./disassembly/disassembledFile";
-export { MemoryFormat } from "./variableManager";
-export { NumberFormat } from "./utils/strings";
+// Intentionally left empty
+// Extension only provides debug adapter

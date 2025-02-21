@@ -2,7 +2,7 @@
   "name": "mame-m68k-dap",
   "version": "1.1.5",
   "description": "Debug Adapter Protocol for m68k platforms in MAME",
-  "main": "out/src/index.js",
+  "main": "out/index.js",
   "displayName": "MAME m68k Debugger",
   "license": "GNU General Public License v3.0",
   "homepage": "https://github.com/matthiesenj/mame-m68k-dap",
@@ -51,13 +51,13 @@
       {
         "type": "mame-m68k-debugger",
         "label": "MAME m68k Debug",
-        "program": "./out/src/debugAdapter.js",
+        "program": "./out/debugAdapter.js",
         "runtime": "node",
         "configurationAttributes": {
           "launch": {
-						"required": [
-							"program"
-						],
+            "required": [
+              "program"
+            ],
             "properties": {
               "program": {
                 "type": "string",
@@ -210,8 +210,10 @@
   },
   "scripts": {
     "check": "npm run lint && npm run type-check && npm run test",
-    "build": "tsc -p . --declaration",
-    "watch": "npm run build -- --watch",
+    "build": "npm run esbuild -- --minify",
+    "build-dev": "npm run esbuild -- --sourcemap",
+    "watch": "npm run esbuild -- --sourcemap --watch",
+    "esbuild": "esbuild ./src/index.ts ./src/debugAdapter.ts --bundle --outdir=./out --external:vscode --platform=node",
     "type-check": "npm run build -- --noEmit",
     "clean": "rimraf ./out/*",
     "lint": "eslint . --ext .ts",
@@ -243,6 +245,7 @@
     "@typescript-eslint/eslint-plugin": "^5.22.0",
     "@typescript-eslint/parser": "^5.22.0",
     "@vscode/debugadapter-testsupport": "^1.55.1",
+    "esbuild": "^0.25.0",
     "eslint": "^8.14.0",
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-jest": "^26.2.2",

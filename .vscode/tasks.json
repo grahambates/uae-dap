@@ -3,11 +3,28 @@
   "tasks": [
     {
       "type": "npm",
-      "script": "build",
+      "script": "compile",
       "group": "build",
-      "problemMatcher": [],
-      "label": "npm",
-      "detail": "node ./node_modules/vscode/bin/compile -watch -p ./"
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "never"
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "type": "npm",
+      "script": "watch",
+      "isBackground": true,
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "never"
+      },
+      "problemMatcher": ["$tsc-watch"]
     }
+
   ]
 }
