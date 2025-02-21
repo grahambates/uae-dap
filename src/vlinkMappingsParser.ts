@@ -119,7 +119,7 @@ export function parseVlinkMappings(contents: string): Section[] {
 
           if (sourceFilename) {
             currentDebug = {
-              baseOffset: 0, // TODO
+              baseOffset: 0,
               lines: [],
               sourceFilename,
             };

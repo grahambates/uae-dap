@@ -1,8 +1,7 @@
 export const helpSummary = `Commands:
     m address[,size=16,wordSize=4,rowSize=4][,ab]  Memory dump     a: ascii, b: bytes (default: both)
     M address=bytes                                Memory set      bytes: unprefixed hexadecimal literal
-    d address[,size=16]                            Disassemble CPU
-    c address[,size=16]                            Disassemble copper
+    d address[,size=16]                            Disassemble
     h command                                      Show detailed help for command
 UAE Console:
     Use a '$' prefix to execute commands in the emulator's built-in console debugger
@@ -75,14 +74,5 @@ examples:
 
 example:
   d pc,10                 Disassemble 10 bytes of memory starting at PC
-`,
-  c: `Disassemble memory as Copper instructions
-  c address[,size=16]
-
-  address:  starting address to read from
-  size:     total bytes to read (default: 16)
-
-example:
-  c CList,4*10            Disassemble 10 copper instructions starting at address in symbol CList
 `,
 };

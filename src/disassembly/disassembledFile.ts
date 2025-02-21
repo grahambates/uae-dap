@@ -1,8 +1,6 @@
 export interface DisassembledFile {
   memoryReference?: string;
   instructionCount?: number;
-  /** Should be disassembled as copper instructions? */
-  copper?: boolean;
   /** Segment ID */
   segmentId?: number;
   /** Stack frame index */
@@ -16,9 +14,6 @@ export function disassembledFileToPath(file: DisassembledFile): string {
   const address = file.memoryReference;
   if (file.segmentId !== undefined) {
     return `seg_${file.segmentId}.dbgasm`;
-  }
-  if (file.copper) {
-    return `copper_${address}__${file.instructionCount}.dbgasm`;
   }
   return `${file.stackFrameIndex}__${address}__${file.instructionCount}.dbgasm`;
 }
@@ -41,19 +36,6 @@ export function disassembledFileFromPath(path: string): DisassembledFile {
     const { segmentId } = segMatch.groups;
     return {
       segmentId: parseInt(segmentId),
-      copper: false,
-    };
-  }
-
-  const copperMatch = path.match(
-    /^(?<path>.+\/)?copper_(?<memoryReference>[^_]+)__(?<instructionCount>[^_]+).dbgasm$/
-  );
-  if (copperMatch?.groups) {
-    const { memoryReference, instructionCount } = copperMatch.groups;
-    return {
-      memoryReference,
-      instructionCount: parseInt(instructionCount),
-      copper: true,
     };
   }
 
@@ -66,7 +48,6 @@ export function disassembledFileFromPath(path: string): DisassembledFile {
       stackFrameIndex: parseInt(frame),
       memoryReference,
       instructionCount: parseInt(instructionCount),
-      copper: false,
     };
   }
 

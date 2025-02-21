@@ -61,26 +61,15 @@ export abstract class Emulator {
   public run(opts: RunOptions): Promise<void> {
     const customBin = opts.bin;
     const defaultBin = this.defaultBin();
-    let bin = customBin || defaultBin;
-    if (customBin && !this.checkBin(customBin)) {
-      logger.warn("Defaulting to bundled emulator binary");
-      bin = defaultBin;
-    }
-    if (!this.checkBin(bin)) {
-      throw new Error("[EMU] No suitable emulator binary");
-    }
+    const bin = customBin || defaultBin;
 
-    const cwd = dirname(bin);
     const args = [...opts.args, ...this.runArgs(opts)];
-    const env = {
-      ...process.env,
-      LD_LIBRARY_PATH: ".", // Allow Linux fs-uae to find bundled .so files
-    };
+    const env = process.env;
 
     logger.log(`[EMU] Starting emulator: ${bin} ${args.join(" ")}`);
 
     return new Promise((resolve, reject) => {
-      this.childProcess = cp.spawn(bin, args, { cwd, env });
+      this.childProcess = cp.spawn(bin, args, { env });
       this.childProcess.once("spawn", resolve);
       this.childProcess.once("error", reject);
       this.childProcess.once("exit", () => {
@@ -149,10 +138,8 @@ export abstract class Emulator {
  */
 export class Mame extends Emulator {
   protected defaultBin(): string {
-    const binDir = findBinDir();
-
-    // Choose default binary based on platform
-    let bin = join(binDir, `mame-${process.platform}_x64`, "mame");
+    // Just assume mame is in user's path
+    let bin = "mame";
     if (isWin) {
       bin += ".exe";
     }

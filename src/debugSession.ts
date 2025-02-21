@@ -40,7 +40,6 @@ import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
 import { parseVlinkMappingsFile } from "./vlinkMappingsParser";
 import SourceMap from "./sourceMap";
 import { DisassemblyManager } from "./disassembly";
-import { Threads } from "./hardware";
 import StackManager from "./stackManager";
 import promiseRetry from "promise-retry";
 import { helpSummary, commandHelp } from "./help";
@@ -301,9 +300,7 @@ export class UAEDebugSession extends LoggingDebugSession {
 
       //      this.gdb.setExceptionBreakpoint(args.exceptionMask);
 
-      for (const threadId of [Threads.CPU]) {
-        this.sendEvent(new ThreadEvent("started", threadId));
-      }
+      this.sendEvent(new ThreadEvent("started", 1));
 
       let sections: Section[] = [];
       if (args.mappings) {
@@ -334,8 +331,8 @@ export class UAEDebugSession extends LoggingDebugSession {
 
       if (args.stopOnEntry) {
         logger.log("[LAUNCH] Stopping on entry");
-        await this.gdb.stepIn(Threads.CPU);
-        this.sendStoppedEvent(Threads.CPU, "entry");
+        await this.gdb.stepIn(1);
+        this.sendStoppedEvent(1, "entry");
       }
 
       // Tell client that we can now handle breakpoints etc.
@@ -357,7 +354,7 @@ export class UAEDebugSession extends LoggingDebugSession {
     this.handleAsyncRequest(response, async () => {
       if (!this.stopOnEntry) {
         logger.log("Continuing execution after config done");
-        await this.gdb.continueExecution(Threads.CPU);
+        await this.gdb.continueExecution(1);
       }
     });
   }
@@ -483,10 +480,7 @@ export class UAEDebugSession extends LoggingDebugSession {
 
   protected async threadsRequest(response: DebugProtocol.ThreadsResponse) {
     response.body = {
-      threads: [
-        { id: Threads.CPU, name: "cpu" },
-        /*        { id: Threads.COPPER, name: "copper" },*/
-      ],
+      threads: [{ id: 1, name: "cpu" }],
     };
     this.sendResponse(response);
   }
@@ -501,7 +495,7 @@ export class UAEDebugSession extends LoggingDebugSession {
       const stackFrames = await stack.getStackTrace(threadId, positions);
       stackFrames.map(({ source }) => this.processSource(source));
 
-      if (threadId === Threads.CPU && positions[0]) {
+      if (positions[0]) {
         await this.onCpuFrame(positions[0].pc);
         const breakpoints = this.breakpointManager();
         if (breakpoints.temporaryBreakpointAtAddress(positions[0].pc)) {
@@ -546,14 +540,14 @@ export class UAEDebugSession extends LoggingDebugSession {
     { threadId }: DebugProtocol.PauseArguments
   ) {
     this.sendResponse(response);
-    await this.gdb.pause(Threads.CPU);
+    await this.gdb.pause(1);
     this.sendStoppedEvent(threadId, "pause");
   }
 
   protected async continueRequest(response: DebugProtocol.ContinueResponse) {
     response.body = { allThreadsContinued: true };
     this.sendResponse(response);
-    await this.gdb.continueExecution(Threads.CPU);
+    await this.gdb.continueExecution(1);
   }
 
   protected async nextRequest(
@@ -857,12 +851,12 @@ export class UAEDebugSession extends LoggingDebugSession {
     // Any other halt code other than TRAP must be an exception:
     if (e.signal !== HaltSignal.TRAP) {
       logger.log(`[STOP] Exception`);
-      this.sendStoppedEvent(Threads.CPU, "exception");
+      this.sendStoppedEvent(1, "exception");
       return;
     }
 
     // Get stack position to find current PC address for thread
-    const threadId = e.threadId ?? Threads.CPU;
+    const threadId = e.threadId ?? 1;
     const { pc, stackFrameIndex } = await this.stackManager().getStackPosition(
       threadId,
       DEFAULT_FRAME_INDEX
@@ -878,10 +872,10 @@ export class UAEDebugSession extends LoggingDebugSession {
           `[STOP] Matched temporary breakpoint at address ${formatAddress(pc)}`
         );
         await manager.clearTemporaryBreakpoints();
-        this.sendStoppedEvent(Threads.CPU, "step");
+        this.sendStoppedEvent(1, "step");
       } else {
         logger.log(`[STOP] ignoring while waiting for temporary breakpoint`);
-        await this.gdb.continueExecution(Threads.CPU);
+        await this.gdb.continueExecution(1);
       }
       return;
     }

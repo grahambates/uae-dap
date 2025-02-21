@@ -3,7 +3,6 @@ import { DebugProtocol } from "@vscode/debugprotocol";
 
 import { disassemble } from "./cpuDisassembler";
 import { GdbClient } from "../gdbClient";
-import { disassembleCopper } from "./copperDisassembler";
 import { formatAddress, formatHexadecimal, splitLines } from "../utils/strings";
 import VariableManager from "../variableManager";
 import {
@@ -13,12 +12,10 @@ import {
 } from "./disassembledFile";
 import SourceMap from "../sourceMap";
 import { basename } from "path";
-import { Threads } from "../hardware";
 import { StackPosition } from "../stackManager";
 
 export interface DisassembledLine {
   text: string;
-  isCopper: boolean;
 }
 
 export class DisassemblyManager {
@@ -32,7 +29,7 @@ export class DisassemblyManager {
   ) {}
 
   /**
-   * Disassemble memory to CPU or Copper instructions
+   * Disassemble memory to CPU instructions
    */
   public async disassemble(
     args: DebugProtocol.DisassembleArguments & DisassembledFile
@@ -65,18 +62,13 @@ export class DisassemblyManager {
       throw new Error(`Unable to disassemble; invalid parameters ${args}`);
     }
 
-    // Check whether memoryReference points to previously disassembled copper lines if not specified.
-    const isCopper =
-      args.copper ?? this.isCopperLine(parseInt(args.memoryReference));
-
     let instructions =
       args.segmentId !== undefined
         ? await this.disassembleSegment(args.segmentId)
         : await this.disassembleAddressExpression(
             memoryReference,
             args.instructionCount * 4,
-            args.offset ?? 0,
-            isCopper
+            args.offset ?? 0
           );
 
     // Add source line data to instructions
@@ -212,35 +204,22 @@ export class DisassemblyManager {
     }
 
     let text = formatAddress(pc) + ": ";
-    const isCopper = threadId === Threads.COPPER;
     try {
       const memory = await this.gdb.readMemory(pc, 10);
-      if (isCopper) {
-        // Copper thread
-        const lines = disassembleCopper(memory);
-        text += lines[0].toString().split("    ")[0];
-      } else {
-        // CPU thread
-        const { code } = await disassemble(memory);
-        const lines = splitLines(code);
-        let selectedLine = lines.find((l) => l.trim().length) ?? lines[0];
-        const elms = selectedLine.split("  ");
-        if (elms.length > 2) {
-          selectedLine = elms[2];
-        }
-        text += selectedLine.trim().replace(/\s\s+/g, " ");
+      const { code } = await disassemble(memory);
+      const lines = splitLines(code);
+      let selectedLine = lines.find((l) => l.trim().length) ?? lines[0];
+      const elms = selectedLine.split("  ");
+      if (elms.length > 2) {
+        selectedLine = elms[2];
       }
-      this.lineCache.set(pc, { text, isCopper });
+      text += selectedLine.trim().replace(/\s\s+/g, " ");
+      this.lineCache.set(pc, { text });
     } catch (err) {
       console.error("Error ignored: " + (err as Error).message);
     }
 
-    return { text, isCopper };
-  }
-
-  public isCopperLine(pc: number): boolean {
-    const cached = this.lineCache.get(pc);
-    return cached?.isCopper === true;
+    return { text };
   }
 
   public async getStackFrame(
@@ -248,10 +227,9 @@ export class DisassemblyManager {
     threadId: number
   ): Promise<StackFrame> {
     const address = stackPosition.pc;
-    const { text, isCopper } = await this.disassembleLine(address, threadId);
+    const { text } = await this.disassembleLine(address, threadId);
 
     const dAsmFile: DisassembledFile = {
-      copper: isCopper,
       stackFrameIndex: stackPosition.index,
       instructionCount: 500,
     };
@@ -270,7 +248,7 @@ export class DisassemblyManager {
     }
 
     // is the pc on a opened segment ?
-    if (segmentIndex >= 0 && !isCopper) {
+    if (segmentIndex >= 0) {
       dAsmFile.segmentId = segmentIndex;
       line = await this.getLineNumberInDisassembledSegment(
         segmentIndex,
@@ -278,31 +256,6 @@ export class DisassemblyManager {
       );
     } else {
       dAsmFile.memoryReference = "$" + address.toString(16);
-      if (isCopper) {
-        // Search for selected copper list
-        const cop1Addr = await this.getCopperAddress(1);
-        const cop2Addr = await this.getCopperAddress(2);
-        const lineInCop1 = cop1Addr
-          ? Math.floor((address - cop1Addr + 4) / 4)
-          : -1;
-        const lineInCop2 = cop2Addr
-          ? Math.floor((address - cop2Addr + 4) / 4)
-          : -1;
-
-        if (
-          lineInCop1 >= 0 &&
-          (lineInCop2 === -1 || lineInCop1 <= lineInCop2)
-        ) {
-          dAsmFile.memoryReference = "1";
-          line = lineInCop1;
-          label = "cop1";
-        } else if (lineInCop2 >= 0) {
-          dAsmFile.memoryReference = "2";
-          line = lineInCop2;
-          label = "cop2";
-        }
-        dAsmFile.instructionCount = line + 499;
-      }
     }
 
     const sf = new StackFrame(stackPosition.index, label);
@@ -333,36 +286,25 @@ export class DisassemblyManager {
   public async disassembleAddressExpression(
     addressExpression: string,
     length: number,
-    offset: number | undefined,
-    isCopper: boolean
+    offset: number | undefined
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
-    let address = await this.evaluateAddress(addressExpression, isCopper);
+    let address = await this.evaluateAddress(addressExpression);
     if (address === undefined) {
       throw new Error("Unable to resolve address expression void returned");
     }
     if (offset) {
       address += offset;
     }
-    return this.disassembleAddress(address, length, isCopper);
+    return this.disassembleAddress(address, length);
   }
 
   public async disassembleAddress(
     address: number,
-    length: number,
-    isCopper?: boolean
+    length: number
   ): Promise<DebugProtocol.DisassembledInstruction[]> {
     const memory = await this.gdb.readMemory(address, length);
-    if (isCopper) {
-      return disassembleCopper(memory).map((inst, i) => ({
-        instructionBytes: inst.getInstructionBytes(),
-        address: formatHexadecimal(address + i * 4),
-        instruction: inst.toString(),
-      }));
-    } else {
-      // disassemble the code
-      const { instructions } = await disassemble(memory, address);
-      return instructions;
-    }
+    const { instructions } = await disassemble(memory, address);
+    return instructions;
   }
 
   public async getAddressForFileEditorLine(
@@ -377,14 +319,10 @@ export class DisassemblyManager {
       } else {
         // Path from outside segments
         if (dAsmFile.memoryReference && dAsmFile.instructionCount) {
-          const address = await this.evaluateAddress(
-            dAsmFile.memoryReference,
-            dAsmFile.copper
-          );
+          const address = await this.evaluateAddress(dAsmFile.memoryReference);
           instructions = await this.disassembleAddress(
             address,
-            dAsmFile.instructionCount,
-            dAsmFile.copper
+            dAsmFile.instructionCount
           );
         }
       }
@@ -418,18 +356,7 @@ export class DisassemblyManager {
     return index + 1;
   }
 
-  private evaluateAddress(addressExpression: string, isCopper?: boolean) {
-    if (isCopper && (addressExpression === "1" || addressExpression === "2")) {
-      // Retrieve the copper address
-      return this.getCopperAddress(parseInt(addressExpression));
-    } else {
-      return this.variables.evaluate(addressExpression);
-    }
-  }
-
-  private async getCopperAddress(copperIndex: number): Promise<number> {
-    const copperHigh = copperIndex === 1 ? 0xdff080 : 0xdff084;
-    const memory = await this.gdb.readMemory(copperHigh, 4);
-    return parseInt(memory, 16);
+  private evaluateAddress(addressExpression: string) {
+    return this.variables.evaluate(addressExpression);
   }
 }
