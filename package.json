@@ -1,6 +1,6 @@
 {
   "name": "mame-m68k-dap",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Debug Adapter Protocol for m68k platforms in MAME",
   "main": "out/index.js",
   "displayName": "MAME m68k Debugger",
