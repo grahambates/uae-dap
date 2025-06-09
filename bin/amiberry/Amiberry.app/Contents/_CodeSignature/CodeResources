@@ -4,1829 +4,1718 @@
 <dict>
 	<key>files</key>
 	<dict>
-		<key>Resources/Abr/brainfile.xml</key>
+		<key>Resources/controllers/gamecontrollerdb.txt</key>
 		<data>
-		IbbrKmvl9mEAZv+asaLHxuNVy20=
+		zjm/QY4A7aWBEz9mwTp+elDE0CI=
 		</data>
-		<key>Resources/Abr/catlist.xml</key>
+		<key>Resources/controllers/gamecontrollerdb_user.txt</key>
 		<data>
-		0dSen5BqzzgSjr/SBzZsJgD2rOk=
+		zrpY/SxPCqo69G+JUFYoiYOHJVI=
 		</data>
-		<key>Resources/Cdroms/dir.txt</key>
+		<key>Resources/data/35floppy.png</key>
 		<data>
-		Kx9QDSIM3EIzxz+orXQr9LZA2H8=
+		2l7L1fZ1+g5WsFOK7sCHsjrCoo8=
 		</data>
-		<key>Resources/Configurations/amiberry-osx.conf</key>
-		<data>
-		YlA5s1URdO4Q8Zx0esGQx07xXZ8=
-		</data>
-		<key>Resources/Configurations/amiberry.conf</key>
-		<data>
-		dJyuPxDsGpnwtCr+Tm0VBvYUk9I=
-		</data>
-		<key>Resources/Configurations/dir.txt</key>
-		<data>
-		giKy2Sgz+T4ahGK9vSpUuDfxqv8=
-		</data>
-		<key>Resources/Configurations/gamecontrollerdb.txt</key>
-		<data>
-		Oflmabu7WuWhr7X8vldXIX27FKg=
-		</data>
-		<key>Resources/Controllers/dir.txt</key>
-		<data>
-		IFDnn4RiH3GnWOqGV8ot0YyNVUA=
-		</data>
-		<key>Resources/Controllers/gamecontrollerdb_user.txt</key>
-		<data>
-		ZT+DWkQ5XnR8Sr8RRqiN4cEqLHw=
-		</data>
-		<key>Resources/Data/.DS_Store</key>
-		<data>
-		qHZyp6zNp8fK4hw7C4KTXalLGLY=
-		</data>
-		<key>Resources/Data/35floppy.ico</key>
-		<data>
-		Oop9TmYSymoBsa58C3J5pU5JfIQ=
-		</data>
-		<key>Resources/Data/AmigaTopaz.ttf</key>
+		<key>Resources/data/AmigaTopaz.ttf</key>
 		<data>
 		B3gAG77PLrDEyuu77OhxjLty3ps=
 		</data>
-		<key>Resources/Data/amiberry-logo.png</key>
+		<key>Resources/data/abr/brainfile.xml</key>
+		<data>
+		IbbrKmvl9mEAZv+asaLHxuNVy20=
+		</data>
+		<key>Resources/data/abr/catlist.xml</key>
+		<data>
+		0dSen5BqzzgSjr/SBzZsJgD2rOk=
+		</data>
+		<key>Resources/data/amiberry-logo.png</key>
 		<data>
 		9jbuSy2XOSLHDTSAf4HvwptHVIU=
 		</data>
-		<key>Resources/Data/amiberry.png</key>
+		<key>Resources/data/amiberry.png</key>
 		<data>
-		0eIHf2Br1ID9W8PwTXbsd6X2tuc=
+		mk1E9R8NosNCexEEc5T70y8huOo=
 		</data>
-		<key>Resources/Data/amigainfo.ico</key>
+		<key>Resources/data/amiberry.svg</key>
 		<data>
-		vxlJ+vWZbkUW+T+VU486lTfU6Dg=
+		61Q4dXRg6FM2EAzjMg8nDSTPKic=
 		</data>
-		<key>Resources/Data/axis.png</key>
+		<key>Resources/data/amigainfo.png</key>
+		<data>
+		jcrdNLyNofzV4eOJeuvUbeeJLuM=
+		</data>
+		<key>Resources/data/axis.png</key>
 		<data>
 		BdGaZ4+TSkINHHxJZEblY7QO8mw=
 		</data>
-		<key>Resources/Data/button.png</key>
+		<key>Resources/data/button.png</key>
 		<data>
 		5Ml2agnCENM53nWX61z4RVbTNXE=
 		</data>
-		<key>Resources/Data/chip.ico</key>
+		<key>Resources/data/chip.png</key>
 		<data>
-		d8xlXRsJn9gk4+m1D2mPCcE7CsY=
+		E8jk+IaSLIbTPO+bLptFu+co6BM=
 		</data>
-		<key>Resources/Data/controller.png</key>
+		<key>Resources/data/controller.png</key>
 		<data>
 		r0J0Zhbd71SfpPDvbHes/788jfQ=
 		</data>
-		<key>Resources/Data/controllermap.png</key>
+		<key>Resources/data/controllermap.png</key>
 		<data>
 		CwdJnh29wY66PhMFwh3+CxNKN6Y=
 		</data>
-		<key>Resources/Data/controllermap_back.png</key>
+		<key>Resources/data/controllermap_back.png</key>
 		<data>
 		R3Jw6es4Vj7DP6IrJdE08AILPNk=
 		</data>
-		<key>Resources/Data/cpu.ico</key>
+		<key>Resources/data/cpu.png</key>
 		<data>
-		KPwkyu4plzwQhq8Kl8CqXIGVNT4=
+		qPTJFryi5OnCOdjo1gFOVM9771k=
 		</data>
-		<key>Resources/Data/cursor.bmp</key>
+		<key>Resources/data/cursor.bmp</key>
 		<data>
 		dJbY8dUZhGoT5KpYnz1VtIhPC2w=
 		</data>
-		<key>Resources/Data/delete.png</key>
+		<key>Resources/data/delete.png</key>
 		<data>
 		HqeBtKRRDNdoHD6MVGfd8mX52IU=
 		</data>
-		<key>Resources/Data/drive.ico</key>
+		<key>Resources/data/drive.png</key>
 		<data>
-		Mtr1iAn9AKtGUiU3cCj4kmW5o6o=
+		Mrw8kfIWa783yWJu6DogOc8XVOM=
 		</data>
-		<key>Resources/Data/expansion.ico</key>
+		<key>Resources/data/expansion.png</key>
 		<data>
-		upFWVR16iP7XTdnPRKZTjgh0jLE=
+		P3IZilhYgEHn1vj/d6xWBzEozBU=
 		</data>
-		<key>Resources/Data/file.ico</key>
+		<key>Resources/data/file.png</key>
 		<data>
-		vmADnpksOly62VCsIlohEhYqpMs=
+		dy+1OSEZd8pnhNfwv7qmBqxsID4=
 		</data>
-		<key>Resources/Data/fixedfont.png</key>
+		<key>Resources/data/fixedfont.png</key>
 		<data>
 		CSEDwjRJSw1m7PuRZ0dzarOriEU=
 		</data>
-		<key>Resources/Data/floppy_sounds/drive_click.wav</key>
+		<key>Resources/data/floppy_sounds/drive_click.wav</key>
 		<data>
 		/rykxDeoNSVTIIiCG08CD+zPhLQ=
 		</data>
-		<key>Resources/Data/floppy_sounds/drive_snatch.wav</key>
+		<key>Resources/data/floppy_sounds/drive_snatch.wav</key>
 		<data>
 		rLM2QIYIyQiDSv0ADOFjGfxWYrE=
 		</data>
-		<key>Resources/Data/floppy_sounds/drive_spin.wav</key>
+		<key>Resources/data/floppy_sounds/drive_spin.wav</key>
 		<data>
 		k137eOIlBilzjboFg7oihWDQFH0=
 		</data>
-		<key>Resources/Data/floppy_sounds/drive_spinnd.wav</key>
+		<key>Resources/data/floppy_sounds/drive_spinnd.wav</key>
 		<data>
 		k137eOIlBilzjboFg7oihWDQFH0=
 		</data>
-		<key>Resources/Data/floppy_sounds/drive_startup.wav</key>
+		<key>Resources/data/floppy_sounds/drive_startup.wav</key>
 		<data>
 		OOY/cA7mpb5x3tbAVyZ1YsAPPjE=
 		</data>
-		<key>Resources/Data/joystick.ico</key>
+		<key>Resources/data/icon.icns</key>
 		<data>
-		26CDAqHW6eO17bDYzZ1gZZXNmuo=
+		nmgFJqKmEPB36FHXfvyl9hickpA=
 		</data>
-		<key>Resources/Data/keyboard.png</key>
+		<key>Resources/data/joystick.png</key>
+		<data>
+		52XTx88tBnfWrUlO2s9evMH1Ipw=
+		</data>
+		<key>Resources/data/keyboard.png</key>
 		<data>
 		j9nZpU58A2uFkFBWU63H4eY1wic=
 		</data>
-		<key>Resources/Data/misc.ico</key>
+		<key>Resources/data/misc.png</key>
 		<data>
-		3B7GPo7na5B5FhFZTI8I/lQ9gMM=
+		Alq4H04/yioOPySNBlxjJx9KgGY=
 		</data>
-		<key>Resources/Data/paths.ico</key>
+		<key>Resources/data/paths.png</key>
 		<data>
-		WXGcXOjIRI/wL2Zo84ul8NRwIxc=
+		t7D6ZBie6mBPaBvzEvMBPkhPtos=
 		</data>
-		<key>Resources/Data/port.ico</key>
+		<key>Resources/data/port.png</key>
 		<data>
-		8aYbuOlXQp4odjj1F7aCh7hhzL0=
+		0d9WI4ksSdp6o3EpbspyF7L9rIA=
 		</data>
-		<key>Resources/Data/quickstart.ico</key>
+		<key>Resources/data/quickstart.png</key>
 		<data>
-		1lMZ1A1gtX+jXZ/fNni/t62B/bc=
+		6hn2AjLzUuM2cTIF1yhMvM8n0E4=
 		</data>
-		<key>Resources/Data/rpgfont.png</key>
+		<key>Resources/data/rpgfont.png</key>
 		<data>
 		/UhdWGh0ds6BDlnK2zh0bhYkum4=
 		</data>
-		<key>Resources/Data/savestate.png</key>
+		<key>Resources/data/savestate.png</key>
 		<data>
 		EDw2uZdY65e+QmvF5/1ZaLdo9g4=
 		</data>
-		<key>Resources/Data/screen.ico</key>
+		<key>Resources/data/screen.png</key>
 		<data>
-		bnMOvq6iEL0qE73CEE65V+oqPhA=
+		d+4iqM36TSqGBxiPtDgxeOQeYH0=
 		</data>
-		<key>Resources/Data/sound.ico</key>
+		<key>Resources/data/sound.png</key>
 		<data>
-		TRfhlhYOW0kLOjCSvW00rQGEl64=
+		VyRAJkPvgU1KXh+NRpePPqPBorc=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolFRLarge.png</key>
+		<key>Resources/data/vkbd/vkbdCoolFRLarge.png</key>
 		<data>
 		J2U3oWB1qQteXB84mjvHJLcDrCQ=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolFRLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolFRLargeHires.png</key>
 		<data>
 		QsYgj+0XBIcDKKK9yS+Tzj27cbo=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolFRLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdCoolFRLargeShift.png</key>
 		<data>
 		f0Qf/7tQn8LW+Llhe4bPHziPjvI=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolFRLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolFRLargeShiftHires.png</key>
 		<data>
 		hw8ceFbHtpdIW7C1IMrK93G49Mg=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolGerLarge.png</key>
+		<key>Resources/data/vkbd/vkbdCoolGerLarge.png</key>
 		<data>
 		X5qx707f/Em6+nxznhBc2Qi7/vQ=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolGerLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolGerLargeHires.png</key>
 		<data>
 		SjK6qF7HCMnoMmsDuY47n14S1tQ=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolGerLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdCoolGerLargeShift.png</key>
 		<data>
 		nR7ulI3tJD46g/CU5t1/aoJYdpQ=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolGerLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolGerLargeShiftHires.png</key>
 		<data>
 		v+t/UAIliG/pLCMVRGu15ig+TcQ=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolQuit.png</key>
+		<key>Resources/data/vkbd/vkbdCoolQuit.png</key>
 		<data>
 		toXXXWNtcos0QWfAsam2agOHTeY=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolQuitHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolQuitHires.png</key>
 		<data>
 		pXfnAfPJWOds79WLpzc2w13voWM=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolUKLarge.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUKLarge.png</key>
 		<data>
 		T3QfRXckWUFuAY7xM5E3DzczbUk=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolUKLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUKLargeHires.png</key>
 		<data>
 		f0PP311jC0OJFr0MFlth2cPTB6o=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolUKLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUKLargeShift.png</key>
 		<data>
 		drkJBg3s7HtyzUlTU3q2tsx0ND4=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolUKLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUKLargeShiftHires.png</key>
 		<data>
 		juzi+ttGiReqEsrQnryEIrJu8so=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolUSLarge.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUSLarge.png</key>
 		<data>
 		YCeC9SunRyzVBt4lNAlhq4Jh/qg=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolUSLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUSLargeHires.png</key>
 		<data>
 		msQZ8GxcNni6cSEKqd/RLvKM7lE=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolUSLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUSLargeShift.png</key>
 		<data>
 		YoEsENCc5ek+l/m3bIzXHNZLPxo=
 		</data>
-		<key>Resources/Data/vkbd/vkbdCoolUSLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUSLargeShiftHires.png</key>
 		<data>
 		d5h85uVLGJ+8lbT0Y8P0X2BVy54=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkFRLarge.png</key>
+		<key>Resources/data/vkbd/vkbdDarkFRLarge.png</key>
 		<data>
 		mgXPuwdWiCUy+ORar6CSo+61F1U=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkFRLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkFRLargeHires.png</key>
 		<data>
 		9lr0v+XT4E1EyTAb/YVhfRrW/kI=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkFRLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdDarkFRLargeShift.png</key>
 		<data>
 		y+f4IoP31ChF6jll9FTqXF6OcmE=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkFRLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkFRLargeShiftHires.png</key>
 		<data>
 		E4gcFE04/SkE1KFkD8G6lrHhBtU=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkGerLarge.png</key>
+		<key>Resources/data/vkbd/vkbdDarkGerLarge.png</key>
 		<data>
 		Y1EZ+HZ0EkMAtzNlvf6wUNEZsH8=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkGerLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkGerLargeHires.png</key>
 		<data>
 		Cf3Bpwiph20PkjDB4OxC+tQnP+c=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkGerLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdDarkGerLargeShift.png</key>
 		<data>
 		3EcOJN/FFtB1M65GvMVn6iDhJhw=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkGerLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkGerLargeShiftHires.png</key>
 		<data>
 		f9J8+WbKi/SfvPyD+Ml5QnpBbLs=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkQuit.png</key>
+		<key>Resources/data/vkbd/vkbdDarkQuit.png</key>
 		<data>
 		1xeI69VbFuhzZpgqjzOe5/dyDDk=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkQuitHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkQuitHires.png</key>
 		<data>
 		+QMQuzNupvbG3kS9XxnYy8i8UjE=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkUKLarge.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUKLarge.png</key>
 		<data>
 		YE//b9lYFR65a3GQ9v2uwVR758c=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkUKLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUKLargeHires.png</key>
 		<data>
 		GmE4pQQ6qSE15D26hVySK9hrNlE=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkUKLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUKLargeShift.png</key>
 		<data>
 		23wTSvEn/9DvoZzdcpqH4jwt7fs=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkUKLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUKLargeShiftHires.png</key>
 		<data>
 		3Uu0WVBVeCXlFIt1eocmTwp7K8k=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkUSLarge.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUSLarge.png</key>
 		<data>
 		CXekJwUQ7vI3vK4ZAMhpkN3r6Fc=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkUSLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUSLargeHires.png</key>
 		<data>
 		P3gLjrfG3ipbyAvvGG7Jv82NbA8=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkUSLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUSLargeShift.png</key>
 		<data>
 		d3CVvqfAQt4G247i8xcSWHj8eik=
 		</data>
-		<key>Resources/Data/vkbd/vkbdDarkUSLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUSLargeShiftHires.png</key>
 		<data>
 		VnRPmbmnUIvfzhTa67Db+GnoZiY=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigFRLarge.png</key>
+		<key>Resources/data/vkbd/vkbdOrigFRLarge.png</key>
 		<data>
 		4QWkrq9M6UQ9+UYhj5hrkKTM1As=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigFRLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigFRLargeHires.png</key>
 		<data>
 		UkSpEpcp+DA9SKJg+pSZmMyFJ3w=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigFRLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdOrigFRLargeShift.png</key>
 		<data>
 		8nTKzzBYi+Mx08XyaPzdikPRO3g=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigFRLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigFRLargeShiftHires.png</key>
 		<data>
 		bzp6DucLJmp0N+3K1j/EfBCKR94=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigGerLarge.png</key>
+		<key>Resources/data/vkbd/vkbdOrigGerLarge.png</key>
 		<data>
 		vzUctj1kcvFHhO675E/iFZfpdsA=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigGerLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigGerLargeHires.png</key>
 		<data>
 		a4h2o1hP0DDYEr7AgdmM/FNjcGI=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigGerLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdOrigGerLargeShift.png</key>
 		<data>
 		fqAxf3J5l88MefVin6J9kwVHxC0=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigGerLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigGerLargeShiftHires.png</key>
 		<data>
 		AyF4ce4dt7D7xJseRfNO5A0E3K0=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigQuit.png</key>
+		<key>Resources/data/vkbd/vkbdOrigQuit.png</key>
 		<data>
 		tI4r/lAexd4HrcYlb0iLz+SUib4=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigQuitHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigQuitHires.png</key>
 		<data>
 		1M/UKyGdJTBIJjDlvce2V8F713A=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigUKLarge.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUKLarge.png</key>
 		<data>
 		U7QmAqySq5wo25eTZTuHFbqlJqs=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigUKLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUKLargeHires.png</key>
 		<data>
 		Fhq6yu/+kz5nuTe3uj6bWZE4hSc=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigUKLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUKLargeShift.png</key>
 		<data>
 		GDBSzt5wY/u+5pHVAKzPruz22yo=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigUKLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUKLargeShiftHires.png</key>
 		<data>
 		qlV9XZnItHqW2v3UVysVyiS/5tE=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigUSLarge.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUSLarge.png</key>
 		<data>
 		RiG2M93A0LaCTaO+fMSMAV+3CWM=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigUSLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUSLargeHires.png</key>
 		<data>
 		eR3z8vxmVpwqAzXw1BY4qiw53Rk=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigUSLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUSLargeShift.png</key>
 		<data>
 		25NDC+KDvT5XUUDOE880ZRSaJYA=
 		</data>
-		<key>Resources/Data/vkbd/vkbdOrigUSLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUSLargeShiftHires.png</key>
 		<data>
 		x0lSNuSihzg+B5V+yCGhf9YxH7E=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmFRLarge.png</key>
+		<key>Resources/data/vkbd/vkbdWarmFRLarge.png</key>
 		<data>
 		NvTFLKyGMoaTNbD99eItaOe8CMc=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmFRLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmFRLargeHires.png</key>
 		<data>
 		Eogr5CNwK/jdMa11VPjZMx0arBM=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmFRLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdWarmFRLargeShift.png</key>
 		<data>
 		s88hXhu+c2jarDe+Si7VojrWdiQ=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmFRLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmFRLargeShiftHires.png</key>
 		<data>
 		KkiyloQFs3rs/utY/GSuIqLAYY0=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmGerLarge.png</key>
+		<key>Resources/data/vkbd/vkbdWarmGerLarge.png</key>
 		<data>
 		memKB4SpEg9tsqpTwv2xvElPfiE=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmGerLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmGerLargeHires.png</key>
 		<data>
 		tMUwQhiChAeHJ1XKhkXEcjIaLPQ=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmGerLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdWarmGerLargeShift.png</key>
 		<data>
 		KnIXtiH0eWVGF6X1te9QCnf/9O0=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmGerLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmGerLargeShiftHires.png</key>
 		<data>
 		Z53kDw1LAIH1Ygmn/ahVNpdO1i4=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmQuit.png</key>
+		<key>Resources/data/vkbd/vkbdWarmQuit.png</key>
 		<data>
 		H7OsrTMUH2UrThYYSvGo0lPy8fc=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmQuitHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmQuitHires.png</key>
 		<data>
 		z4r9XBEOPLi7hkHesqudsQ1H7kk=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmUKLarge.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUKLarge.png</key>
 		<data>
 		xHZ3WHW8Fh5OyB6J0QeBi3ARs10=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmUKLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUKLargeHires.png</key>
 		<data>
 		wQuXGb4BDIwKefTZm2gP7sz3ZJQ=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmUKLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUKLargeShift.png</key>
 		<data>
 		HhEd6Jb4aIhoF0S1mQZ3GEFfxPE=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmUKLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUKLargeShiftHires.png</key>
 		<data>
 		dbj0ShgjefaZjz4I9OSwY4D/ykQ=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmUSLarge.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUSLarge.png</key>
 		<data>
 		K7+vxtx0DY4ZHCe9eweTcWBQTVo=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmUSLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUSLargeHires.png</key>
 		<data>
 		r3t4zmT8zE9xcdh4NlA2Gbj5aSA=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmUSLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUSLargeShift.png</key>
 		<data>
 		MqAdBCMsKlByEIYnuSxPKhQr8GU=
 		</data>
-		<key>Resources/Data/vkbd/vkbdWarmUSLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUSLargeShiftHires.png</key>
 		<data>
 		m5TIQRIWNEOpEDS1qLkZqyrEsjk=
 		</data>
-		<key>Resources/Floppies/dir.txt</key>
+		<key>Resources/plugins/libcapsimage.dylib</key>
 		<data>
-		HZzIsNlesyHstrthW4S4hO0s7mU=
+		8H/yjvLBoqq8jmiPTrEwvyJ7Ca0=
 		</data>
-		<key>Resources/Harddrives/dir.txt</key>
+		<key>Resources/plugins/libfloppybridge.dylib</key>
 		<data>
-		Gf5ORoapU1H44KWyqQhVMUuDFoU=
+		UW9waQx1UnR4qO71dLFTRM40H2E=
 		</data>
-		<key>Resources/Inputrecordings/dir.txt</key>
+		<key>Resources/roms/aros-ext.bin</key>
 		<data>
-		xu06154Oa7fnFZLIIbvzPYgEnms=
+		3xx26IA5daYEEhnk61TxPuKt5Xw=
 		</data>
-		<key>Resources/Kickstarts/aros-ext.bin</key>
+		<key>Resources/roms/aros-rom.bin</key>
 		<data>
-		YT9DHTCm5boVuw28W/qpyUGblUo=
+		4f46PyhlsQcZDzJmR6TPg7VNW5Q=
 		</data>
-		<key>Resources/Kickstarts/aros-rom.bin</key>
-		<data>
-		cGK0WyOrNABvb7uWvXiCmxC1xAw=
-		</data>
-		<key>Resources/Kickstarts/dir.txt</key>
-		<data>
-		5YduiIo2vHlDUCRh4bbP2hqXmCw=
-		</data>
-		<key>Resources/Kickstarts/mt32-roms/dir.txt</key>
+		<key>Resources/roms/mt32-roms/dir.txt</key>
 		<data>
 		T6Uqc3mxxlMZn6kec0BEeXF6teA=
 		</data>
-		<key>Resources/Lha/dir.txt</key>
-		<data>
-		R9F5F01SpyHBpBablrjWkELjAF0=
-		</data>
-		<key>Resources/Nvram/dir.txt</key>
-		<data>
-		6pfE+pGt8ICAKbtkmZCEp9za+AM=
-		</data>
-		<key>Resources/Plugins/dir.txt</key>
-		<data>
-		3hyH/ftnyPVA3ZDayAOL8ByFzrU=
-		</data>
-		<key>Resources/Plugins/libfloppybridge.so</key>
-		<data>
-		U/QqxICwouIKnvClzi4sUkB0ui8=
-		</data>
-		<key>Resources/Savestates/dir.txt</key>
-		<data>
-		5+rpdQyk0Fd9xNrPonYHePqhjlM=
-		</data>
-		<key>Resources/Screenshots/dir.txt</key>
-		<data>
-		mZOGTnlrVtJnU5gwwaxDeKRavTM=
-		</data>
-		<key>Resources/Whdboot/AmiQuit</key>
+		<key>Resources/whdboot/AmiQuit</key>
 		<data>
 		+qqgiymzkTgXcSIvELeyLDuZ9Mo=
 		</data>
-		<key>Resources/Whdboot/WHDLoad</key>
+		<key>Resources/whdboot/JST</key>
 		<data>
-		CIVXmjandOw195tjUg5jt1xnBq4=
+		Vd0+zVCGUo+phOgttkdLlU/FStU=
 		</data>
-		<key>Resources/Whdboot/boot-data.zip</key>
+		<key>Resources/whdboot/WHDLoad</key>
 		<data>
-		LPYzTkxdkEEyudyRlfdFfYmOnT4=
+		2Bp3f8xAwRmrRQkAhJUSW5mZm0s=
 		</data>
-		<key>Resources/Whdboot/game-data/whdload_db.xml</key>
+		<key>Resources/whdboot/boot-data.zip</key>
 		<data>
-		/l4P1A7TWp+K69xVTrGVQL1DiEI=
+		m+kBByid3gmeePaZux8UmPd7IvQ=
 		</data>
-		<key>Resources/Whdboot/save-data/Autoboots/foo.txt</key>
+		<key>Resources/whdboot/game-data/whdload_db.xml</key>
 		<data>
-		rcg7GeeTSRscbqD9i0bNnzLlkvw=
+		DKWGMBziarFSqAfbybIcQDKR6n8=
 		</data>
-		<key>Resources/Whdboot/save-data/Debugs/foo.txt</key>
-		<data>
-		rcg7GeeTSRscbqD9i0bNnzLlkvw=
-		</data>
-		<key>Resources/Whdboot/save-data/Kickstarts/foo.txt</key>
+		<key>Resources/whdboot/save-data/Autoboots/foo.txt</key>
 		<data>
 		rcg7GeeTSRscbqD9i0bNnzLlkvw=
 		</data>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick33180.A500.RTB</key>
+		<key>Resources/whdboot/save-data/Debugs/foo.txt</key>
+		<data>
+		rcg7GeeTSRscbqD9i0bNnzLlkvw=
+		</data>
+		<key>Resources/whdboot/save-data/Kickstarts/foo.txt</key>
+		<data>
+		rcg7GeeTSRscbqD9i0bNnzLlkvw=
+		</data>
+		<key>Resources/whdboot/save-data/Kickstarts/kick33180.A500.RTB</key>
 		<data>
 		HRxVf0oPXqiK65bWiwn0GZA0D3A=
 		</data>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick33192.A500.RTB</key>
+		<key>Resources/whdboot/save-data/Kickstarts/kick33192.A500.RTB</key>
 		<data>
 		HRxVf0oPXqiK65bWiwn0GZA0D3A=
 		</data>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick34005.A500.RTB</key>
+		<key>Resources/whdboot/save-data/Kickstarts/kick34005.A500.RTB</key>
 		<data>
 		IJwQmFX5TJNUObYJUNBJUn0vJIQ=
 		</data>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick40063.A600.RTB</key>
+		<key>Resources/whdboot/save-data/Kickstarts/kick40063.A600.RTB</key>
 		<data>
 		yi1uHitIg5KUR6BeKUGFM3I6QZw=
 		</data>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick40068.A1200.RTB</key>
+		<key>Resources/whdboot/save-data/Kickstarts/kick40068.A1200.RTB</key>
 		<data>
 		GtG1XnImvVzWbe+DcKafGSRNp5Y=
 		</data>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick40068.A4000.RTB</key>
+		<key>Resources/whdboot/save-data/Kickstarts/kick40068.A4000.RTB</key>
 		<data>
 		lztC3K+NbLERSEs8TTtxmxX2eS0=
 		</data>
-		<key>Resources/Whdboot/save-data/Savegames/foo.txt</key>
+		<key>Resources/whdboot/save-data/Savegames/foo.txt</key>
 		<data>
 		rcg7GeeTSRscbqD9i0bNnzLlkvw=
-		</data>
-		<key>Resources/libfloppybridge.so</key>
-		<data>
-		U/QqxICwouIKnvClzi4sUkB0ui8=
-		</data>
-		<key>Resources/macos_init_amiberry.zsh</key>
-		<data>
-		R9iDh8noWsmT+T5hhTXXxpaDtls=
 		</data>
 	</dict>
 	<key>files2</key>
 	<dict>
-		<key>Resources/Abr/brainfile.xml</key>
+		<key>Frameworks/libFLAC.14.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			JE1flXL7skLZCBjmX0jr8DXr3u4=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"244d5f9572fbb242d90818e65f48ebf035ebdeee"</string>
+		</dict>
+		<key>Frameworks/libSDL2-2.0.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			fZjTr70jX60zEp6lJgu0DS+Aalo=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"7d98d3afbd235fad33129ea5260bb40d2f806a5a"</string>
+		</dict>
+		<key>Frameworks/libSDL2_image-2.0.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			cdMw7EqVXm70YZTmM3DuEQzvyCc=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"71d330ec4a955e6ef46194e63370ee110cefc827"</string>
+		</dict>
+		<key>Frameworks/libSDL2_ttf-2.0.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			r+KuQQSKvFyhBWHUQLhcEvkH+YA=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"afe2ae41048abc5ca10561d440b85c12f907f980"</string>
+		</dict>
+		<key>Frameworks/libaom.3.12.1.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			+BZ3vdOtucZZyIxz08k/znliEWM=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"f81677bdd3adb9c659c88c73d3c93fce79621163"</string>
+		</dict>
+		<key>Frameworks/libavif.16.2.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			yWzbDlvpdgKkaEcfH6sW0dH/TdA=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"c96cdb0e5be97602a468471f1fab16d1d1ff4dd0"</string>
+		</dict>
+		<key>Frameworks/libbrotlicommon.1.1.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			qidkvprp8q4sMZOQDCKdwX08RtM=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"aa2764be9ae9f2ae2c3193900c229dc17d3c46d3"</string>
+		</dict>
+		<key>Frameworks/libbrotlidec.1.1.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			li6t+iv1G/gvst0RdWtJzqlLyLo=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"962eadfa2bf51bf82fb2dd11756b49cea94bc8ba"</string>
+		</dict>
+		<key>Frameworks/libbrotlienc.1.1.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			5w6xX7p97scGdRzQrXopWRjMlqM=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"e70eb15fba7deec706751cd0ad7a295918cc96a3"</string>
+		</dict>
+		<key>Frameworks/libfreetype.6.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			5FNQ0C0Ups6DHNrzoG8b/VBTnvc=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"e45350d02d14a6ce831cdaf3a06f1bfd50539ef7"</string>
+		</dict>
+		<key>Frameworks/libglib-2.0.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			SUIst3nWu7+JwAnQcfHhb/M142g=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"49422cb779d6bbbf89c009d071f1e16ff335e368"</string>
+		</dict>
+		<key>Frameworks/libgraphite2.3.2.1.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			O2N2eWoOG/Bjj7m6wlvIbmYPxPc=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"3b6376796a0e1bf0638fb9bac25bc86e660fc4f7"</string>
+		</dict>
+		<key>Frameworks/libharfbuzz.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			HAW/xFowajGt7Em9VhAcRNkI7gw=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"1c05bfc45a306a31adec49bd56101c44d908ee0c"</string>
+		</dict>
+		<key>Frameworks/libhwy.1.2.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			QAopQlXlK9Z1xOt6vAGEp8hgHgY=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"400a294255e52bd675c4eb7abc0184a7c8601e06"</string>
+		</dict>
+		<key>Frameworks/libintl.8.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			GyRgDY0HCA5EFmUYBbaSCEyCxaA=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"1b24600d8d07080e4416651805b692084c82c5a0"</string>
+		</dict>
+		<key>Frameworks/libjpeg.8.3.2.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			X2WVUZcDML9/36wk/qfhcDWTT7M=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"5f659551970330bf7fdfac24fea7e17035934fb3"</string>
+		</dict>
+		<key>Frameworks/libjxl.0.11.1.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			cmHZ9GAVZLkZUvkHZe5GI5trn3Q=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"7261d9f4601564b91952f90765ee46239b6b9f74"</string>
+		</dict>
+		<key>Frameworks/libjxl_cms.0.11.1.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			vPPrT2ukGkStfBviSYCc2d7sJHw=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"bcf3eb4f6ba41a44ad7c1be249809cd9deec247c"</string>
+		</dict>
+		<key>Frameworks/liblcms2.2.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			239jU41ZImZTcZmxDOhqTiV4oVU=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"db7f63538d592266537199b10ce86a4e2578a155"</string>
+		</dict>
+		<key>Frameworks/liblzma.5.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			HQAsQ50CZpB3ERrZwtvb2tW5zsk=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"1d002c439d02669077111ad9c2dbdbdad5b9cec9"</string>
+		</dict>
+		<key>Frameworks/libmpg123.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			YquffYIrfXl9K+DIOc4LAs5yr+I=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"62ab9f7d822b7d797d2be0c839ce0b02ce72afe2"</string>
+		</dict>
+		<key>Frameworks/libogg.0.8.5.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			fdsTmnC30sAAQLATR1sKFL6Me/g=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"7ddb139a70b7d2c00040b013475b0a14be8c7bf8"</string>
+		</dict>
+		<key>Frameworks/libpcre2-8.0.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			URJhNGBwD3gOLcU71urcR6xAKU8=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"5112613460700f780e2dc53bd6eadc47ac40294f"</string>
+		</dict>
+		<key>Frameworks/libpng16.16.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			h/SdzMMMQS1sPpg0Stw/p1Pj9IU=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"87f49dccc30c412d6c3e98344adc3fa753e3f485"</string>
+		</dict>
+		<key>Frameworks/libsharpyuv.0.1.1.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			PyrzYBjEl5FfedLYIMaQDas9urE=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"3f2af36018c497915f79d2d820c6900dab3dbab1"</string>
+		</dict>
+		<key>Frameworks/libtiff.6.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			8z7Qeeu8ObaIq2HXaf0+aWuMWP4=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"f33ed079ebbc39b688ab61d769fd3e696b8c58fe"</string>
+		</dict>
+		<key>Frameworks/libvmaf.3.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			cvUb+wjRw9jI2SZtqIs8OTi0tzg=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"72f51bfb08d1c3d8c8d9266da88b3c3938b4b738"</string>
+		</dict>
+		<key>Frameworks/libwebp.7.1.10.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			TuQeRPdKyZ1KuJ5a7J27IdNdlHQ=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"4ee41e44f74ac99d4ab89e5aec9dbb21d35d9474"</string>
+		</dict>
+		<key>Frameworks/libwebpdemux.2.0.16.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			xFB3PcuHGvUFrd5BFUs4lVEWZVM=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"c450773dcb871af505adde41154b389551166553"</string>
+		</dict>
+		<key>Frameworks/libzstd.1.5.7.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			1uZ8qwWkT3qJgIo2u38UM5oWYDA=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"d6e67cab05a44f7a89808a36bb7f14339a166030"</string>
+		</dict>
+		<key>Resources/controllers/gamecontrollerdb.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			mz8pj5pIJcqVxX8dx9zNYTdm32Mai4g36A9Kr6+mvOU=
+			P9vsDzZjgV2AVFGjRdpXgMnz9RKHLuvCRs2vhUYsnUo=
 			</data>
 		</dict>
-		<key>Resources/Abr/catlist.xml</key>
+		<key>Resources/controllers/gamecontrollerdb_user.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			9TAZRhrv+iU2uSpcFAaSLfrcdwDXO8u8on3K1VxEOQQ=
+			rosPdVBTM6SrXdMVo7JPD5AGKMZDbVVlU3pV8O0hTCs=
 			</data>
 		</dict>
-		<key>Resources/Cdroms/dir.txt</key>
+		<key>Resources/data/35floppy.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			Q7pSDSAtFX4dEisGD97fLs1vXqgL5U7K1eJbvKqRo2Y=
+			mxVzvGMogwHB/U62/TOAxCUlAL7umfhV/UD2d1/3FyQ=
 			</data>
 		</dict>
-		<key>Resources/Configurations/amiberry-osx.conf</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			9Fdne23i3IXliYAZjbylqtESzrvY57jJMeiQTulzWjs=
-			</data>
-		</dict>
-		<key>Resources/Configurations/amiberry.conf</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			aqi6obGtHPPgOzXTtqILsJ6TW0cdXCD7joRaiyn1rGk=
-			</data>
-		</dict>
-		<key>Resources/Configurations/dir.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			X5CVZMqE7zCYuVuimpus5XCxRo7cXj5ElM76IdYZ/7M=
-			</data>
-		</dict>
-		<key>Resources/Configurations/gamecontrollerdb.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			UmKeaS2wULZVyISwsGZLp3hfpMHyPafaDI1eoEAuz+4=
-			</data>
-		</dict>
-		<key>Resources/Controllers/dir.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			y8sRG3gQNzfDlAhKfbzedCCbkDsuSyMdJF7jDgI9sbY=
-			</data>
-		</dict>
-		<key>Resources/Controllers/gamecontrollerdb_user.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			45fQdzpWtQxCPd+NV2SU7LTrOOQM21g6fVCfrF9V1vI=
-			</data>
-		</dict>
-		<key>Resources/Data/35floppy.ico</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			qZG7CQZTB5pDxdQGnn8CkBy2HW9h5dgxzp1ZuO5Y+rg=
-			</data>
-		</dict>
-		<key>Resources/Data/AmigaTopaz.ttf</key>
+		<key>Resources/data/AmigaTopaz.ttf</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			2xA4PL8tmxiSQhf2o9ib977rJ1huse8Bhw/zB1mNAeg=
 			</data>
 		</dict>
-		<key>Resources/Data/amiberry-logo.png</key>
+		<key>Resources/data/abr/brainfile.xml</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			mz8pj5pIJcqVxX8dx9zNYTdm32Mai4g36A9Kr6+mvOU=
+			</data>
+		</dict>
+		<key>Resources/data/abr/catlist.xml</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			9TAZRhrv+iU2uSpcFAaSLfrcdwDXO8u8on3K1VxEOQQ=
+			</data>
+		</dict>
+		<key>Resources/data/amiberry-logo.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			qBXcwBdjmy+Lp+Pn+nYfUe6CHb7T4OJyf0Brp6kzJBg=
 			</data>
 		</dict>
-		<key>Resources/Data/amiberry.png</key>
+		<key>Resources/data/amiberry.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			CjT6uIZOK3V4OCR44cpiSUMQGsriVmAf7UltLk+zCu4=
+			8xoPiHhMLcOIdYLXrxsv+NJfuSy109YWK+S1/PAcA84=
 			</data>
 		</dict>
-		<key>Resources/Data/amigainfo.ico</key>
+		<key>Resources/data/amiberry.svg</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			1VxG5PuSeve0ac1z8lk6z1yhp9Uu6zOCiecScQMHxDM=
+			ZZd1p16NLBKEhGX7mxXRh07XGtXEFnOCrrFLUufIev4=
 			</data>
 		</dict>
-		<key>Resources/Data/axis.png</key>
+		<key>Resources/data/amigainfo.png</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			R/knFP1B0PK/0hN62Hn1YWme/nLaget6N1BiZIFOMNI=
+			</data>
+		</dict>
+		<key>Resources/data/axis.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			TOHkwfBBxwBXlKMa9jJ3xhYyirifeXZEj32X/G2TF4E=
 			</data>
 		</dict>
-		<key>Resources/Data/button.png</key>
+		<key>Resources/data/button.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			s/1PIpMdJ+F3OwWBDg79zE7BOMDAPRFcw5Mz1vd3pO8=
 			</data>
 		</dict>
-		<key>Resources/Data/chip.ico</key>
+		<key>Resources/data/chip.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			sY5kZANVHHWVtP4nhqQ+BiisBzqVms0uqhULBBo59G0=
+			wFmBt8iZDWfT0JvcCW5UlUD8WTaiB53r3RvDmiNSA8c=
 			</data>
 		</dict>
-		<key>Resources/Data/controller.png</key>
+		<key>Resources/data/controller.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			7qfXfPGviZQDZ0HDCF7YVCL7o33x9fSo+j3H/e3dDlE=
 			</data>
 		</dict>
-		<key>Resources/Data/controllermap.png</key>
+		<key>Resources/data/controllermap.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			F7BbEt8viUijZ020XWKE1qjwOwNMctxhFVFBgbHV5MQ=
 			</data>
 		</dict>
-		<key>Resources/Data/controllermap_back.png</key>
+		<key>Resources/data/controllermap_back.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			m/iSpEbdHJsO3Ri/wlyD+gbDT37oF/dDbPAHM4r/Cig=
 			</data>
 		</dict>
-		<key>Resources/Data/cpu.ico</key>
+		<key>Resources/data/cpu.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			xhk9+jnG7ly43nGtmdukfO71NTjTGbZYkst9KD86aho=
+			NprodWH3LVR+IHgtgx89jQkMOsDEwuj9hyLm5MIcUQ4=
 			</data>
 		</dict>
-		<key>Resources/Data/cursor.bmp</key>
+		<key>Resources/data/cursor.bmp</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			KEn+OkW51L/5pYq2LMOzvsNmHoM+6aML4qRRA8byXPo=
 			</data>
 		</dict>
-		<key>Resources/Data/delete.png</key>
+		<key>Resources/data/delete.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			rH3czkDnO+tz2cMskcXmTq5HecEExUXynGYCY2PlcMA=
 			</data>
 		</dict>
-		<key>Resources/Data/drive.ico</key>
+		<key>Resources/data/drive.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			rJ8Z5aWzqM1me67XNyu48jUubmAIKo64YrHKDV3o8vc=
+			qvZHm/k6VquLYvoIaiT9R9A/ccOgoYVBId3tbqINMYo=
 			</data>
 		</dict>
-		<key>Resources/Data/expansion.ico</key>
+		<key>Resources/data/expansion.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			PrJzr/hKi9r1YwCKDYqKfdYnoZbhc8Chibt6MoItPnw=
+			pvK8h1xBeMN9bXtw3n+kVGN72SrQgaEJApdEvsW31rI=
 			</data>
 		</dict>
-		<key>Resources/Data/file.ico</key>
+		<key>Resources/data/file.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			rp422tL7CTv4g6J+6Ro1FxK8SUArEaD6Nf+zonSndp8=
+			4OQlHMLbIGlPtVahEr/CWOpL1z1OH8BynxmSWvB8TGg=
 			</data>
 		</dict>
-		<key>Resources/Data/fixedfont.png</key>
+		<key>Resources/data/fixedfont.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			ZyVhulL0enfFtyiXPKRnGq6zKKm73PTITpm7I6VNjXs=
 			</data>
 		</dict>
-		<key>Resources/Data/floppy_sounds/drive_click.wav</key>
+		<key>Resources/data/floppy_sounds/drive_click.wav</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			WvQZpdYGofDCMgXx8KOuJ3GL8MAa2LzHe1OeGGKAvF4=
 			</data>
 		</dict>
-		<key>Resources/Data/floppy_sounds/drive_snatch.wav</key>
+		<key>Resources/data/floppy_sounds/drive_snatch.wav</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			1TO/THndvHPSx6futL4xB1B7MWCtW3XOrsh8AP4PTeg=
 			</data>
 		</dict>
-		<key>Resources/Data/floppy_sounds/drive_spin.wav</key>
+		<key>Resources/data/floppy_sounds/drive_spin.wav</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			tT8PBjxBi6XuwZ1ferP+l98UbpURJ2Ma7ldloaRBSGs=
 			</data>
 		</dict>
-		<key>Resources/Data/floppy_sounds/drive_spinnd.wav</key>
+		<key>Resources/data/floppy_sounds/drive_spinnd.wav</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			tT8PBjxBi6XuwZ1ferP+l98UbpURJ2Ma7ldloaRBSGs=
 			</data>
 		</dict>
-		<key>Resources/Data/floppy_sounds/drive_startup.wav</key>
+		<key>Resources/data/floppy_sounds/drive_startup.wav</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			25i73qFCN57WBGbNOp2NAWD5HZVJzxVejzINfR3d4pw=
 			</data>
 		</dict>
-		<key>Resources/Data/joystick.ico</key>
+		<key>Resources/data/icon.icns</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			YROLAubLtG3VATT1w4jMwl8Dv+he0SEvTlla3SMK9gA=
+			3liSIH3rSoXUnsM2t92aLj+m1AvJwLunXvvh0/3JyVU=
 			</data>
 		</dict>
-		<key>Resources/Data/keyboard.png</key>
+		<key>Resources/data/joystick.png</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Zb5fJlcW5mpdHIW82MA9VUZK1CoEMmPng/ZqKuLmypk=
+			</data>
+		</dict>
+		<key>Resources/data/keyboard.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			LgeLz0mntOxpbFPOtCisS/L2tZ+gN25W4NqUss/s2Xs=
 			</data>
 		</dict>
-		<key>Resources/Data/misc.ico</key>
+		<key>Resources/data/misc.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			yyLtUru4YfrNu1BbNmtCoKYaCprs4B/DWFByzcG1oSo=
+			9unmv+6U8chVdDKwNIRKUSjKKzZhMZ7UOINrpJGqpJU=
 			</data>
 		</dict>
-		<key>Resources/Data/paths.ico</key>
+		<key>Resources/data/paths.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			QBbfFHEl9CyUB/hNKOTp4kKTTPwNwm86tJAbOEOWuBs=
+			9474JrnP5WjpzP6UOwJFDO1DQo0byY9iiSpmM0AFfrk=
 			</data>
 		</dict>
-		<key>Resources/Data/port.ico</key>
+		<key>Resources/data/port.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			iO2xXFuQjgT3oG7VEvZXPTlZkRjmQT9q3rhq3nytWeA=
+			ydpH5BbI65LzML+ZfeRcAulo6Em1KgAMX7i7duy/GdE=
 			</data>
 		</dict>
-		<key>Resources/Data/quickstart.ico</key>
+		<key>Resources/data/quickstart.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			lfU4U9jzS+US2FG9L8zjALbQKreFeyKiVnji9Ca5tBs=
+			y5BC176oKnf8zdFJey8v9yIBaD1qt77LAuz97uKyY/0=
 			</data>
 		</dict>
-		<key>Resources/Data/rpgfont.png</key>
+		<key>Resources/data/rpgfont.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			89QDtnriNfRqAnuO+CV1C6tLYkTLFXiS1rTYvw1BZbk=
 			</data>
 		</dict>
-		<key>Resources/Data/savestate.png</key>
+		<key>Resources/data/savestate.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			kfCj6uZjjMMk/zpDJv7eiQy+CRReTdjoTlC/81/oX6U=
 			</data>
 		</dict>
-		<key>Resources/Data/screen.ico</key>
+		<key>Resources/data/screen.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			FSN3BLWQ8rmMw5iZb0JIAThQ6P0rrovO9eDnzCQawlI=
+			TehepCtSfgQGZ3ucpRunxU7r6ev0dW+AwdkEKeu/IHU=
 			</data>
 		</dict>
-		<key>Resources/Data/sound.ico</key>
+		<key>Resources/data/sound.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			7Z0/IrToWSilQwvaPlEtwyx1bHV2Krh+fSlId3UHRNc=
+			1vEZmCdPmer1wbwUSLj8n8QSEffrW2G4lANcAZpouHY=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolFRLarge.png</key>
+		<key>Resources/data/vkbd/vkbdCoolFRLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			2bPzcNPAJGaPP7sV8OoPZYcXgxvlBx7NP2/LLEW5xDw=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolFRLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolFRLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			gZug/d0pmgp/5PsdXAEErea0ibSJxc2+PTs0fux0uV8=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolFRLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdCoolFRLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			H9W+GGx0RY4HSogMGAybeopxJ5JfUgP+e9kgamUkgHU=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolFRLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolFRLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			rN1qfTFXPp6ufC940RY/s+bHD9nMfUI3aKw+8zVPn9o=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolGerLarge.png</key>
+		<key>Resources/data/vkbd/vkbdCoolGerLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			4EMK/wcVkR5+2SVwMv1yHa1YsnpyIPlnLkPun00X/lk=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolGerLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolGerLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			Hyrq6buB4cBdkMIgUbyGhR4J6p+tT+quUdCNdKsmm2g=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolGerLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdCoolGerLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			89WMu77k7aQnQ+rZXnt/H+I4e1VnC2/02Vm9AeSO6TE=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolGerLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolGerLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			qTkiK5tyxiNnKUmin89e8D+tXZwYOEn6gc7nxKfPPTU=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolQuit.png</key>
+		<key>Resources/data/vkbd/vkbdCoolQuit.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			3xnZVW0/3Z81woLcB4iFezPSTMusFQjRjRl4+v+yhFA=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolQuitHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolQuitHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			LxDVOQH+TZd0QlURmDQ0aCxnRvf6piNWtyq1lPh9eOI=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolUKLarge.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUKLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			m4ilsPVsoNXPe1TKZ0rPH8cbDjW+kJM6fhy3/j/2Hr4=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolUKLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUKLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			gwbjcCo9uwMt6HvVeXBKyC7AzS+mANnww4syE51Gvnk=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolUKLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUKLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			zphPx2Iv2H+D1sYNFb9uhJvEGydxMQwfU+ahHdKYXkE=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolUKLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUKLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			abSVqH6JpfuGlxEmTNC7tCdFUpUE4LJ+CmmRNWF0gnI=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolUSLarge.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUSLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			ckzDRXeoBA7jEBR0wbQ4N5i2f8QLA5RX9s5HxdXmM6M=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolUSLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUSLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			G2MkwtWBwnAy+6Tpl3w6DpQqaVcS1nFsh9bxomU55Bg=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolUSLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUSLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			VlgTEIyXRrHzS16cVZwZ3P1KFAdglN+yxEcHbZUgU9c=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdCoolUSLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdCoolUSLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			fBAIYde0oiNdWvOxknMJAp2aolYx8xg35UHh7Si0dbs=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkFRLarge.png</key>
+		<key>Resources/data/vkbd/vkbdDarkFRLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			2higwiY5D+0qv9OACX4t92FcOATnDyuvOY2AYFG8rMk=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkFRLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkFRLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			3FRfrxT9jWa361P10DtXPA/u8vz3CTPL+Vu8yGZhVYI=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkFRLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdDarkFRLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			hiokzIH3zujj3vYat9JVsOvrMV55sWCQ0xSND7zaN7M=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkFRLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkFRLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			DcOVh5tahN/QqHf1Sp+J6/Q1amWY4GSm1FRnKc2CgGE=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkGerLarge.png</key>
+		<key>Resources/data/vkbd/vkbdDarkGerLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			kfS3GRCkPU7UAq7qMCFbwUskAl/pJzm0vYL28TX/ngs=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkGerLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkGerLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			uXpA+nzRXojYZIJ40RxUsUk1xT97VQUuPozapEARDGE=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkGerLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdDarkGerLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			aM5OVn40pTHiHiEZ+PEBpBQtXU9+42lIzbxqKKrrppQ=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkGerLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkGerLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			qlHV3woCgi4HqTAdzUoexLkCSdd0zSTuzjZW37KASw8=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkQuit.png</key>
+		<key>Resources/data/vkbd/vkbdDarkQuit.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			L+ELWgo/4g5EEpHnQQVBKOcUXIHNq+rpjlziB517CUU=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkQuitHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkQuitHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			j2Zf56y6XjqIE/DbZttweIlwFOMbDc9nsGAZ58SNHbk=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkUKLarge.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUKLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			ReMP0ixzBkK5JJpPqvUO7dnQ4kCZeA2V5CHLleG6NJk=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkUKLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUKLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			EQAjs3Ly5CGe+2rnBqayU+jbDm5EBCfqDju7Xl0vtYs=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkUKLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUKLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			0ZCOACuAxE5e0/rwHfjRgYLe4S7Gaa0+hLrgj8WRW2g=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkUKLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUKLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			O8SD+d09IOi0uDeuvMX4Am8cAmRQKeJGhP06Pnkt4/c=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkUSLarge.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUSLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			ZNv+48YhIRJ/sKBjwvqRbgiIVO0azltyNaRJYpwebGg=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkUSLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUSLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			7hWYbsYLZugqwTBAZzAX7wP1kZdTFI3uvXqF4UjRUdQ=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkUSLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUSLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			/fmYw1zsyvDBorHqD6Fay8zLCrPwuyFeqd28bhWEdWw=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdDarkUSLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdDarkUSLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			sm3WQmPnT/1m/h1BZvf91FttyTpd2zGq3QwkvFhBCUM=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigFRLarge.png</key>
+		<key>Resources/data/vkbd/vkbdOrigFRLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			H7lO+3A/ASHXHjD36LAYNWkMowW4PIz1I7Mh3QpcgFw=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigFRLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigFRLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			tcZrr+qp+vLo5zilkxq6TuDc+qQVerCkPwqc5OIzMig=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigFRLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdOrigFRLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			iEcN7SZ3xLaST4qkTiXy7zYx9BJJhFf9gXO7GstxLzI=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigFRLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigFRLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			eLS31Vk9kngxS3tn0qLRdfseWsyc2RAbPpm7DCqmwhY=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigGerLarge.png</key>
+		<key>Resources/data/vkbd/vkbdOrigGerLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			fv8lXl/flp2TCTF/gMWhvpjteFkPhedeeMBYxMwcfU8=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigGerLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigGerLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			saU8pIdY0VHkxd2+qaOdTVkt+09ZpWSfG0k781U4sFk=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigGerLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdOrigGerLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			rm/UzYwU2OrPTWX2WDrQJFYDDVPLAgBqja7VWQpJTOQ=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigGerLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigGerLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			CpF2XSmke3qOyuqoEnz3kWXx9FzA45p0DGO9iwktwSk=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigQuit.png</key>
+		<key>Resources/data/vkbd/vkbdOrigQuit.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			gJOU/crrqbqflZ7hXgd0cWXvyLps/f4O1F1+ooBWRw0=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigQuitHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigQuitHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			dMUlQ078A3QWWXx44qi/I/0Y7MxkheC2vVhB99SVRW0=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigUKLarge.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUKLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			ZOoSnN6AxXvk2qfyf+zt54gMCC+UKZnFx0w5KtWpD28=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigUKLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUKLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			C+XxAMqTReXrBtvHkq3u0utzI3B+qxn7bwPNPr6Kyq0=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigUKLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUKLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			1XJKoUBpsvQbXOOd1SN92ScBKs+tjvqcAD+SsjAQaXg=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigUKLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUKLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			fgzU6noCf+kXBQQHWeOiU6L/u45ojBl6G2UCFc0bR8o=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigUSLarge.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUSLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			EjHOSkGW0gp/iX/v6fK3aT1MGP11aN2Mhf3by4HVlQc=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigUSLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUSLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			pWy2YkrKIEdpfiuXrkHybFr8RQRp1a1kEaetHKvopCY=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigUSLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUSLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			xqyWNxr7+480yoGn4DJUw7pf9x9vrZZPLu2zBdrTNQc=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdOrigUSLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdOrigUSLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			C+Pe72nWdm9HFkyVjmr5hdBUnC2JN8d/0affixBnxvU=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmFRLarge.png</key>
+		<key>Resources/data/vkbd/vkbdWarmFRLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			dmw1HWpkYGaRI25cXQHIr80LJOwNN36vm4Z5cyEvcRY=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmFRLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmFRLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			/RAX6eaVKLmrB1NjTjVT0sfdG+C6NuUzhb9Z4Mj7Vjk=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmFRLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdWarmFRLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			O4c8TA9VX6X31aqvJe8Up6fwcYNFCfE6rehIqgovYrc=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmFRLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmFRLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			m6GR/i8wcfCD+7LCLSryxUpvesaCLdKU3xqJRbI/rzg=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmGerLarge.png</key>
+		<key>Resources/data/vkbd/vkbdWarmGerLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			1D3jHrcBO2Yl9keqIdyxZal17xkfI8S6CfQN5/Gg/zI=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmGerLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmGerLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			Eu1aUhjMQqWKTVMuyUw50ywkw93EkUuh3ZGRUCHlYdc=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmGerLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdWarmGerLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			nsVLo+2tE4cQej94d/d9wndzIqcfoOvsbFDpujW8StA=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmGerLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmGerLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			X8u9tSrJZInc7GMvb65wLUeZDfb2KofWhi7DUkfu6mw=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmQuit.png</key>
+		<key>Resources/data/vkbd/vkbdWarmQuit.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			UJ/6GzZ+D3+8XYt2Dnquba3Cj4YI1hvMn+kLqVKeRe8=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmQuitHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmQuitHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			sUNbB2oNMmGUTR/XCBqq8pt1ylOVzM/PG73gl+ezVPE=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmUKLarge.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUKLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			MzSCUMfmnljHvQ4ROgbFrjEV7HWw5tZoQF/8aownf9I=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmUKLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUKLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			Xgu2GMZbt23ubi1VZhAdq1DywIzOGOpaUefhXVaT4Mo=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmUKLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUKLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			3oiHtPGI7deb5d9ViQb7cL7Ne9E0pefcyz5I3wMHcS0=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmUKLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUKLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			fE/eNmEkYtyxqfKiJNvkQ5lztTRV/e2f5TNmM3uni+Q=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmUSLarge.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUSLarge.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			6XMH084yd9K6YEFbqINmX9ohpXSTvAEawhAYY9LKWdE=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmUSLargeHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUSLargeHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			F9oQfRPKlVpBBDAE7Ney03gLSLBJ6K02ncQU0D6HWjM=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmUSLargeShift.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUSLargeShift.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			X+mlXXhtJYBkPw925V/SkkKQKcIFMG1SL3My9dlX0pY=
 			</data>
 		</dict>
-		<key>Resources/Data/vkbd/vkbdWarmUSLargeShiftHires.png</key>
+		<key>Resources/data/vkbd/vkbdWarmUSLargeShiftHires.png</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			Bpz1Tnr/qxlcSBUSWYi7Zot4+tTrBaojFMUErJ/BXoE=
 			</data>
 		</dict>
-		<key>Resources/Floppies/dir.txt</key>
+		<key>Resources/plugins/libcapsimage.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			0zocTq9ndilKgNsbGDxf2bN3nqoq4022SGZ2mckmG5U=
+			gsETuAhElDbBbRt6zjwdN+qxwja3+iMvEXNtnO1VNZw=
 			</data>
 		</dict>
-		<key>Resources/Harddrives/dir.txt</key>
+		<key>Resources/plugins/libfloppybridge.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			PUKW3SXOYZZuwQOyu3ih+XBuroTvdUE26m6yFgYRVXI=
+			F1Ebhltgavu/8wOrZNZD9mA1jaZJAItKvSG/daf2UVw=
 			</data>
 		</dict>
-		<key>Resources/Inputrecordings/dir.txt</key>
+		<key>Resources/roms/aros-ext.bin</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			HkiweSDBZpohcBllIQN6F39caNaC32hgaz2lBATXAAM=
+			qxnSJlcMP5rRpmtQ93tVv1u0GdGUKyJ1HZJUjfC/0vY=
 			</data>
 		</dict>
-		<key>Resources/Kickstarts/aros-ext.bin</key>
+		<key>Resources/roms/aros-rom.bin</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			i4E1u8I1uj98xHMHyZKAKDGnalkSOXiQO50NLdIhANY=
+			cLuFIL4xijnptWTwvE5ZXvIUAA9ctVOOXrlLibbfPt0=
 			</data>
 		</dict>
-		<key>Resources/Kickstarts/aros-rom.bin</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			HsCKFpHY63iofQCnFuxpvjsd0oKGTZ+01Mpi5fOGqYY=
-			</data>
-		</dict>
-		<key>Resources/Kickstarts/dir.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			UicopWRf0JadEwIMFU7MlPVswdCV+QJ7pf0ctxQwVoI=
-			</data>
-		</dict>
-		<key>Resources/Kickstarts/mt32-roms/dir.txt</key>
+		<key>Resources/roms/mt32-roms/dir.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			Tk1koTOmYp2r6queLqk++wQP0TdGO8AmiHXajbYBd3s=
 			</data>
 		</dict>
-		<key>Resources/Lha/dir.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			afnreEkGh/GST5bTiOdIPufrbB56TeRQ3H9HdW6U6tE=
-			</data>
-		</dict>
-		<key>Resources/Nvram/dir.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			ENfuwFKKLqpMoqxmaziFuonwtBSsGZ4me+/zATs1nA4=
-			</data>
-		</dict>
-		<key>Resources/Plugins/dir.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			liSsNCXjJZGL8XGkvZDSvJGELtHhfAo7J7K6hnKUOWw=
-			</data>
-		</dict>
-		<key>Resources/Plugins/libfloppybridge.so</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			ItlI2JP+wHAZj71nNuL0flCx9Db5zm44VqpEOkDHCtc=
-			</data>
-		</dict>
-		<key>Resources/Savestates/dir.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			1QNQ07EQq3uWK4TYPdE09zNUju0NsWvAzc9cLbngkc0=
-			</data>
-		</dict>
-		<key>Resources/Screenshots/dir.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			O5s62VqsJNYM1g76teaX7ORjQZTFwTa22ib5fxjxa/M=
-			</data>
-		</dict>
-		<key>Resources/Whdboot/AmiQuit</key>
+		<key>Resources/whdboot/AmiQuit</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			QKz/KiQloiPk4q0uPBatds5+0wPZgBg1qvAo2w6W8LA=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/WHDLoad</key>
+		<key>Resources/whdboot/JST</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			hSZX/xME7jzlzA+Y6f0lmUWvah0CG4nMUk6SrTcLr6w=
+			Fz6GYynk2R4cA9t5aHuW9gEbLElAw1iwGtkh8itccRI=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/boot-data.zip</key>
+		<key>Resources/whdboot/WHDLoad</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			OiQbu4Nc9siROa0ZwCAkCWu22j8vAtKd0Gr4YHI/TDA=
+			gQctVX1p1LWmkWm1CmfYbdaAhksoUIpWMoqRiGpU4JA=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/game-data/whdload_db.xml</key>
+		<key>Resources/whdboot/boot-data.zip</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			b6nKTX4dBrhtqFtBb7Mx7utXQsgedb3daj6x8Ugecbk=
+			do3uVK3cYKH7mWNdZluPqpIgv3Vw3WWl+cVesHqMrhE=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/save-data/Autoboots/foo.txt</key>
+		<key>Resources/whdboot/game-data/whdload_db.xml</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			AbpHGcgLb+kRsJGnwFEktk7uzpZOCcBY74+YBdrKVGs=
+			TjT8wVFimeSLtBFaAiRnXBYW6IW3Gh9BYm7IVnLR39E=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/save-data/Debugs/foo.txt</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			AbpHGcgLb+kRsJGnwFEktk7uzpZOCcBY74+YBdrKVGs=
-			</data>
-		</dict>
-		<key>Resources/Whdboot/save-data/Kickstarts/foo.txt</key>
+		<key>Resources/whdboot/save-data/Autoboots/foo.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			AbpHGcgLb+kRsJGnwFEktk7uzpZOCcBY74+YBdrKVGs=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick33180.A500.RTB</key>
+		<key>Resources/whdboot/save-data/Debugs/foo.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			AbpHGcgLb+kRsJGnwFEktk7uzpZOCcBY74+YBdrKVGs=
+			</data>
+		</dict>
+		<key>Resources/whdboot/save-data/Kickstarts/foo.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			AbpHGcgLb+kRsJGnwFEktk7uzpZOCcBY74+YBdrKVGs=
+			</data>
+		</dict>
+		<key>Resources/whdboot/save-data/Kickstarts/kick33180.A500.RTB</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			cDY3Ny9s/sBtyAJ1m/iQfJoBuiWeD65fNH0T1CZbAhY=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick33192.A500.RTB</key>
+		<key>Resources/whdboot/save-data/Kickstarts/kick33192.A500.RTB</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			cDY3Ny9s/sBtyAJ1m/iQfJoBuiWeD65fNH0T1CZbAhY=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick34005.A500.RTB</key>
+		<key>Resources/whdboot/save-data/Kickstarts/kick34005.A500.RTB</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			ZEvaRA0wkZ5bSqnSS5XGtypwnIcdOhpddG2ZvUHQiYY=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick40063.A600.RTB</key>
+		<key>Resources/whdboot/save-data/Kickstarts/kick40063.A600.RTB</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			aYCVddn2MezLP217PfojAXoz2cGpEaX3+OWkJGz4y6w=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick40068.A1200.RTB</key>
+		<key>Resources/whdboot/save-data/Kickstarts/kick40068.A1200.RTB</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			wRdue3uYYKjN7YIOgkZ3FjzxzHxnSIOJan8y3KVDdzY=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/save-data/Kickstarts/kick40068.A4000.RTB</key>
+		<key>Resources/whdboot/save-data/Kickstarts/kick40068.A4000.RTB</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			fO35MeizBiC6aZVKMPA3JgMl/1coKDP6VXtLDyomifk=
 			</data>
 		</dict>
-		<key>Resources/Whdboot/save-data/Savegames/foo.txt</key>
+		<key>Resources/whdboot/save-data/Savegames/foo.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			AbpHGcgLb+kRsJGnwFEktk7uzpZOCcBY74+YBdrKVGs=
-			</data>
-		</dict>
-		<key>Resources/libfloppybridge.so</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			ItlI2JP+wHAZj71nNuL0flCx9Db5zm44VqpEOkDHCtc=
-			</data>
-		</dict>
-		<key>Resources/macos_init_amiberry.zsh</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			bAGYm0OLk2D3zKEaXtu/fJhsnijVOB4tcI7drhKlN5M=
-			</data>
-		</dict>
-		<key>libs/libFLAC.12.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			CjvToWYi3+ouJSWHnJDSD5w3XD+2fOGlUcQTOkbPVHY=
-			</data>
-		</dict>
-		<key>libs/libSDL2-2.0.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			0BRtlEakYIkOxIa98rY29OQyLCaJ63CvgmXx++tSTI0=
-			</data>
-		</dict>
-		<key>libs/libSDL2_image-2.0.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			vzgEKJunWCLd1XHN4oB6P27tEqP2tXXnPyWgFUwhohI=
-			</data>
-		</dict>
-		<key>libs/libSDL2_ttf-2.0.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			BEacxULS4JWhdc0VaJ8ECZj1dnAmf6enSZahG1EZRmQ=
-			</data>
-		</dict>
-		<key>libs/libaom.3.9.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			OaujRDS8FxQJ7UddFZZ3OsR7Ob8fO6287xk/zbkZREw=
-			</data>
-		</dict>
-		<key>libs/libavif.16.0.4.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			RiFdKSrhGChg1OcMsMMWCPF1ho+BrLVZAeOZL5kMs0o=
-			</data>
-		</dict>
-		<key>libs/libbrotlicommon.1.1.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			OR0j/EFAWqMvK06/j9D+ZDdozaFmeHVHfnphfNL/v9w=
-			</data>
-		</dict>
-		<key>libs/libbrotlidec.1.1.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			g9zEUveQUAsPYDcMT9QMVY0s9DvyrKVc670QKZZ88FE=
-			</data>
-		</dict>
-		<key>libs/libbrotlienc.1.1.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			6f70sASJ1RuVdkzfKWRNW32ccJvwBIN90QYjXUJOjRE=
-			</data>
-		</dict>
-		<key>libs/libfreetype.6.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			FtrTRKJLLCw7nIFquN3vOmOFBAkjb6CccyaeGRJHOfI=
-			</data>
-		</dict>
-		<key>libs/libglib-2.0.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			Ib8KlbfCjCzKfZ3KESHqmuciAzshF1ca1Rn4gAL6I1Y=
-			</data>
-		</dict>
-		<key>libs/libgraphite2.3.2.1.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			cNwQ+7ohTKzk/DfHR/QncNoLa6kKPXScq5ZjVrw6mL4=
-			</data>
-		</dict>
-		<key>libs/libguisan.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			UOccyZE9mRXx4RZXPTSbK8mZncyxYPebpHJA8zdl+Bc=
-			</data>
-		</dict>
-		<key>libs/libharfbuzz.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			2BnBeoDQdZIVF39AVNIK1nk42x8jvUFfi/YE78/1mho=
-			</data>
-		</dict>
-		<key>libs/libhwy.1.1.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			9yBPdxAu7inBIR3gonA2jJsimx21qQWkP1yA7LKLlws=
-			</data>
-		</dict>
-		<key>libs/libintl.8.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			ETjViIsLcOR9ym9scv5TDMWrCCUwTEz6TM/46SZX4KA=
-			</data>
-		</dict>
-		<key>libs/libjpeg.8.3.2.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			NqwCUjjwV/gJO3R39CMTHKXdljmGyNWybew9BwmaDxM=
-			</data>
-		</dict>
-		<key>libs/libjxl.0.10.2.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			0ntPbDYO/CPn58o8DhAxpHWz57sfTpaSpBBonQbfbTg=
-			</data>
-		</dict>
-		<key>libs/libjxl_cms.0.10.2.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			F9wggCfi9MJlMuGlkfBBWN1JD/aW3/fWdqdyvmI64W4=
-			</data>
-		</dict>
-		<key>libs/liblcms2.2.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			Pe4CjF7z8dM0o21gekhndXjiJRlgsg/yo0Sa2sK4MLY=
-			</data>
-		</dict>
-		<key>libs/liblzma.5.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			7LyYAmUHbGaJnHSijadBS9nQOeNqwxMhouODZdDDzdY=
-			</data>
-		</dict>
-		<key>libs/libmpeg2.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			OuZEvrNQKSloOic1BC9UDJ+itqjkMo3bMRnSCiiIU70=
-			</data>
-		</dict>
-		<key>libs/libmpeg2convert.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			QHzwq5t1mbg+SRBqUhg99ZkfmIj6Y6D2yDxVbxtUhn4=
-			</data>
-		</dict>
-		<key>libs/libmpg123.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			GtEG7bjZW+RnSYiyjZ56XJVd/zT8r6kVgp7VEJYTYXA=
-			</data>
-		</dict>
-		<key>libs/libogg.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			lmzpeviJbkewoXmUk19824q8isxWOO7ZrA4OGVpKOiQ=
-			</data>
-		</dict>
-		<key>libs/libpcre2-8.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			XlJs9uS2REQ1PUBsHCAD7HZJQaqEJOR/K1E1g4ww+9M=
-			</data>
-		</dict>
-		<key>libs/libpng16.16.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			VlamiyGxJk6H8IzbaX0RgXc4aLTAMjCrY/mjrdlfLBA=
-			</data>
-		</dict>
-		<key>libs/libportmidi.2.0.3.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			29xuSFN6CAfwsf8VxPwZKR824kAtJqZXObZVZMS62Zc=
-			</data>
-		</dict>
-		<key>libs/libserialport.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			imIX8b183Px2zgw4q4DDyV18QhL6Pq8SpoYbhCNVEJw=
-			</data>
-		</dict>
-		<key>libs/libsharpyuv.0.1.0.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			OgZYyrGIk+Xk4VlEq585TixkNH2xFMVL7LubDBcA8vI=
-			</data>
-		</dict>
-		<key>libs/libtiff.6.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			DrQOHfLl7kcrhytIy7C7eDwEcTPcITDv1cHT+GzREck=
-			</data>
-		</dict>
-		<key>libs/libvmaf.3.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			m2h2EBy1yeVc47jpbWW7l0HGJ0Ms4G96T2aMHkALEJk=
-			</data>
-		</dict>
-		<key>libs/libwebp.7.1.9.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			8hXYMQHerAOpoezZ58PGmLKJA6GgusCooF2gftryEJc=
-			</data>
-		</dict>
-		<key>libs/libwebpdemux.2.0.15.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			DABjdTnYIgyUd79AxBRi5VK6Ka/KyY7Ld3E8hBmscZQ=
-			</data>
-		</dict>
-		<key>libs/libzstd.1.5.6.dylib</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			DKYm0YQWR5Bq2OpBsffost1h0zVb+dmvmWtOi10okb8=
 			</data>
 		</dict>
 	</dict>
