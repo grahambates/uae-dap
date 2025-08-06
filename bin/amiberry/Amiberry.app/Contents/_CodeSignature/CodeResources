@@ -12,6 +12,10 @@
 		<data>
 		zrpY/SxPCqo69G+JUFYoiYOHJVI=
 		</data>
+		<key>Resources/data/.DS_Store</key>
+		<data>
+		bo2i/8+hB3RA7ty4kt8aceOD3G0=
+		</data>
 		<key>Resources/data/35floppy.png</key>
 		<data>
 		2l7L1fZ1+g5WsFOK7sCHsjrCoo8=
@@ -454,7 +458,7 @@
 		</data>
 		<key>Resources/plugins/libfloppybridge.dylib</key>
 		<data>
-		UW9waQx1UnR4qO71dLFTRM40H2E=
+		jNQLFkvjGmv5rhZlETmmPRnCfyY=
 		</data>
 		<key>Resources/roms/aros-ext.bin</key>
 		<data>
@@ -467,6 +471,10 @@
 		<key>Resources/roms/mt32-roms/dir.txt</key>
 		<data>
 		T6Uqc3mxxlMZn6kec0BEeXF6teA=
+		</data>
+		<key>Resources/whdboot/.DS_Store</key>
+		<data>
+		/RUl17F+NA5NtopZtYQ43ltSNGA=
 		</data>
 		<key>Resources/whdboot/AmiQuit</key>
 		<data>
@@ -553,10 +561,10 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			cdMw7EqVXm70YZTmM3DuEQzvyCc=
+			Wi6b/FTe+guwYebfEBEQyYtqyPI=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"71d330ec4a955e6ef46194e63370ee110cefc827"</string>
+			<string>cdhash H"5a2e9bfc54defa0bb061e6df101110c98b6ac8f2"</string>
 		</dict>
 		<key>Frameworks/libSDL2_ttf-2.0.0.dylib</key>
 		<dict>
@@ -576,14 +584,14 @@
 			<key>requirement</key>
 			<string>cdhash H"f81677bdd3adb9c659c88c73d3c93fce79621163"</string>
 		</dict>
-		<key>Frameworks/libavif.16.2.0.dylib</key>
+		<key>Frameworks/libavif.16.3.0.dylib</key>
 		<dict>
 			<key>cdhash</key>
 			<data>
-			yWzbDlvpdgKkaEcfH6sW0dH/TdA=
+			4W1RVdiRwI2NQmrvc+TZx6L5brI=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"c96cdb0e5be97602a468471f1fab16d1d1ff4dd0"</string>
+			<string>cdhash H"e16d5155d891c08d8d426aef73e4d9c7a2f96eb2"</string>
 		</dict>
 		<key>Frameworks/libbrotlicommon.1.1.0.dylib</key>
 		<dict>
@@ -625,10 +633,10 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			SUIst3nWu7+JwAnQcfHhb/M142g=
+			rPbzCxXnpHzVw1BarHJjj/pxCmk=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"49422cb779d6bbbf89c009d071f1e16ff335e368"</string>
+			<string>cdhash H"acf6f30b15e7a47cd5c3505aac72638ffa710a69"</string>
 		</dict>
 		<key>Frameworks/libgraphite2.3.2.1.dylib</key>
 		<dict>
@@ -670,10 +678,10 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			X2WVUZcDML9/36wk/qfhcDWTT7M=
+			LFdywhc2ZA+WJomXRZLSNamMOOU=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"5f659551970330bf7fdfac24fea7e17035934fb3"</string>
+			<string>cdhash H"2c5772c21736640f962689974592d235a98c38e5"</string>
 		</dict>
 		<key>Frameworks/libjxl.0.11.1.dylib</key>
 		<dict>
@@ -742,10 +750,10 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			h/SdzMMMQS1sPpg0Stw/p1Pj9IU=
+			Sl5OGzUfZpcj3c5kJEp1rfNYmEU=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"87f49dccc30c412d6c3e98344adc3fa753e3f485"</string>
+			<string>cdhash H"4a5e4e1b351f669723ddce64244a75adf3589845"</string>
 		</dict>
 		<key>Frameworks/libsharpyuv.0.1.1.dylib</key>
 		<dict>
@@ -1589,7 +1597,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			F1Ebhltgavu/8wOrZNZD9mA1jaZJAItKvSG/daf2UVw=
+			h3lhYtLp7JP4KF5M3ZNRxgoJ02ZWnuui9YlKjPh8q3o=
 			</data>
 		</dict>
 		<key>Resources/roms/aros-ext.bin</key>
