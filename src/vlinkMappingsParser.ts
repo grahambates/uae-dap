@@ -2,7 +2,6 @@
  * Extract hunk and symbol info vlink mappings (-M option)
  */
 
-import { match } from "assert";
 import { readFile } from "fs/promises";
 import { DebugInfo, Hunk, HunkType, MemoryType } from "./amigaHunkParser";
 

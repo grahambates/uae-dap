@@ -1,7 +1,7 @@
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { BreakpointCode, GdbClient } from "./gdbClient";
 import { logger } from "@vscode/debugadapter";
-import SourceMap from "./sourceMap";
+import { SourceMap } from "./sourceMap";
 import { formatAddress } from "./utils/strings";
 import { DisassemblyManager, isDisassembledFile } from "./disassembly";
 

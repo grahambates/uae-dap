@@ -10,7 +10,8 @@ import {
 import { LogLevel } from "@vscode/debugadapter/lib/logger";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { Mutex } from "async-mutex";
-import { basename } from "path";
+import { basename, dirname } from "path";
+import { readFile } from "fs/promises";
 
 import {
   GdbClient,
@@ -37,14 +38,17 @@ import VariableManager, {
   SourceConstantResolver,
 } from "./variableManager";
 import { VasmOptions, VasmSourceConstantResolver } from "./vasm";
-import { Hunk, parseHunksFromFile } from "./amigaHunkParser";
+import { Hunk, parseHunks, parseHunksFromFile } from "./amigaHunkParser";
 import { parseVlinkMappingsFile } from "./vlinkMappingsParser";
-import SourceMap from "./sourceMap";
+import { sourceMapFromHunks } from "./amigaHunkSourceMap";
 import { DisassemblyManager } from "./disassembly";
 import { Threads } from "./hardware";
 import StackManager from "./stackManager";
 import promiseRetry from "promise-retry";
 import { helpSummary, commandHelp } from "./help";
+import { parseDwarf } from "./dwarfParser";
+import { sourceMapFromDwarf } from "./dwarfSourceMap";
+import { SourceMap } from "./sourceMap";
 
 /**
  * Additional arguments for launch/attach request
@@ -319,17 +323,36 @@ export class UAEDebugSession extends LoggingDebugSession {
         this.sendEvent(new ThreadEvent("started", threadId));
       }
 
-      let hunks: Hunk[] = [];
-      if (args.program) {
-        hunks = await parseHunksFromFile(args.program);
-      }
-      if (args.mappings) {
-        hunks = await parseVlinkMappingsFile(args.mappings);
-      }
-
-      // Get info to Initialize source map
+      // Generate source map
       const offsets = await this.gdb.getOffsets();
-      const sourceMap = new SourceMap(hunks, offsets);
+      let sourceMap: SourceMap;
+
+      if (args.mappings) {
+        // VLink mappings text file
+        logger.log(`[LAUNCH] Parsing vlink mappings`);
+        const hunks = await parseVlinkMappingsFile(args.mappings);
+        sourceMap = sourceMapFromHunks(hunks, offsets);
+      } else if (args.program) {
+        // Elf of hunk program
+        const buffer = await readFile(args.program);
+
+        if (args.program?.match(/\.(elf|o)$/i)) {
+          // Elf file with dwarf data
+          logger.log(`[LAUNCH] Parsing elf program`);
+          const dwarfData = parseDwarf(buffer);
+          // Elf doesn't contain absolute path of sources. Assume it's one level up e.g. `out/a.elf`
+          // TODO: find a better way to do this, add launch option, check files exist there
+          const baseDir = dirname(dirname(args.program));
+          sourceMap = sourceMapFromDwarf(dwarfData, offsets, baseDir);
+        } else {
+          // Hunk exe
+          logger.log(`[LAUNCH] Parsing hunk program`);
+          const hunks = parseHunks(buffer);
+          sourceMap = sourceMapFromHunks(hunks, offsets);
+        }
+      } else {
+        throw new Error("No mappings or program");
+      }
 
       // Initialize managers:
       this.variables = new VariableManager(

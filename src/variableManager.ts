@@ -19,7 +19,7 @@ import {
   hexStringToASCII,
   NumberFormat,
 } from "./utils/strings";
-import SourceMap from "./sourceMap";
+import { SourceMap } from "./sourceMap";
 import { getRegisterIndex, nameRegisters } from "./registers";
 
 export enum ScopeType {

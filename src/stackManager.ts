@@ -4,7 +4,7 @@ import { DisassemblyManager } from "./disassembly";
 import { DEFAULT_FRAME_INDEX, GdbClient } from "./gdbClient";
 import { Threads as ThreadId } from "./hardware";
 import { REGISTER_PC_INDEX } from "./registers";
-import SourceMap from "./sourceMap";
+import { SourceMap } from "./sourceMap";
 import { formatHexadecimal } from "./utils/strings";
 
 export interface StackPosition {

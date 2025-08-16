@@ -1,4 +1,4 @@
-import { Hunk, MemoryType } from "./amigaHunkParser";
+import { MemoryType } from "./amigaHunkParser";
 import { normalize } from "path";
 
 export interface Location {
@@ -18,66 +18,23 @@ export interface Segment {
   memType: MemoryType;
 }
 
-class SourceMap {
-  private segments: Segment[];
-  private sources = new Set<string>();
-  private symbols: Record<string, number> = {};
+export class SourceMap {
   private locationsBySource = new Map<string, Map<number, Location>>();
   private locationsByAddress = new Map<number, Location>();
 
-  constructor(hunks: Hunk[], offsets: number[]) {
-    this.segments = offsets.map((address, i) => {
-      const hunk = hunks[i];
-      return {
-        address,
-        name: `Seg${i}_${hunk.hunkType}_${hunk.memType}`,
-        size: hunk.dataSize ?? hunk.allocSize,
-        memType: hunk.memType,
-      };
-    });
-
-    for (let i = 0; i < this.segments.length; i++) {
-      const seg = this.segments[i];
-      const hunk = hunks[i];
-
-      for (const { offset, name } of hunk.symbols) {
-        this.symbols[name] = seg.address + offset;
-      }
-
-      // Add first source from each hunk
-      // This should be the entry point. Others files may be includes.
-      if (hunk.lineDebugInfo[0]) {
-        this.sources.add(normalize(hunk.lineDebugInfo[0].sourceFilename));
-      }
-
-      for (const debugInfo of hunk.lineDebugInfo) {
-        const path = normalize(debugInfo.sourceFilename);
-        const pathKey = path.toUpperCase();
-        const linesMap =
-          this.locationsBySource.get(pathKey) || new Map<number, Location>();
-        for (const lineInfo of debugInfo.lines) {
-          const address = seg.address + lineInfo.offset;
-          let symbol;
-          let symbolOffset;
-          for (const { offset, name } of hunk.symbols) {
-            if (offset > lineInfo.offset) break;
-            symbol = name;
-            symbolOffset = lineInfo.offset - offset;
-          }
-          const location: Location = {
-            path,
-            line: lineInfo.line,
-            symbol,
-            symbolOffset,
-            segmentIndex: i,
-            segmentOffset: lineInfo.offset,
-            address,
-          };
-          linesMap.set(lineInfo.line, location);
-          this.locationsByAddress.set(address, location);
-        }
-        this.locationsBySource.set(pathKey, linesMap);
-      }
+  constructor(
+    private segments: Segment[],
+    private sources: Set<string>,
+    private symbols: Record<string, number>,
+    locations: Location[]
+  ) {
+    for (const location of locations) {
+      this.locationsByAddress.set(location.address, location);
+      const pathKey = location.path.toUpperCase();
+      const linesMap =
+        this.locationsBySource.get(pathKey) || new Map<number, Location>();
+      linesMap.set(location.line, location);
+      this.locationsBySource.set(pathKey, linesMap);
     }
   }
 
@@ -134,5 +91,3 @@ class SourceMap {
     return segment;
   }
 }
-
-export default SourceMap;

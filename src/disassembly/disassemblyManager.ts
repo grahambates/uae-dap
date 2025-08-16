@@ -11,7 +11,7 @@ import {
   disassembledFileToPath,
   disassembledFileFromPath,
 } from "./disassembledFile";
-import SourceMap from "../sourceMap";
+import { SourceMap } from "../sourceMap";
 import { basename } from "path";
 import { Threads } from "../hardware";
 import { StackPosition } from "../stackManager";
