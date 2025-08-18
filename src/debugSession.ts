@@ -100,6 +100,7 @@ export interface DisassembledFileContentsRequest {
 const defaultArgs = {
   program: undefined,
   mappings: undefined,
+  useCart: false,
   remoteProgram: undefined,
   stopOnEntry: false,
   trace: false,
@@ -261,8 +262,9 @@ export class UAEDebugSession extends LoggingDebugSession {
         const runOpts: RunOptions = {
           bin: args.emulatorBin,
           args: args.emulatorArgs,
-          rom: basename(args.program),
-          rompath: dirname(args.program),
+          rom: args.useCart ? undefined : basename(args.program),
+          rompath: args.useCart ? undefined : dirname(args.program),
+          cart: args.useCart ? args.program : undefined,
           onExit: () => {
             this.sendEvent(new TerminatedEvent());
           },

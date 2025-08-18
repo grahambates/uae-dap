@@ -13,6 +13,8 @@ export interface RunOptions {
   rom?: string;
   /** Directory in which to look for roms - if not specified, the directory part of the path specified for rom will be used */
   rompath?: string;
+  /** Use ROM as -cart arg */
+  cart?: string;
   /** Callback executed on process exit */
   onExit?: () => void;
 }
@@ -148,12 +150,16 @@ export class Mame extends Emulator {
 
   protected runArgs(opts: RunOptions): string[] {
     const args = [];
-    if (opts.rompath && !opts.args.some((v) => v.startsWith("-rompath"))) {
-      // resolves to absolute path, mame doesn't like relative
-      args.push("-rompath", resolve(opts.rompath));
-    }
-    if (opts.rom) {
-      args.push(opts.rom);
+    if (opts.cart) {
+      args.push("-cart", opts.cart);
+    } else {
+      if (opts.rompath && !opts.args.some((v) => v.startsWith("-rompath"))) {
+        // resolves to absolute path, mame doesn't like relative
+        args.push("-rompath", resolve(opts.rompath));
+      }
+      if (opts.rom) {
+        args.push(opts.rom);
+      }
     }
     return args;
   }
