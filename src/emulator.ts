@@ -126,9 +126,7 @@ export abstract class Emulator {
       try {
         fs.accessSync(bin, fs.constants.X_OK);
       } catch (_) {
-        logger.log(
-          "Emulator binary '${executable}' not executable - trying to chmod"
-        );
+        logger.log(`Emulator binary '${bin}' not executable - trying to chmod`);
         try {
           fs.chmodSync(bin, 0o755);
         } catch (_) {
