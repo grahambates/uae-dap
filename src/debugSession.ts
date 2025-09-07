@@ -112,6 +112,7 @@ const defaultArgs = {
   serverName: "localhost",
   serverPort: 2345,
   emulatorBin: undefined,
+  emulatorPrefix: undefined,
   emulatorType: process.platform === "win32" ? "winuae" : "fs-uae",
   emulatorArgs: [],
   memoryFormats: {
@@ -276,6 +277,7 @@ export class UAEDebugSession extends LoggingDebugSession {
 
         const runOpts: RunOptions = {
           bin: args.emulatorBin,
+          prefix: args.emulatorPrefix,
           args: args.emulatorArgs,
           mountDir,
           onExit: () => {
