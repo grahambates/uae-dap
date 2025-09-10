@@ -7,6 +7,8 @@ import { findBinDir } from "./utils/files";
 export interface RunOptions {
   /** Emulator executable binary */
   bin?: string;
+  /** Emulator executable command line prefix */
+  prefix?: string;
   /** Additional CLI args to pass to emulator program. Remote debugger args are added automatically */
   args: string[];
   /** Directory to mount as hard drive 0 (SYS) */
@@ -71,31 +73,61 @@ export abstract class Emulator {
   }
 
   /**
+   * Parse the optional emulator command line prefix
+   */
+  public parsePrefix(bin: string, prefix?: string): [string, string[]] {
+    const args: string[] = [];
+    if (prefix) {
+      const prefix_parts = prefix.split(" ");
+      let oldBin: string | undefined = undefined;
+
+      for (const part of prefix_parts) {
+        if (!oldBin) {
+          oldBin = bin;
+          bin = part;
+        } else {
+          args.push(part);
+        }
+      }
+
+      if (oldBin) {
+        args.push(oldBin);
+      }
+    }
+
+    return [bin, args];
+  }
+
+  /**
    * Start emulator process
    */
   public run(opts: RunOptions): Promise<void> {
     const customBin = opts.bin;
+    const prefix = opts.prefix;
     const defaultBin = this.defaultBin();
     let bin = customBin || defaultBin;
-    if (customBin && !this.checkBin(customBin)) {
+    if (customBin && !this.checkBin(customBin, prefix)) {
       logger.warn("Defaulting to bundled emulator binary");
       bin = defaultBin;
     }
-    if (!this.checkBin(bin)) {
+    if (!this.checkBin(bin, prefix)) {
       throw new Error("[EMU] No suitable emulator binary");
     }
 
     const cwd = dirname(bin);
-    const args = [...opts.args, ...this.runArgs(opts)];
     const env = {
       ...process.env,
       LD_LIBRARY_PATH: ".", // Allow Linux fs-uae to find bundled .so files
     };
 
-    logger.log(`[EMU] Starting emulator: ${bin} ${args.join(" ")}`);
+    const [newBin, args] = this.parsePrefix(bin, prefix);
+    args.push(...opts.args);
+    args.push(...this.runArgs(opts));
+
+    logger.log(`[EMU] Starting emulator: ${newBin} ${args.join(" ")}`);
 
     return new Promise((resolve, reject) => {
-      this.childProcess = cp.spawn(bin, args, { cwd, env });
+      this.childProcess = cp.spawn(newBin, args, { cwd, env });
       this.childProcess.once("spawn", resolve);
       this.childProcess.once("error", reject);
       this.childProcess.once("exit", () => {
@@ -115,7 +147,7 @@ export abstract class Emulator {
   /**
    * Check suitablity of emulator binary path
    */
-  protected checkBin(bin: string): boolean {
+  protected checkBin(bin: string, prefix?: string): boolean {
     // Ensure binary file exists
     if (!fs.existsSync(bin)) {
       logger.error(`Emulator binary not found at '${bin}'`);
@@ -126,9 +158,7 @@ export abstract class Emulator {
       try {
         fs.accessSync(bin, fs.constants.X_OK);
       } catch (_) {
-        logger.log(
-          "Emulator binary '${executable}' not executable - trying to chmod"
-        );
+        logger.log(`Emulator binary '${bin}' not executable - trying to chmod`);
         try {
           fs.chmodSync(bin, 0o755);
         } catch (_) {
@@ -174,8 +204,8 @@ export class FsUAE extends Emulator {
     return bin;
   }
 
-  protected checkBin(bin: string): boolean {
-    const valid = super.checkBin(bin);
+  protected checkBin(bin: string, prefix?: string): boolean {
+    const valid = super.checkBin(bin, prefix);
     if (!valid) {
       return false;
     }
@@ -185,7 +215,11 @@ export class FsUAE extends Emulator {
       ...process.env,
       LD_LIBRARY_PATH: ".", // Allow Linux fs-uae to find bundled .so files
     };
-    const output = cp.spawnSync(bin, ["--version"], { cwd, env });
+
+    const [newBin, args] = this.parsePrefix(bin, prefix);
+    args.push("--version");
+
+    const output = cp.spawnSync(newBin, args, { cwd, env });
     const version = output.stdout.toString().trim();
     logger.log("[EMU] Version: " + version);
     if (!version.includes("remote_debug")) {
@@ -232,12 +266,12 @@ export class WinUAE extends Emulator {
     return join(binDir, "winuae", `winuae.exe`);
   }
 
-  protected checkBin(bin: string): boolean {
+  protected checkBin(bin: string, prefix?: string): boolean {
     if (!isWin) {
       logger.warn("WinUAE only supported on Windows");
       return false;
     }
-    return super.checkBin(bin);
+    return super.checkBin(bin, prefix);
   }
 
   protected runArgs(opts: RunOptions): string[] {
